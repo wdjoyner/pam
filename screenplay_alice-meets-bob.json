@@ -1,0 +1,85 @@
+[
+  {"action": "title", "text": "Graphs moving in sync", "subtitle": "Alice meets Bob, love at first site"},
+
+  {"action": "cast", "characters": {
+    "alice": {
+      "pose": "standing_front",
+      "scale": {"sy": 0.7, "sx": 0.7, "anchor": "lankle"},
+      "offset": [-5, 0, 0],
+      "style": {
+        "head_label": "Alice",
+        "edge_color": "#ff6b6b",
+        "node_color": "#4a1a1a",
+        "node_stroke": "#ff9999",
+        "head_color": "#3a0a0a",
+        "head_stroke": "#ff9999",
+        "highlight_color": "#ffcccc"
+      }
+    },
+    "bob": {
+      "pose": "standing_front",
+      "scale": {"sy": 0.8, "sx": 0.8, "anchor": "lankle"},
+      "offset": [3, 0, 0],
+      "style": {
+        "head_label": "Bob",
+        "edge_color": "#6b9bff",
+        "node_color": "#1a2a4a",
+        "node_stroke": "#99bbff",
+        "head_color": "#0a1a3a",
+        "head_stroke": "#99bbff",
+        "highlight_color": "#ccddff"
+      }
+    }
+  }},
+    
+  {"action": "fade_in",  "who": "alice"},
+  {"action": "fade_in",  "who": "bob"},
+  {"action": "wait",     "t": 0.3},  
+    
+  {"action": "say",  "who": "alice", "text": "Hey, who are you?"},
+  {"action": "say",  "who": "bob",   "text": "I'm Bob. You?"},
+  {"action": "say",  "who": "alice", "text": "Alice. Nice edges!"},
+  {"action": "say",  "who": "bob",   "text": "Thanks, smooth vertices!"},
+
+  {"action": "wave", "who": "alice", "cycles": 1},
+  {"action": "wave", "who": "bob",   "cycles": 1},
+
+  {"action": "parallel", "do": [
+  {"who": "alice", "action": "turn", "pose": "standing_side"},
+  {"who": "bob",   "action": "turn", "pose": "standing_side"}
+], "rt": 0.4},
+
+{"action": "parallel", "rt_per_kf": 0.22, "do": [
+  {"who": "alice", "action": "walk_to", "x": -1.0},
+  {"who": "bob",   "action": "walk_to", "x": 1.0}
+]},
+
+{"action": "parallel", "do": [
+  {"who": "alice", "action": "turn", "pose": "standing_front"},
+  {"who": "bob",   "action": "turn", "pose": "standing_front"}
+], "rt": 0.4},
+
+  {"action": "say",  "who": "alice", "text": "Let's sit together."},
+  {"action": "sit_down", "who": "alice"},
+  {"action": "say",  "who": "bob",   "text": "I hope there are TWO chairs!"},
+  {"action": "sit_down", "who": "bob"},
+  {"action": "wait", "t": 0.5},
+  {"action": "stand_up", "who": "alice"},
+  {"action": "stand_up", "who": "bob"},
+
+{"action": "say",  "who": "alice", "text": "Race you to the right!"},
+  {"action": "turn",  "who": "alice", "pose": "standing_side"},
+  {"action": "say",  "who": "bob",   "text": "Hey, wait for me!"},
+  {"action": "turn",  "who": "bob",   "pose": "standing_side"},
+  {"action": "parallel", "rt_per_kf": 0.12, "do": [
+  {"who": "alice", "action": "run_to", "x": 5.0},
+  {"who": "bob",   "action": "run_to", "x": 2.0}
+]},
+
+  {"action": "turn",  "who": "alice", "pose": "standing_front"},
+  {"action": "turn",  "who": "bob",   "pose": "standing_front"},
+  {"action": "say",   "who": "alice", "text": "I won!", "side": "left"},
+  {"action": "say",   "who": "bob",   "text": "I'm in love.", "side": "left"},
+
+  {"action": "fade_out", "who": "all"}
+]
