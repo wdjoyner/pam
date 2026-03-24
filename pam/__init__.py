@@ -38,5 +38,9 @@ from .poses import (                      # noqa: F401 — public API
 
 from .builds import BUILDS, get_build     # noqa: F401
 from .figure import HumanGraph, DEFAULT_STYLE   # noqa: F401
+from .props import (                      # noqa: F401
+    build_prop, PROP_TYPES, PROP_DEFAULTS,
+    build_chair, build_desk, build_hat, build_door, build_dodecahedron,
+)
 
-__version__ = "0.2.0"
+__version__ = "0.5.0"
