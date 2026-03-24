@@ -509,38 +509,41 @@ class HumanGraph:
         hy = (sp["head"] + self.offset)[1]
         s = self.style
 
-        bw = max(3.2, len(text) * 0.16)
-        by = hy + 0.20
+        # ── measure text first, then fit the box around it ───────────────
+        txt = Text(
+            text, font=s["head_font"], font_size=font_size,
+            color=s["highlight_color"], weight=BOLD,
+        )
+        pad = 0.32
+        bw = txt.width + pad * 2
+        bh = txt.height + pad * 1.2
 
+        # screen safe margins (Manim default frame is 14.2 wide, 8 tall)
+        x_margin = 0.3
+        x_min = -7.1 + x_margin + bw / 2
+        x_max =  7.1 - x_margin - bw / 2
+
+        by = hy + 0.55
         if side == "left":
-            bx = hx - 2.0
-            tail_pts = [
-                np.array([hx - 0.55, by - 0.25, 0]),
-                np.array([hx - 0.90, by - 0.25, 0]),
-                np.array([hx - 0.72, by - 0.50, 0]),
-            ]
+            bx = np.clip(hx - bw / 2 - 0.3, x_min, x_max)
         else:
-            bx = hx + 2.0
-            tail_pts = [
-                np.array([hx + 0.55, by - 0.25, 0]),
-                np.array([hx + 0.90, by - 0.25, 0]),
-                np.array([hx + 0.72, by - 0.50, 0]),
-            ]
+            bx = np.clip(hx + bw / 2 + 0.3, x_min, x_max)
 
         box = RoundedRectangle(
-            width=bw, height=0.65,
+            width=bw, height=bh,
             corner_radius=0.15,
             color=s["head_stroke"], fill_color=s["head_color"],
             fill_opacity=0.95, stroke_width=2,
         ).move_to(np.array([bx, by, 0]))
 
-        txt = Text(
-            text, font=s["head_font"], font_size=font_size,
-            color=s["highlight_color"], weight=BOLD,
-        ).move_to(box.get_center())
+        txt.move_to(box.get_center())
 
+        # tail: small triangle pointing from the box down toward the head
+        tail_x = np.clip(hx, bx - bw / 2 + 0.3, bx + bw / 2 - 0.3)
         tail = Polygon(
-            *tail_pts,
+            np.array([tail_x - 0.12, by - bh / 2, 0]),
+            np.array([tail_x + 0.12, by - bh / 2, 0]),
+            np.array([tail_x,        by - bh / 2 - 0.28, 0]),
             color=s["head_stroke"], fill_color=s["head_color"],
             fill_opacity=0.95, stroke_width=1.5,
         )
