@@ -1,5 +1,7 @@
 """
-PAM Player — animate one or more humanoid graphs from a JSON screenplay.
+PAM Player — animate humanoid and non-humanoid graphs from a JSON screenplay.
+
+version 0.9
 
 Usage
 -----
@@ -11,10 +13,14 @@ Screenplay format
 -----------------
 A JSON array of action objects.  See README.md for the full reference.
 
-Key additions in v0.2:
+Key additions in v0.8:
+
+  • ``"figure_type"`` field on ``cast`` characters — accepted values:
+    ``"human"`` (default), ``"alien"`` (AlienGraph),
+    ``"dog"`` (DogGraph, side-view), ``"dodecahedron"`` (GovernorGraph).
 
   • ``"build"`` field on ``cast`` characters and single-char ``fade_in``
-    — accepted values: ``"default"``, ``"narrow"``, ``"broad"``.
+    — accepted values: ``"default"``, ``"narrow"``, ``"broad"``, ``"alien"``.
 
   • ``"parallel"`` action — wraps a list of simple actions that play
     simultaneously (one morph per character, fired in a single
@@ -56,8 +62,9 @@ import json, os
 from manim import *
 import numpy as np
 
-from pam import HumanGraph
+from pam import HumanGraph, AlienGraph, DogGraph, GovernorGraph
 from pam.poses import POSES, STANDING_FRONT, STANDING_SIDE, scale_pose
+from pam.poses import DOG_JOINTS, DOG_STANDING
 from pam.props import build_prop
 
 
@@ -72,7 +79,8 @@ _PARALLEL_OK = {"morph", "scale", "fade_out", "turn"}
 
 def _resolve_pose(name: str | None, default=None, fig=None):
     """Look up a pose name — first in the figure's own build poses, then
-    in the global POSES registry."""
+    in the global POSES registry.  For DogGraph figures, also checks the
+    dog-specific pose names (dog_standing, dog_trot_a, dog_trot_b)."""
     if name is None:
         return default or STANDING_FRONT
     key = name.lower().replace("-", "_").replace(" ", "_")
@@ -81,6 +89,7 @@ def _resolve_pose(name: str | None, default=None, fig=None):
         bp_poses = fig._bp.get("poses", {})
         if key in bp_poses:
             return bp_poses[key]
+    # dog poses live in the global POSES registry too
     if key in POSES:
         return POSES[key]
     raise ValueError(
@@ -160,30 +169,45 @@ class PAMPlayer(Scene):
             if act == "fade_in":
                 if multi:
                     spec = cast.get(name, {})
-                    pose_name = step.get("pose", spec.get("pose"))
-                    offset = step.get("offset", spec.get("offset", [0, 0, 0]))
-                    style  = spec.get("style", {})
-                    build  = step.get("build", spec.get("build", "default"))
-                    scale_spec = step.get("scale", spec.get("scale"))
+                    pose_name    = step.get("pose", spec.get("pose"))
+                    offset       = step.get("offset", spec.get("offset", [0, 0, 0]))
+                    style        = spec.get("style", {})
+                    build        = step.get("build", spec.get("build", "default"))
+                    figure_type  = step.get("figure_type",
+                                            spec.get("figure_type", "human"))
+                    scale_spec   = step.get("scale", spec.get("scale"))
                 else:
-                    pose_name = step.get("pose")
-                    offset = step.get("offset", [0, 0, 0])
-                    style  = step.get("style", {})
-                    build  = step.get("build", "default")
-                    scale_spec = step.get("scale")
+                    pose_name    = step.get("pose")
+                    offset       = step.get("offset", [0, 0, 0])
+                    style        = step.get("style", {})
+                    build        = step.get("build", "default")
+                    figure_type  = step.get("figure_type", "human")
+                    scale_spec   = step.get("scale")
                     if name not in cast:
-                        cast[name] = {"fig": None, "pose": None,
-                                      "offset": offset, "style": style,
-                                      "build": build}
+                        cast[name] = {"fig": None, "figure_type": figure_type,
+                                      "pose": None, "offset": offset,
+                                      "style": style, "build": build}
 
-                fig = HumanGraph(
-                    offset=offset, build=build, style=style,
-                    scale_sx=scale_spec.get("sx", 1.0) if scale_spec else 1.0,
-                    scale_sy=scale_spec.get("sy", 1.0) if scale_spec else 1.0,
-                    scale_anchor=scale_spec.get("anchor", "lankle") if scale_spec else "lankle",
-                )
+                # ── pick the right class ──────────────────────────────────
+                sx = scale_spec.get("sx", 1.0) if scale_spec else 1.0
+                sy = scale_spec.get("sy", 1.0) if scale_spec else 1.0
+                anchor = scale_spec.get("anchor", "lankle") if scale_spec else "lankle"
 
-                # Resolve pose (defaults to build's standing_front)
+                if figure_type == "alien":
+                    fig = AlienGraph(
+                        offset=offset, build=build, style=style,
+                        scale_sx=sx, scale_sy=sy, scale_anchor=anchor,
+                    )
+                elif figure_type == "dog":
+                    fig = DogGraph(offset=offset, style=style)
+                else:
+                    # "human" or unrecognised → default HumanGraph
+                    fig = HumanGraph(
+                        offset=offset, build=build, style=style,
+                        scale_sx=sx, scale_sy=sy, scale_anchor=anchor,
+                    )
+
+                # Resolve initial pose
                 if pose_name:
                     pose = _resolve_pose(pose_name, fig=fig)
                     fig.set_pose(pose)
@@ -270,6 +294,20 @@ class PAMPlayer(Scene):
                     print(f"PAMPlayer: run_to cannot be parallelised, "
                           f"running sequentially for '{name}'.")
                 fig.run_to(step["x"], self)
+                return None
+
+            # ── trot_to (DogGraph only) ──────────────────────────────────
+            if act == "trot_to":
+                # trot_to can be keyed by "prop" (e.g. "dog") or by "who".
+                # "prop" takes priority since the dog lives in props, not cast.
+                pname = step.get("prop") or name
+                prop  = props.get(pname)
+                dog   = getattr(prop, "pam_dog", None) if prop else None
+                if dog:
+                    stride = step.get("stride", 0.14)
+                    dog.trot_to(step["x"], self, stride=stride)
+                else:
+                    print(f"PAMPlayer: trot_to — '{pname}' is not a DogGraph, skipping.")
                 return None
 
             # ── sit_down ─────────────────────────────────────────────────
@@ -472,7 +510,7 @@ class PAMPlayer(Scene):
 
         # ── main dispatch loop ───────────────────────────────────────────
         for step in actions:
-            if "_comment" in step:   # skip review/comment annotations
+            if "_comment" in step or "_hint" in step:   # skip annotations
                 continue
             act = step["action"]
 
@@ -480,13 +518,17 @@ class PAMPlayer(Scene):
             if act == "cast":
                 multi = True
                 for cname, spec in step.get("characters", {}).items():
+                    ft = spec.get("figure_type", "human")
                     cast[cname] = {
-                        "fig":    None,
-                        "pose":   spec.get("pose", "standing_front"),
-                        "offset": spec.get("offset", [0, 0, 0]),
-                        "style":  spec.get("style", {}),
-                        "build":  spec.get("build", "default"),
-                        "scale":  spec.get("scale"),
+                        "fig":         None,
+                        "figure_type": ft,
+                        "pose":        spec.get("pose", "standing_front"),
+                        "offset":      spec.get("offset", [0, 0, 0]),
+                        "style":       spec.get("style", {}),
+                        "build":       spec.get("build", "default"),
+                        "scale":       spec.get("scale"),
+                        # prop-characters carry spawn coords in cast block
+                        "spawn":       spec.get("spawn", {}),
                     }
                 continue
 
@@ -494,6 +536,7 @@ class PAMPlayer(Scene):
             if act == "props":
                 items = step.get("items", {})
                 for pname, spec in items.items():
+                    spec = dict(spec)          # copy — never mutate the loaded JSON
                     ptype = spec.pop("type", "desk")
                     prop = build_prop(pname, type=ptype, **spec)
                     props[pname] = prop
@@ -511,18 +554,61 @@ class PAMPlayer(Scene):
                 continue
 
             # ── spawn_prop ───────────────────────────────────────────────
-            # Spawn a prop mid-scene, optionally on a character's head.
+            # Spawn a prop or non-humanoid character figure mid-scene.
             if act == "spawn_prop":
-                pname  = step.get("prop")
-                ptype  = step.get("type", "hat")
-                rt     = step.get("rt", 0.4)
-                owner  = step.get("on_head_of")   # char key, or None
+                pname       = step.get("prop")
+                ptype       = step.get("type", "hat")
+                figure_type = step.get("figure_type", "")
+                rt          = step.get("rt", 0.4)
+                owner       = step.get("on_head_of")   # char key, or None
 
-                # build kwargs — pass through everything except known meta keys
-                _skip = {"action", "prop", "type", "rt", "on_head_of"}
+                # ── GovernorGraph (dodecahedron) ──────────────────────────
+                if ptype == "dodecahedron" or figure_type == "dodecahedron":
+                    x      = step.get("x", 0.0)
+                    y      = step.get("y", 1.5)
+                    color  = step.get("color", "#e8c547")
+                    accent = step.get("accent", "#cc3333")
+                    spin   = step.get("animate", "spin") == "spin"
+                    radius = step.get("radius", 0.42)
+                    gov = GovernorGraph(
+                        x=x, y=y, radius=radius,
+                        color=color, accent=accent,
+                        spin_rate=0.35 if spin else 0,
+                    )
+                    # Store as a special entry — group is the VGroup
+                    props[pname] = gov.group
+                    # Attach pam_* attrs so existing prop handlers still work
+                    props[pname].pam_name      = pname
+                    props[pname].pam_type      = "dodecahedron"
+                    props[pname].pam_x         = x
+                    props[pname].pam_y         = y
+                    props[pname].pam_surface_y = y
+                    props[pname].pam_governor  = gov   # keep the live object
+                    gov.fade_in(self, rt=rt)
+                    continue
+
+                # ── DogGraph ─────────────────────────────────────────────
+                if ptype == "dog" or figure_type == "dog":
+                    x      = step.get("x", 0.0)
+                    y      = step.get("y", -1.95)
+                    # style: action overrides, then cast block, then defaults
+                    cast_style = cast.get("dog", {}).get("style", {})
+                    style  = {**cast_style, **step.get("style", {})}
+                    dog = DogGraph(offset=[x, y, 0], style=style if style else None)
+                    props[pname] = dog.group
+                    props[pname].pam_name      = pname
+                    props[pname].pam_type      = "dog"
+                    props[pname].pam_x         = x
+                    props[pname].pam_y         = y
+                    props[pname].pam_surface_y = y
+                    props[pname].pam_dog       = dog   # keep the live object
+                    dog.fade_in(self, rt_edges=rt, rt_dots=rt * 0.7)
+                    continue
+
+                # ── standard props (hat, chair, desk, door …) ────────────
+                _skip = {"action", "prop", "type", "figure_type", "rt", "on_head_of"}
                 kwargs = {k: v for k, v in step.items() if k not in _skip}
 
-                # determine spawn position
                 if owner:
                     fig = _get_fig(owner)
                     if fig:
@@ -532,8 +618,6 @@ class PAMPlayer(Scene):
                         hy   = float(hpos[1])
                         kwargs.setdefault("x", hx)
                         if ptype == "hat":
-                            # place brim just above the head circle
-                            # head_radius is scaled; hat brim sits at its y coord
                             head_r = fig.style.get("head_radius", 0.28) * fig._scale_sy
                             kwargs.setdefault("y", hy + head_r + 0.05)
                         else:
@@ -569,81 +653,109 @@ class PAMPlayer(Scene):
                 new_color = step.get("color", "#e8c547")
                 rt = step.get("rt", 0.4)
                 if prop:
-                    # Animate every sub-mobject's fill and stroke to the new color.
-                    anims = []
-                    for mob in prop.submobjects:
-                        anims.append(mob.animate.set_color(new_color)
-                                     .set_fill(new_color, opacity=0.85))
-                    if anims:
-                        self.play(*anims, run_time=rt)
+                    # If this is a GovernorGraph, use its state machine
+                    gov = getattr(prop, "pam_governor", None)
+                    if gov is not None:
+                        # Map hex colours to Governor states
+                        _COLOR_STATE = {
+                            "#e8c547": "gold",   # active / speaking
+                            "#d47b00": "amber",  # low-power / waiting
+                            "#e87a1a": "amber",  # orange → amber
+                            "#111111": "dark",   # powered down
+                        }
+                        state = _COLOR_STATE.get(new_color)
+                        if state:
+                            gov.set_state(state, self, rt=rt)
+                        else:
+                            gov.pulse(self, color=new_color, rt=rt)
                     else:
-                        prop.set_color(new_color)
-                    # update the pam_color attribute so later actions know
-                    prop.pam_color = new_color
+                        # Standard prop: animate every sub-mobject's fill/stroke
+                        anims = []
+                        for mob in prop.submobjects:
+                            anims.append(mob.animate.set_color(new_color)
+                                         .set_fill(new_color, opacity=0.85))
+                        if anims:
+                            self.play(*anims, run_time=rt)
+                        else:
+                            prop.set_color(new_color)
+                        prop.pam_color = new_color
                 continue
 
             # ── prop_say ─────────────────────────────────────────────────
             if act == "prop_say":
-                pname = step.get("prop")
-                prop = _get_prop(pname)
-                text  = step.get("text", "")
-                hold  = step.get("hold", 1.4)
+                pname     = step.get("prop")
+                prop      = _get_prop(pname)
+                text      = step.get("text", "")
+                hold      = step.get("hold", 1.4)
                 font_size = step.get("font_size", 18)
-                rt_in  = step.get("rt_in",  0.35)
-                rt_out = step.get("rt_out", 0.25)
-                if prop and text:
-                    px = prop.pam_x
-                    py = prop.pam_y
+                rt_in     = step.get("rt_in",  0.35)
+                rt_out    = step.get("rt_out", 0.25)
+                side      = step.get("side", "right")
 
-                    # ── measure text first, then fit box ─────────────────
-                    txt = Text(
-                        text, font="Courier New",
-                        font_size=font_size, color="#f0d060", weight=BOLD,
-                    )
-                    pad = 0.30
-                    bw = txt.width + pad * 2
-                    bh = txt.height + pad * 1.2
+                if not prop or not text:
+                    continue
 
-                    # screen safe margins
-                    x_margin = 0.3
-                    x_min = -7.1 + x_margin + bw / 2
-                    x_max =  7.1 - x_margin - bw / 2
+                # ── GovernorGraph: delegate to its say() method ───────────
+                gov = getattr(prop, "pam_governor", None)
+                if gov is not None:
+                    gov.say(text, self, hold=hold, font_size=font_size,
+                            rt_in=rt_in, rt_out=rt_out, side=side)
+                    continue
 
-                    # place bubble above prop, prefer side with more room
-                    by = py + 0.75
-                    bx_right = px + bw / 2 + 0.25
-                    bx_left  = px - bw / 2 - 0.25
-                    # pick whichever side keeps us more on-screen
-                    if bx_right <= x_max:
-                        bx = bx_right
-                    elif bx_left >= x_min:
-                        bx = bx_left
-                    else:
-                        bx = np.clip(px, x_min, x_max)
-                    bx = np.clip(bx, x_min, x_max)
+                # ── DogGraph: delegate to its say() method ────────────────
+                dog = getattr(prop, "pam_dog", None)
+                if dog is not None:
+                    dog.say(text, self, hold=hold, font_size=font_size,
+                            rt_in=rt_in, rt_out=rt_out, side=side)
+                    continue
 
-                    box = RoundedRectangle(
-                        width=bw, height=bh,
-                        corner_radius=0.12,
-                        color="#f0d060", fill_color="#2a1a00",
-                        fill_opacity=0.95, stroke_width=2,
-                    ).move_to(np.array([bx, by, 0]))
+                # ── Generic prop: manual speech bubble ────────────────────
+                px = prop.pam_x
+                py = prop.pam_y
 
-                    txt.move_to(box.get_center())
+                txt = Text(
+                    text, font="Courier New",
+                    font_size=font_size, color="#f0d060", weight=BOLD,
+                )
+                pad = 0.30
+                bw = txt.width + pad * 2
+                bh = txt.height + pad * 1.2
 
-                    # tail pointing down toward the prop
-                    tail_x = np.clip(px, bx - bw / 2 + 0.3, bx + bw / 2 - 0.3)
-                    tail = Polygon(
-                        np.array([tail_x - 0.12, by - bh / 2, 0]),
-                        np.array([tail_x + 0.12, by - bh / 2, 0]),
-                        np.array([tail_x,         by - bh / 2 - 0.28, 0]),
-                        color="#f0d060", fill_color="#2a1a00",
-                        fill_opacity=0.95, stroke_width=1.2,
-                    )
-                    bubble = VGroup(box, tail, txt)
-                    self.play(FadeIn(bubble, scale=0.88), run_time=rt_in)
-                    self.wait(hold)
-                    self.play(FadeOut(bubble), run_time=rt_out)
+                x_margin = 0.3
+                x_min = -7.1 + x_margin + bw / 2
+                x_max =  7.1 - x_margin - bw / 2
+
+                by = py + 0.75
+                bx_right = px + bw / 2 + 0.25
+                bx_left  = px - bw / 2 - 0.25
+                if bx_right <= x_max:
+                    bx = bx_right
+                elif bx_left >= x_min:
+                    bx = bx_left
+                else:
+                    bx = np.clip(px, x_min, x_max)
+                bx = np.clip(bx, x_min, x_max)
+
+                box = RoundedRectangle(
+                    width=bw, height=bh,
+                    corner_radius=0.12,
+                    color="#f0d060", fill_color="#2a1a00",
+                    fill_opacity=0.95, stroke_width=2,
+                ).move_to(np.array([bx, by, 0]))
+                txt.move_to(box.get_center())
+
+                tail_x = np.clip(px, bx - bw / 2 + 0.3, bx + bw / 2 - 0.3)
+                tail = Polygon(
+                    np.array([tail_x - 0.12, by - bh / 2, 0]),
+                    np.array([tail_x + 0.12, by - bh / 2, 0]),
+                    np.array([tail_x,         by - bh / 2 - 0.28, 0]),
+                    color="#f0d060", fill_color="#2a1a00",
+                    fill_opacity=0.95, stroke_width=1.2,
+                )
+                bubble = VGroup(box, tail, txt)
+                self.play(FadeIn(bubble, scale=0.88), run_time=rt_in)
+                self.wait(hold)
+                self.play(FadeOut(bubble), run_time=rt_out)
                 continue
 
             # ── on_screen_text ───────────────────────────────────────────
@@ -684,42 +796,76 @@ class PAMPlayer(Scene):
             if act == "parallel":
                 sub_actions = step.get("do", [])
                 rt = step.get("rt", 0.4)
+                # Strip annotation keys that would cause the step to be skipped
+                sub_actions = [s for s in sub_actions
+                                if "_comment" not in s and "_hint" not in s]
 
-                # Check if any sub-actions are walk_to or run_to
-                locomotion = {}  # name → (plan, sub_action)
-                simple = []      # non-locomotion sub-actions
+                # Check if any sub-actions are locomotion types
+                locomotion = {}  # key → (fig_or_dog, plan, kind)
+                simple = []
                 for sub in sub_actions:
                     sa = sub["action"]
-                    targets = _targets(sub)
-                    if sa in ("walk_to", "run_to") and targets:
-                        tname = targets[0]
-                        fig = _get_fig(tname)
-                        if fig:
-                            if sa == "walk_to":
-                                plan = fig._walk_plan(sub["x"])
+                    # Support both "who" (humanoid) and "prop" (dog/prop-char)
+                    tname = sub.get("who") or sub.get("prop", "")
+                    is_prop_loco = "prop" in sub and "who" not in sub
+
+                    if sa in ("walk_to", "run_to", "trot_to") and tname:
+                        x = sub.get("x")
+                        if x is None:
+                            print(f"PAMPlayer: parallel {sa} for '{tname}' "
+                                  f"missing 'x', skipping.")
+                            continue
+
+                        if is_prop_loco or sa == "trot_to":
+                            # Prop-character path (dog)
+                            prop = props.get(tname)
+                            dog  = getattr(prop, "pam_dog", None) if prop else None
+                            if dog:
+                                stride = sub.get("stride", 0.14)
+                                plan = dog._trot_plan(x, stride=stride)
+                                locomotion[tname] = (dog, plan, "dog")
                             else:
-                                plan = fig._run_plan(sub["x"])
-                            locomotion[tname] = (fig, plan)
+                                print(f"PAMPlayer: parallel trot_to — "
+                                      f"'{tname}' is not a DogGraph, skipping.")
+                        else:
+                            # Humanoid cast path
+                            fig = _get_fig(tname)
+                            if fig:
+                                plan = (fig._walk_plan(x) if sa == "walk_to"
+                                        else fig._run_plan(x))
+                                locomotion[tname] = (fig, plan, "human")
                     else:
                         simple.append(sub)
 
-                # If we have locomotion plans, interleave them step-by-step
+                # Interleave locomotion plans step-by-step
                 if locomotion:
-                    # Find the longest plan
-                    max_steps = max(len(p) for _, p in locomotion.values())
-                    loco_rt = step.get("rt_per_kf", 0.22)
+                    max_steps = max(len(p) for _, p, _ in locomotion.values())
+                    loco_rt = step.get("rt_per_kf", 0.20)
 
                     for i in range(max_steps):
                         all_anims = []
-                        for tname, (fig, plan) in locomotion.items():
+                        for tname, (mover, plan, kind) in locomotion.items():
                             if i < len(plan):
                                 pose, dx = plan[i]
-                                new_off = fig.offset + np.array([dx, 0, 0])
-                                anims = fig._pose_anims(pose, new_off)
-                                all_anims.extend(anims)
-                                fig.pose = pose
-                                fig.offset = new_off
-                            # else: this figure's plan is done, it stays put
+                                new_off = mover.offset + np.array([dx, 0, 0])
+                                # build anims differently for dog vs humanoid
+                                if kind == "dog":
+                                    for n in mover.dots:
+                                        all_anims.append(
+                                            mover.dots[n].animate.move_to(
+                                                pose[n] + new_off))
+                                    for (a, b), line in mover.lines.items():
+                                        pa = pose[a] + new_off
+                                        pb = pose[b] + new_off
+                                        if np.linalg.norm(pa - pb) > 0.01:
+                                            all_anims.append(
+                                                line.animate.put_start_and_end_on(
+                                                    pa, pb))
+                                else:
+                                    all_anims.extend(
+                                        mover._pose_anims(pose, new_off))
+                                mover.pose = pose
+                                mover.offset = new_off
                         if all_anims:
                             self.play(*all_anims, run_time=loco_rt,
                                       rate_func=smooth)
@@ -736,7 +882,6 @@ class PAMPlayer(Scene):
                                 all_anims.extend(anims)
                     if all_anims:
                         self.play(*all_anims, run_time=rt, rate_func=smooth)
-                    # update state for turn/fade_out
                     for sub in simple:
                         if sub["action"] == "turn":
                             for tname in _targets(sub):
@@ -752,6 +897,12 @@ class PAMPlayer(Scene):
                 continue
 
             # ── normal sequential action ─────────────────────────────────
+            # Special case: trot_to keyed by "prop" bypasses _targets entirely
+            # since the dog lives in props, not cast.
+            if act == "trot_to" and "prop" in step and "who" not in step:
+                _dispatch_one(step, step["prop"])
+                continue
+
             targets = _targets(step)
             for name in targets:
                 _dispatch_one(step, name)
