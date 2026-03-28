@@ -1,0 +1,449 @@
+[
+  {
+    "action": "title",
+    "text": "Lucy meets Lenny",
+    "subtitle": "Written by David Joyner"
+  },
+  {
+    "action": "cast",
+    "characters": {
+      "lucy": {
+        "figure_type": "human",
+        "build": "narrow",
+        "pose": "standing_front",
+        "scale": {
+          "sy": 0.7,
+          "sx": 0.7,
+          "anchor": "lankle"
+        },
+        "offset": [
+          -4.5,
+          0,
+          0
+        ],
+        "style": {
+          "head_label": "Lucy",
+          "edge_color": "#3a7bd5",
+          "node_color": "#1e3a5f",
+          "node_stroke": "#5b9cf6",
+          "head_color": "#0d2340",
+          "head_stroke": "#7ec8ff",
+          "highlight_color": "#7ec8ff"
+        }
+      },
+      "lenny": {
+        "figure_type": "human",
+        "build": "broad",
+        "pose": "standing_front",
+        "scale": {
+          "sy": 0.7,
+          "sx": 0.7,
+          "anchor": "lankle"
+        },
+        "offset": [
+          4.5,
+          0,
+          0
+        ],
+        "style": {
+          "head_label": "Lenny",
+          "edge_color": "#d46a6a",
+          "node_color": "#4a1a1a",
+          "node_stroke": "#f09999",
+          "head_color": "#3a0a0a",
+          "head_stroke": "#f4aaaa",
+          "highlight_color": "#ffcccc"
+        }
+      },
+      "dog": {
+        "figure_type": "dog",
+        "build": "non-humanoid",
+        "spawn": {
+          "x": -5.0,
+          "y": -1.95
+        },
+        "style": {
+          "edge_color": "#8899aa",
+          "far_edge_color": "#8899aa",
+          "node_color": "#1a2530",
+          "node_stroke": "#aabbcc",
+          "head_color": "#0f1820",
+          "head_stroke": "#ccddee",
+          "highlight_color": "#ccddee"
+        }
+      }
+    }
+  },
+  {
+    "_hint": "IMPLIED PROP (tier 1 — inferred from action verb): \"sits\" implies a seat. A chair has been added — replace with bench/stool/couch if the setting calls for it."
+  },
+  {
+    "action": "props",
+    "items": {
+      "chair_lucy": {
+        "type": "chair",
+        "x": -0.6,
+        "color": "#f09999",
+        "label": "LU"
+      },
+      "chair_lenny": {
+        "type": "chair",
+        "x": 0.8,
+        "color": "#5b9cf6",
+        "label": "LE"
+      }
+    }
+  },
+  {
+    "_comment": "# SCENE: INT. VOID - DAY"
+  },
+  {
+    "_comment": "# REVIEW:   "
+  },
+  {
+    "_comment": "# REVIEW: set trot_to x target"
+  },
+  {
+    "action": "trot_to",
+    "prop": "lucy",
+    "x": 0.0
+  },
+  {
+    "_comment": "# REVIEW: set trot_to x target"
+  },
+  {
+    "action": "trot_to",
+    "prop": "ramis",
+    "x": 0.0
+  },
+  {
+    "_comment": "# REVIEW:  "
+  },
+  {
+    "_hint": "PATCH NEEDED — from: \"LENNY [Lenny], a broader figure with blue edges, stands to the right.\"\n     Replace the walk_to below with:\n     {\"action\": \"parallel\", \"rt_per_kf\": 0.22, \"do\": [\n       {\"who\": \"lenny\", \"action\": \"walk_to\", \"x\": 3.0},\n       {\"who\": \"other_character\", \"action\": \"walk_to\", \"x\": 2.2}\n     ]}\n     Set x to positive (e.g. 3.0) to move right.\n     Add turns: {\"action\": \"turn\", \"who\": \"lenny\", \"pose\": \"standing_side\"} before and {\"pose\": \"standing_front\"} after."
+  },
+  {
+    "action": "fade_in",
+    "who": "lenny"
+  },
+  {
+    "_hint": "Dog spawns here at x=-5.0, y=-1.95.  Adjust x to place Ramis beside the companion character.  Move this spawn_prop earlier if Ramis should appear from frame 1."
+  },
+  {
+    "action": "spawn_prop",
+    "prop": "dog",
+    "figure_type": "dog",
+    "x": -5.0,
+    "y": -1.95,
+    "style": {
+      "edge_color": "#8899aa",
+      "far_edge_color": "#8899aa",
+      "node_color": "#1a2530",
+      "node_stroke": "#aabbcc",
+      "head_color": "#0f1820",
+      "head_stroke": "#ccddee",
+      "highlight_color": "#ccddee"
+    }
+  },
+  {
+    "action": "turn",
+    "who": "lenny",
+    "pose": "standing_side"
+  },
+  {
+    "action": "walk_to",
+    "who": "lenny",
+    "x": 5.0
+  },
+  {
+    "action": "turn",
+    "who": "lenny",
+    "pose": "standing_front"
+  },
+  {
+    "_comment": "# REVIEW: LENNY [Lenny], a broader figure with blue edges, stands to the right."
+  },
+  {
+    "_comment": "# REVIEW:  "
+  },
+  {
+    "action": "fade_in",
+    "who": "lucy"
+  },
+  {
+    "action": "say",
+    "who": "lucy",
+    "text": "Hey, who are you?",
+    "side": "right",
+    "hold": 0.9
+  },
+  {
+    "action": "say",
+    "who": "lenny",
+    "text": "I'm Lenny. You?",
+    "side": "left",
+    "hold": 0.9
+  },
+  {
+    "action": "say",
+    "who": "lucy",
+    "text": "Lucy. Nice edges!",
+    "side": "right",
+    "hold": 0.9
+  },
+  {
+    "action": "say",
+    "who": "lenny",
+    "text": "Thanks, smooth vertices!",
+    "side": "left",
+    "hold": 0.9
+  },
+  {
+    "action": "say",
+    "who": "lenny",
+    "text": "What's your dog's name?",
+    "side": "left",
+    "hold": 0.9
+  },
+  {
+    "action": "say",
+    "who": "lucy",
+    "text": "Meet Ramis.",
+    "side": "right",
+    "hold": 0.9
+  },
+  {
+    "_comment": "# REVIEW: Ramis wags his tail and sits."
+  },
+  {
+    "action": "prop_say",
+    "prop": "dog",
+    "text": "Woof!",
+    "hold": 0.9
+  },
+  {
+    "_comment": "# REVIEW:  "
+  },
+  {
+    "action": "wave",
+    "who": "lucy",
+    "cycles": 1
+  },
+  {
+    "action": "wave",
+    "who": "lenny",
+    "cycles": 1
+  },
+  {
+    "_comment": "# REVIEW: set x targets for parallel locomotion"
+  },
+  {
+    "action": "turn",
+    "who": "lucy",
+    "pose": "standing_side"
+  },
+  {
+    "action": "turn",
+    "who": "lenny",
+    "pose": "standing_side"
+  },
+  {
+    "action": "parallel",
+    "rt_per_kf": 0.22,
+    "do": [
+      {
+        "action": "walk_to",
+        "who": "lucy",
+        "x": null
+      },
+      {
+        "action": "walk_to",
+        "who": "lenny",
+        "x": null
+      }
+    ]
+  },
+  {
+    "action": "turn",
+    "who": "lucy",
+    "pose": "standing_front"
+  },
+  {
+    "action": "turn",
+    "who": "lenny",
+    "pose": "standing_front"
+  },
+  {
+    "action": "prop_say",
+    "prop": "dog",
+    "text": "Yap!",
+    "hold": 0.9
+  },
+  {
+    "action": "say",
+    "who": "lucy",
+    "text": "Let's sit together.",
+    "side": "right",
+    "hold": 0.9
+  },
+  {
+    "action": "turn",
+    "who": "lucy",
+    "pose": "standing_side"
+  },
+  {
+    "action": "walk_to_prop",
+    "who": "lucy",
+    "prop": "chair_lucy"
+  },
+  {
+    "action": "turn",
+    "who": "lucy",
+    "pose": "standing_front"
+  },
+  {
+    "action": "sit_down",
+    "who": "lucy"
+  },
+  {
+    "action": "say",
+    "who": "lenny",
+    "text": "I hope there are two chairs!",
+    "side": "left",
+    "hold": 1.08
+  },
+  {
+    "action": "turn",
+    "who": "lenny",
+    "pose": "standing_side"
+  },
+  {
+    "action": "parallel",
+    "rt_per_kf": 0.22,
+    "do": [
+      {
+        "action": "walk_to_prop",
+        "who": "lenny",
+        "prop": "chair_lenny"
+      },
+      {
+        "action": "trot_to",
+        "prop": "dog",
+        "x": 0.8,
+        "stride": 0.22
+      }
+    ]
+  },
+  {
+    "action": "turn",
+    "who": "lenny",
+    "pose": "standing_front"
+  },
+  {
+    "action": "sit_down",
+    "who": "lenny"
+  },
+  {
+    "action": "stand_up",
+    "who": "lucy"
+  },
+  {
+    "action": "stand_up",
+    "who": "lenny"
+  },
+  {
+    "action": "say",
+    "who": "lucy",
+    "text": "Race you to the right!",
+    "side": "right",
+    "hold": 0.9
+  },
+  {
+    "action": "say",
+    "who": "lenny",
+    "text": "Hey, wait for me!",
+    "side": "left",
+    "hold": 0.9
+  },
+  {
+    "_comment": "# REVIEW:  "
+  },
+  {
+    "_comment": "# REVIEW: adjust x targets — first character finishes ahead"
+  },
+  {
+    "action": "turn",
+    "who": "lucy",
+    "pose": "standing_side"
+  },
+  {
+    "action": "turn",
+    "who": "lenny",
+    "pose": "standing_side"
+  },
+  {
+    "action": "parallel",
+    "rt_per_kf": 0.12,
+    "do": [
+      {
+        "action": "run_to",
+        "who": "lucy",
+        "x": 4.5
+      },
+      {
+        "action": "run_to",
+        "who": "lenny",
+        "x": 3.8
+      },
+      {
+        "action": "trot_to",
+        "prop": "dog",
+        "x": 3.3,
+        "_follow": "lucy"
+      }
+    ]
+  },
+  {
+    "action": "turn",
+    "who": "lucy",
+    "pose": "standing_front"
+  },
+  {
+    "action": "turn",
+    "who": "lenny",
+    "pose": "standing_front"
+  },
+  {
+    "_comment": "# REVIEW: set x targets for parallel trot"
+  },
+  {
+    "_comment": "# REVIEW: Lucy finishes first."
+  },
+  {
+    "action": "say",
+    "who": "lucy",
+    "text": "I won!",
+    "side": "right",
+    "hold": 0.9
+  },
+  {
+    "action": "prop_say",
+    "prop": "dog",
+    "text": "Ruff!",
+    "hold": 0.9
+  },
+  {
+    "_comment": "# REVIEW: Lenny catches up."
+  },
+  {
+    "action": "say",
+    "who": "lenny",
+    "text": "I think I'm in love.",
+    "side": "left",
+    "hold": 0.9
+  },
+  {
+    "action": "fade_out",
+    "who": "all"
+  }
+]
