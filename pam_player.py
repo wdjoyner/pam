@@ -1,7 +1,7 @@
 """
 PAM Player — animate humanoid and non-humanoid graphs from a JSON screenplay.
 
-version 0.9
+version 0.9.2
 
 Usage
 -----
@@ -574,6 +574,7 @@ class PAMPlayer(Scene):
                         x=x, y=y, radius=radius,
                         color=color, accent=accent,
                         spin_rate=0.35 if spin else 0,
+                        label=step.get("label"),
                     )
                     # Store as a special entry — group is the VGroup
                     props[pname] = gov.group
