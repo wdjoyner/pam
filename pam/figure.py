@@ -551,3 +551,530 @@ class HumanGraph:
         scene.play(FadeIn(bubble, scale=0.85), run_time=rt_in)
         scene.wait(hold)
         scene.play(FadeOut(bubble), run_time=rt_out)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  ALIEN GRAPH  —  short, wide-torso humanoid (Venusian etc.)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AlienGraph(HumanGraph):
+    """
+    A short, wide-torso humanoid skeleton for alien characters (e.g. Venusians).
+
+    Inherits all of HumanGraph's pose/animation methods unchanged.  The
+    difference is purely proportional: the "alien" build sets 0.8× height,
+    shoulder_w ≈ hip_w (barrel torso), and a green colour palette.
+
+    Parameters
+    ----------
+    pose   : initial pose dict (defaults to alien standing_front)
+    offset : world [x, y, 0]
+    build  : str or dict — defaults to ``"alien"``; pass a custom dict for
+             custom proportions/colours.
+    style  : dict — override any style key.
+
+    Example
+    -------
+    ::
+
+        sidel = AlienGraph(offset=[-2, 0, 0])
+        sidel.fade_in(self)
+        sidel.walk_to(1.0, self)
+        sidel.say("Ready, Governor.", self, side="right")
+    """
+
+    def __init__(self, pose=None, offset=None, build="alien", style=None,
+                 scale_sx=1.0, scale_sy=1.0, scale_anchor="lankle"):
+        super().__init__(
+            pose=pose, offset=offset, build=build, style=style,
+            scale_sx=scale_sx, scale_sy=scale_sy, scale_anchor=scale_anchor,
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  DOG GRAPH  —  four-legged side-view skeleton
+# ─────────────────────────────────────────────────────────────────────────────
+
+from .poses import (
+    DOG_JOINTS, DOG_EDGES, DOG_FAR_EDGES, DOG_FAR_JOINTS,
+    DOG_STANDING, DOG_TROT_CYCLE, dog_side_pose,
+)
+
+_DOG_DEFAULT_STYLE = dict(
+    edge_color      = "#5b9cf6",
+    far_edge_color  = "#5b9cf6",   # far-side legs: same colour, lower opacity
+    far_edge_opacity= 0.35,
+    node_color      = "#1e3a5f",
+    node_stroke     = "#5b9cf6",
+    far_node_opacity= 0.30,
+    head_color      = "#0d2340",
+    head_stroke     = "#7ec8ff",
+    head_radius     = 0.22,
+    node_radius     = 0.11,
+    edge_width      = 2.5,
+    far_edge_width  = 1.5,
+    highlight_color = "#7ec8ff",
+)
+
+
+class DogGraph:
+    """
+    A 19-joint, 18-edge four-legged robot-dog skeleton (side-view default).
+
+    Near-side legs (fl_*, rl_*) are drawn solid.
+    Far-side legs (fr_*, rr_*) are drawn dashed at reduced opacity,
+    giving the standard technical-drawing convention for depth.
+
+    Parameters
+    ----------
+    pose   : initial pose dict (defaults to DOG_STANDING)
+    offset : world [x, y, 0]
+    style  : dict — override any key in _DOG_DEFAULT_STYLE
+
+    High-level methods
+    ------------------
+    fade_in(scene)            — create all edges then nodes
+    fade_out(scene)           — fade out everything
+    morph_to(pose, scene)     — interpolate to a new pose
+    set_pose(pose)            — instant reposition (no animation)
+    trot_to(x, scene)         — walk/trot to x using the trot cycle
+    say(text, scene)          — speech bubble above the head
+
+    Example
+    -------
+    ::
+
+        rex = DogGraph(offset=[-3, 0, 0])
+        rex.fade_in(self)
+        rex.trot_to(1.5, self)
+        rex.say("Woof.", self)
+    """
+
+    def __init__(self, pose=None, offset=None, style=None):
+        self.style = {**_DOG_DEFAULT_STYLE, **(style or {})}
+        self.pose = pose if pose is not None else DOG_STANDING
+        self.offset = np.array(offset if offset is not None else [0, 0, 0],
+                               dtype=float)
+        self.dots: dict[str, Mobject] = {}
+        self.lines: dict[tuple[str, str], Line] = {}
+        self._build()
+
+    def _build(self):
+        s = self.style
+        p = self.pose
+        off = self.offset
+
+        for name in DOG_JOINTS:
+            pos = p[name] + off
+            far = name in DOG_FAR_JOINTS
+            if name == "head":
+                circ = Circle(
+                    radius=s["head_radius"], color=s["head_stroke"],
+                    fill_color=s["head_color"], fill_opacity=1, stroke_width=3,
+                )
+                circ.move_to(pos)
+                self.dots[name] = circ
+            else:
+                d = Circle(
+                    radius=s["node_radius"], color=s["node_stroke"],
+                    fill_color=s["node_color"], fill_opacity=1, stroke_width=2,
+                )
+                if far:
+                    d.set_opacity(s["far_node_opacity"])
+                d.move_to(pos)
+                self.dots[name] = d
+
+        for a, b in DOG_EDGES:
+            far = (a, b) in DOG_FAR_EDGES
+            ln = Line(
+                p[a] + off, p[b] + off,
+                color=s["far_edge_color"] if far else s["edge_color"],
+                stroke_width=s["far_edge_width"] if far else s["edge_width"],
+            )
+            if far:
+                # Far-side (behind) legs: reduced opacity only.
+                # DashedVMobject can't be animated with put_start_and_end_on,
+                # so we use opacity as the sole depth cue.
+                ln.set_opacity(s["far_edge_opacity"])
+            self.lines[(a, b)] = ln
+
+    # ── mobject access ───────────────────────────────────────────────────────
+
+    @property
+    def dot_group(self) -> VGroup:
+        return VGroup(*self.dots.values())
+
+    @property
+    def edge_group(self) -> VGroup:
+        return VGroup(*self.lines.values())
+
+    @property
+    def group(self) -> VGroup:
+        return VGroup(self.edge_group, self.dot_group)
+
+    # ── core animation ───────────────────────────────────────────────────────
+
+    def fade_in(self, scene: Scene, rt_edges=1.2, rt_dots=0.8):
+        scene.play(LaggedStart(
+            *[Create(l) for l in self.lines.values()],
+            lag_ratio=0.05, run_time=rt_edges,
+        ))
+        scene.play(LaggedStart(
+            *[GrowFromCenter(d) for d in self.dots.values()],
+            lag_ratio=0.04, run_time=rt_dots,
+        ))
+
+    def fade_out(self, scene: Scene, rt=1.0):
+        scene.play(FadeOut(self.edge_group), FadeOut(self.dot_group),
+                   run_time=rt)
+
+    def morph_to(self, target_pose, scene: Scene,
+                 rt=0.18, rate=linear, dx=0.0, dy=0.0):
+        new_off = self.offset + np.array([dx, dy, 0.0])
+        anims = []
+        for n in self.dots:
+            anims.append(self.dots[n].animate.move_to(target_pose[n] + new_off))
+        for (a, b), line in self.lines.items():
+            pa, pb = target_pose[a] + new_off, target_pose[b] + new_off
+            if np.linalg.norm(pa - pb) > 0.01:
+                anims.append(line.animate.put_start_and_end_on(pa, pb))
+        scene.play(*anims, run_time=rt, rate_func=rate)
+        self.pose = target_pose
+        self.offset = new_off
+
+    def set_pose(self, target_pose, dx=0.0, dy=0.0):
+        new_off = self.offset + np.array([dx, dy, 0.0])
+        for n in self.dots:
+            self.dots[n].move_to(target_pose[n] + new_off)
+        for (a, b), line in self.lines.items():
+            pa, pb = target_pose[a] + new_off, target_pose[b] + new_off
+            if np.linalg.norm(pa - pb) > 0.01:
+                line.put_start_and_end_on(pa, pb)
+        self.pose = target_pose
+        self.offset = new_off
+
+    # ── choreography: trot ───────────────────────────────────────────────────
+
+    def _trot_plan(self, x_target: float, stride: float = 0.14):
+        """Return a list of (pose, dx) tuples for trotting to x_target.
+        Mirrors HumanGraph._walk_plan() so the parallel handler can use it.
+        Pass a larger stride (e.g. 0.35) to match a running humanoid's step count."""
+        dx_total = x_target - self.offset[0]
+        if abs(dx_total) < 0.01:
+            return []
+        cycle = DOG_TROT_CYCLE
+        n_kf = len(cycle)
+        steps = max(n_kf, int(round(abs(dx_total) / stride)))
+        dx_per_kf = dx_total / steps
+        plan = [(cycle[i % n_kf], dx_per_kf) for i in range(steps)]
+        plan.append((DOG_STANDING, 0.0))
+        return plan
+
+    def trot_to(self, x_target: float, scene: Scene,
+                rt_per_kf=0.18, rate=smooth, stride: float = 0.14):
+        """Trot (side-view) to x_target using the 4-frame trot cycle."""
+        dx_total = x_target - self.offset[0]
+        if abs(dx_total) < 0.01:
+            return
+        cycle = DOG_TROT_CYCLE
+        n_kf = len(cycle)
+        steps = max(n_kf, int(round(abs(dx_total) / stride)))
+        dx_per_kf = dx_total / steps
+
+        for i in range(steps):
+            self.morph_to(cycle[i % n_kf], scene,
+                          rt=rt_per_kf, rate=rate, dx=dx_per_kf)
+        self.morph_to(DOG_STANDING, scene, rt=0.22, rate=smooth)
+
+    # ── speech bubble ────────────────────────────────────────────────────────
+
+    def say(self, text: str, scene: Scene,
+            hold=1.2, font_size=18, rt_in=0.4, rt_out=0.3,
+            side="right"):
+        """Speech bubble above the dog's head."""
+        s = self.style
+        head_pos = self.pose["head"] + self.offset
+        hx, hy = head_pos[0], head_pos[1]
+
+        txt = Text(text, font="Courier New", font_size=font_size,
+                   color=s["highlight_color"], weight=BOLD)
+        pad = 0.28
+        bw = txt.width + pad * 2
+        bh = txt.height + pad * 1.2
+
+        x_margin = 0.3
+        x_min = -7.1 + x_margin + bw / 2
+        x_max =  7.1 - x_margin - bw / 2
+        by = hy + 0.50
+        if side == "left":
+            bx = np.clip(hx - bw / 2 - 0.25, x_min, x_max)
+        else:
+            bx = np.clip(hx + bw / 2 + 0.25, x_min, x_max)
+
+        box = RoundedRectangle(
+            width=bw, height=bh, corner_radius=0.12,
+            color=s["head_stroke"], fill_color=s["head_color"],
+            fill_opacity=0.95, stroke_width=2,
+        ).move_to(np.array([bx, by, 0]))
+        txt.move_to(box.get_center())
+
+        tail_x = np.clip(hx, bx - bw / 2 + 0.25, bx + bw / 2 - 0.25)
+        tail = Polygon(
+            np.array([tail_x - 0.10, by - bh / 2, 0]),
+            np.array([tail_x + 0.10, by - bh / 2, 0]),
+            np.array([tail_x,        by - bh / 2 - 0.24, 0]),
+            color=s["head_stroke"], fill_color=s["head_color"],
+            fill_opacity=0.95, stroke_width=1.5,
+        )
+        bubble = VGroup(box, tail, txt)
+        scene.play(FadeIn(bubble, scale=0.85), run_time=rt_in)
+        scene.wait(hold)
+        scene.play(FadeOut(bubble), run_time=rt_out)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  GOVERNOR GRAPH  —  rotating dodecahedron with pulse + speech
+# ─────────────────────────────────────────────────────────────────────────────
+
+class GovernorGraph:
+    """
+    The Governor of Venus: a slowly rotating dodecahedron that pulses
+    when speaking, changes colour by state, and emits speech bubbles.
+
+    Unlike HumanGraph / DogGraph this class has no pose system.  It is
+    positioned at a fixed world (x, y) and animated through colour/scale
+    pulses tied to dialogue cues.
+
+    Colour states
+    -------------
+    "gold"   — default active state (``color`` parameter)
+    "amber"  — low-power / waiting  (``low_power_color``)
+    "dark"   — powered down / exit  (fully transparent)
+
+    Parameters
+    ----------
+    x, y          : world position (centre).  Default (0, 1.5).
+    radius        : polygon radius.  Default 0.42.
+    color         : primary gold colour.  Default ``"#e8c547"``.
+    low_power_color : amber standby colour.  Default ``"#d47b00"``.
+    accent        : stroke / highlight colour.  Default ``"#ffdd88"``.
+    spin_rate     : radians per second for the continuous rotation updater.
+                    Default 0.35.  Set to 0 to disable.
+    label         : optional centre label text.
+
+    High-level methods
+    ------------------
+    fade_in(scene)              — materialise with a glow-in effect
+    fade_out(scene)             — power down and disappear
+    pulse(scene, color, scale)  — flash once (used for a spoken word)
+    say(text, scene)            — speech bubble to the right of the shape
+    set_state(state, scene)     — transition to "gold", "amber", or "dark"
+    start_spin()                — attach the rotation updater
+    stop_spin()                 — remove the rotation updater
+
+    Example
+    -------
+    ::
+
+        gov = GovernorGraph(x=0, y=1.5)
+        gov.fade_in(self)
+        gov.say("I'm waiting for your report, Sergeant Sidel.", self)
+        gov.set_state("amber", self)   # dims while Sidel speaks
+        gov.set_state("gold",  self)   # brightens to respond
+        gov.fade_out(self)
+    """
+
+    def __init__(self, x=0.0, y=1.5, radius=0.42,
+                 color="#e8c547", low_power_color="#d47b00",
+                 accent="#ffdd88", spin_rate=0.35, label=None):
+        self._x = x
+        self._y = y
+        self._radius = radius
+        self._color_gold  = color
+        self._color_amber = low_power_color
+        self._accent      = accent
+        self._spin_rate   = spin_rate
+        self._label_text  = label
+        self._state       = "gold"
+        self._spin_updater = None
+        self._group: VGroup | None = None
+        self._poly: Mobject | None = None
+        self._inner: Mobject | None = None
+        self._label_mob: Mobject | None = None
+        self._build()
+
+    def _build(self):
+        r = self._radius
+        x, y = self._x, self._y
+        c  = self._color_gold
+        ac = self._accent
+
+        self._poly = RegularPolygon(
+            n=12, radius=r,
+            color=ac, fill_color=c, fill_opacity=0.88,
+            stroke_width=2.5,
+        ).move_to(np.array([x, y, 0]))
+
+        self._inner = RegularPolygon(
+            n=12, radius=r * 0.55,
+            color=ac, fill_color=c, fill_opacity=0.45,
+            stroke_width=1.0,
+        ).move_to(np.array([x, y, 0]))
+
+        parts = [self._poly, self._inner]
+
+        if self._label_text:
+            self._label_mob = Text(
+                self._label_text, font="Courier New",
+                font_size=13, color="#0d2340",
+            ).move_to(np.array([x, y, 0]))
+            parts.append(self._label_mob)
+
+        self._group = VGroup(*parts)
+
+    # ── mobject access ───────────────────────────────────────────────────────
+
+    @property
+    def group(self) -> VGroup:
+        return self._group
+
+    # ── spin updater ─────────────────────────────────────────────────────────
+
+    def start_spin(self):
+        """Attach the continuous rotation updater."""
+        if self._spin_rate == 0:
+            return
+        rate = self._spin_rate
+
+        def _spin(m, dt):
+            m.rotate(rate * dt)
+
+        self._spin_updater = _spin
+        self._group.add_updater(_spin)
+
+    def stop_spin(self):
+        """Remove the rotation updater (freezes the shape)."""
+        if self._spin_updater:
+            self._group.remove_updater(self._spin_updater)
+            self._spin_updater = None
+
+    # ── scene lifecycle ───────────────────────────────────────────────────────
+
+    def fade_in(self, scene: Scene, rt=1.0):
+        """Materialise the Governor with a glow-in effect, then start spinning."""
+        scene.play(FadeIn(self._group, scale=0.6), run_time=rt)
+        self.start_spin()
+
+    def fade_out(self, scene: Scene, rt=0.8):
+        """Stop spinning, then fade to dark (powered down)."""
+        self.stop_spin()
+        scene.play(
+            self._poly.animate.set_fill(opacity=0).set_stroke(opacity=0),
+            self._inner.animate.set_fill(opacity=0).set_stroke(opacity=0),
+            run_time=rt,
+        )
+
+    # ── colour states ─────────────────────────────────────────────────────────
+
+    def set_state(self, state: str, scene: Scene, rt=0.4):
+        """
+        Transition to a named colour state.
+
+        ``"gold"``   — active/speaking (bright gold)
+        ``"amber"``  — low-power / listening (dim amber-orange)
+        ``"dark"``   — powered down (fully transparent; use fade_out instead
+                       if you want an animated exit)
+        """
+        if state == "gold":
+            target_color = self._color_gold
+            target_opacity = 0.88
+        elif state == "amber":
+            target_color = self._color_amber
+            target_opacity = 0.60
+        elif state == "dark":
+            target_color = self._color_amber
+            target_opacity = 0.0
+        else:
+            raise ValueError(f"Unknown Governor state '{state}'. "
+                             f"Use 'gold', 'amber', or 'dark'.")
+        self._state = state
+        scene.play(
+            self._poly.animate.set_fill(color=target_color,
+                                        opacity=target_opacity),
+            self._inner.animate.set_fill(color=target_color,
+                                         opacity=target_opacity * 0.5),
+            run_time=rt,
+        )
+
+    # ── pulse (single flash on a spoken word) ─────────────────────────────────
+
+    def pulse(self, scene: Scene, color=None, scale=1.18, rt=0.15):
+        """
+        Flash brighter for one beat (simulates a word being spoken).
+
+        Parameters
+        ----------
+        color  : override flash colour (default = accent highlight)
+        scale  : scale factor at peak of flash (default 1.18)
+        rt     : half-duration of the flash (default 0.15 s)
+        """
+        c = color or self._accent
+        scene.play(
+            self._poly.animate.scale(scale).set_fill(color=c, opacity=1.0),
+            run_time=rt, 
+        )
+        scene.play(
+            self._poly.animate.scale(1 / scale).set_fill(
+                color=self._color_gold, opacity=0.88),
+            run_time=rt,
+        )
+
+    # ── speech bubble ─────────────────────────────────────────────────────────
+
+    def say(self, text: str, scene: Scene,
+            hold=1.4, font_size=20, rt_in=0.4, rt_out=0.3,
+            side="right"):
+        """
+        Pop a speech bubble beside the dodecahedron, hold, then dismiss.
+
+        The Governor has no mouth — the bubble appears beside the shape
+        with no pointer tail (consistent with the screen direction notes).
+        """
+        txt = Text(text, font="Courier New", font_size=font_size,
+                   color=self._color_gold, weight=BOLD)
+        pad = 0.32
+        bw = txt.width + pad * 2
+        bh = txt.height + pad * 1.2
+
+        x_margin = 0.3
+        x_min = -7.1 + x_margin + bw / 2
+        x_max =  7.1 - x_margin - bw / 2
+
+        by = self._y + 0.3
+        if side == "left":
+            bx = np.clip(self._x - self._radius - bw / 2 - 0.2, x_min, x_max)
+        else:
+            bx = np.clip(self._x + self._radius + bw / 2 + 0.2, x_min, x_max)
+
+        box = RoundedRectangle(
+            width=bw, height=bh, corner_radius=0.15,
+            color=self._accent, fill_color="#0d2340",
+            fill_opacity=0.95, stroke_width=2,
+        ).move_to(np.array([bx, by, 0]))
+        txt.move_to(box.get_center())
+
+        # no tail — the Governor has no mouth
+        bubble = VGroup(box, txt)
+
+        # pulse once as the bubble appears
+        scene.play(
+            FadeIn(bubble, scale=0.88),
+            self._poly.animate.scale(1.12).set_fill(opacity=1.0),
+            run_time=rt_in,
+        )
+        scene.play(
+            self._poly.animate.scale(1 / 1.12).set_fill(opacity=0.88),
+            run_time=0.1,
+        )
+        scene.wait(hold)
+        scene.play(FadeOut(bubble), run_time=rt_out)
