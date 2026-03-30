@@ -2,7 +2,7 @@
 fountain2pam.py
 ~~~~~~~~~~~~~~~
 Convert a Fountain screenplay to a PAM screenplay JSON **and** a set
-of per-subscene AI prompts (for Veo 3, Sora, Runway, etc.).
+of per-subscene AI prompts (for Veo 3, Kling, Flow, Runway, etc.).
 
 Outputs
 -------
@@ -20,8 +20,11 @@ Usage
     python fountain2pam.py screenplay.fountain -o screenplay.json
     python fountain2pam.py screenplay.fountain --prompts prompts.json
     python fountain2pam.py screenplay.fountain --scale 0.7
+    python fountain2pam.py screenplay.fountain --clip-mode per-speaker
     python fountain2pam.py screenplay.fountain --prompts-only
     python fountain2pam.py screenplay.fountain --prompts-only --prompts tntd_subscenes.json
+    python fountain2pam.py screenplay.fountain --shot-count
+    python fountain2pam.py screenplay.fountain --shot-count --csv shots.csv
 
 Pipeline
 --------
@@ -41,43 +44,207 @@ Requirements
 
 Version
 -------
-  0.9.0
+  0.9.2
 
-Fountain+ Notes (v0.8)
-----------------------
-The converter now reads ``[[ KEY: value ]]`` notes embedded in the Fountain
-file.  These are valid Fountain notes (hidden by standard renderers) and are
-parsed by a pre-processing pass *before* screenplain sees the file.
+Fountain+ Notes
+---------------
+The converter reads ``[[ KEY: value ]]`` notes embedded in the Fountain file.
+These are valid Fountain notes (hidden by standard renderers such as Highland
+and Fade In) and are parsed by a pre-processing pass *before* screenplain
+sees the file.
+
+Notes may span multiple lines.  The key is case-insensitive and terminated
+by a colon.  Notes placed before the first scene heading are ignored.
 
 Supported keys
 ~~~~~~~~~~~~~~
-``MOOD``
-    Visual tone / colour palette for the scene.  Appended to the
-    ``[SETTING / ATMOSPHERE]`` paragraph in every subscene prompt.
+
+``MOOD``  (scene-level)
+    Visual tone and colour palette.  Set once per scene — the first
+    occurrence wins.  Appended to the ``[SETTING / ATMOSPHERE]`` paragraph
+    in every subscene prompt for that scene.
+
     Example::
 
         [[ MOOD: cool blue-green, holographic, bureaucratic-noir ]]
 
-``SCENE POPULATION``
-    Human-readable description of which characters are present.
-    Written into the ``[CHARACTERS & ACTION]`` paragraph as a
-    framing note so the video AI knows who to expect.
+``SCENE POPULATION``  (beat-scoped)
+    Human-readable description of which characters are present at this
+    point in the scene.  Written into the ``[CHARACTERS & ACTION]``
+    paragraph.  Persists until overridden by another SCENE POPULATION note.
+
     Example::
 
         [[ SCENE POPULATION: Governor, Sidel. No other characters until Nona enters. ]]
 
-``NEGATIVE``
-    Verbatim text for the ``negative_prompt`` field added to every
-    subscene JSON in v0.7.  Tells the video AI what *not* to generate.
+    Change it mid-scene when the cast changes::
+
+        [[ SCENE POPULATION: Governor, Sidel, Nona. ]]
+
+``NEGATIVE``  (beat-scoped)
+    Verbatim text for the ``negative_prompt`` field on every subscene JSON.
+    Tells the video AI what *not* to generate.  Persists until overridden.
+
     Example::
 
         [[ NEGATIVE: No additional human figures. No crowd. No extras.
            No faces on the dodecahedron. ]]
 
-Notes may span multiple lines.  The key is case-insensitive and
-terminated by a colon.  Multiple notes of the same key within one
-scene are joined with a space.  Notes placed before the first scene
-heading are ignored.
+    Change it mid-scene when the staging changes::
+
+        [[ SCENE POPULATION: Sidel, Nona only. Governor exits here. ]]
+        [[ NEGATIVE: No dodecahedron. No geometric objects. No crowd. ]]
+
+``CAMERA``  (beat-scoped, new in v0.9.1)
+    Camera framing and movement for the clips that follow this note.
+    Persists until overridden by another CAMERA note.  Overrides the
+    automatic shot-size inference completely.
+
+    Two formats are accepted:
+
+    **Structured** — pipe-delimited sub-keys (recommended)::
+
+        [[ CAMERA: FRAMING=wide | SUBJECT=ensemble | MOVE=static | TRANSITION=cut ]]
+
+    **Freeform** — plain prose passed directly into ``[SHOT / CAMERA]``::
+
+        [[ CAMERA: Slow push toward the dodecahedron as it dims. ]]
+
+    The converter detects the format by the presence of ``=``.
+
+    Sub-key vocabulary
+    ^^^^^^^^^^^^^^^^^^
+
+    ``FRAMING`` — how much of the scene the lens captures:
+
+    ============== =======================================================
+    Value          Meaning
+    ============== =======================================================
+    ``wide``       Full environment; characters small in frame
+    ``medium``     Waist-up; two or three characters
+    ``medium-close`` Chest-up; one character; some background visible
+    ``close``      Face and shoulders only
+    ``ots-left``   Over-the-shoulder; camera behind the left character
+    ``ots-right``  Over-the-shoulder; camera behind the right character
+    ``oneshot``    Single character centered
+    ``insert``     Extreme close on a prop or detail
+    ============== =======================================================
+
+    ``SUBJECT`` — who or what the camera centres on.  Use a character name
+    as it appears in the Fountain file, a prop name, or the special value
+    ``ensemble`` to indicate all active characters::
+
+        SUBJECT=Nona
+        SUBJECT=Governor
+        SUBJECT=dodecahedron
+        SUBJECT=ensemble
+
+    ``MOVE`` — camera motion during the clip:
+
+    ============== =======================================================
+    Value          Meaning
+    ============== =======================================================
+    ``static``     Camera locked off (default when MOVE is absent)
+    ``push``       Slow dolly toward subject
+    ``pull``       Slow dolly away from subject
+    ``pan-follow`` Camera pans to track a moving character
+    ``drift``      Very slow imperceptible creep — atmospheric
+    ============== =======================================================
+
+    ``TRANSITION`` — how this clip ends; drives the ``[DRAMA / CUT]`` line:
+
+    =============== =======================================================
+    Value           Meaning
+    =============== =======================================================
+    ``cut``         Hard cut — default
+    ``hold``        Freeze or slow-hold before cut
+    ``hold-empty``  Hold on empty space after subject exits
+    ``smash``       Hard cut before action completes (mid-sentence interrupt)
+    =============== =======================================================
+
+    Full example from the TNTD opening scene::
+
+        INT. VENUS CITY OBSERVATORY - NIGHT
+
+        [[ MOOD: cool blue-green, holographic, bureaucratic-noir ]]
+        [[ SCENE POPULATION: Governor, Sidel. No other characters. ]]
+        [[ NEGATIVE: No additional human figures. No crowd. No extras.
+           No faces on the dodecahedron. ]]
+
+        The room is a domed observatory ...
+
+        [[ CAMERA: FRAMING=wide | SUBJECT=ensemble | MOVE=drift | TRANSITION=hold ]]
+        The GOVERNOR OF VENUS — a slowly rotating dodecahedron ...
+
+        GOVERNOR
+        I'm waiting for your report, Sergeant Sidel.
+
+        [[ CAMERA: FRAMING=medium-close | SUBJECT=Sidel | MOVE=static | TRANSITION=cut ]]
+        SIDEL
+        Madam Governor, I need to hack Earth satellites for this report.
+
+        [[ CAMERA: FRAMING=medium | SUBJECT=Governor | MOVE=static | TRANSITION=cut ]]
+        GOVERNOR
+        Approved.
+
+        [[ CAMERA: FRAMING=wide | SUBJECT=ensemble | MOVE=pan-follow | TRANSITION=cut ]]
+        Sidel crosses to the desk and settles in front of the computer terminal.
+
+        [[ SCENE POPULATION: Governor, Sidel, then Nona enters. No other characters. ]]
+        [[ CAMERA: FRAMING=wide | SUBJECT=ensemble | MOVE=static | TRANSITION=cut ]]
+        NONA sweeps in through the blast doors.
+
+        [[ CAMERA: FRAMING=oneshot | SUBJECT=Nona | MOVE=static | TRANSITION=cut ]]
+        NONA
+        Why is my city still on forty percent power?
+
+        [[ CAMERA: FRAMING=ots-right | SUBJECT=Governor | MOVE=static | TRANSITION=smash ]]
+        NONA
+        (not looking at Sidel — eyes on the Governor)
+        Every time one fails, the hospital emergency room fills up. This is a crisis!
+
+        GOVERNOR
+        Yes, this is a very unfortunate turn of —
+
+        [[ CAMERA: FRAMING=insert | SUBJECT=dodecahedron | MOVE=push | TRANSITION=hold ]]
+        The dodecahedron dims to amber-orange. Text materializes on its surface:
+        >          PLEASE WAIT...     <
+
+        [[ SCENE POPULATION: Sidel, Nona only. Governor exits here. ]]
+        [[ NEGATIVE: No dodecahedron. No geometric objects. No additional human figures. ]]
+        [[ CAMERA: FRAMING=wide | SUBJECT=ensemble | MOVE=drift | TRANSITION=hold ]]
+        The dodecahedron dims, slows, and goes dark. It vanishes.
+        Nona stares at the empty air where the Governor was.
+
+``KIND``  (file-level)
+    Species or type template.  Defines a visual description that is
+    prepended to a character's individual description wherever that
+    character appears.  May be placed anywhere in the file.
+
+    Format::
+
+        [[ KIND: Venusian | green skin, wide waist, large eyes and mouth,
+           small ears and nose, minimal body hair, full head of hair,
+           shorter and rounder than humans due to lower gravity ]]
+
+    Then tag characters in action lines::
+
+        SERGEANT SIDEL [Kind: Venusian] — compact, mid-40s ...
+
+Beat-scoping
+~~~~~~~~~~~~
+``MOOD`` is scene-level: set it once, directly below the scene heading.
+It applies to every subscene in that scene.
+
+``SCENE POPULATION``, ``NEGATIVE``, ``CAMERA``, and ``LIGHTING`` are
+beat-scoped: each note takes effect at the point where it appears in
+the file and persists until another note of the same key replaces it.
+You only need to write a new note when something changes — framing
+strategy, cast, negative constraints, or lighting setup.
+
+This means a single ``[[ CAMERA: ]]`` annotation early in a scene covers
+all subsequent clips until you write a new one.  You do not need to
+annotate every beat.
 """
 
 from __future__ import annotations
@@ -174,6 +341,261 @@ _KIND_BUILD_MAP: dict[str, str] = {
     "venusian": "alien",
     "alien":    "alien",
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CAMERA ANNOTATION VOCABULARY  (v0.9.1)
+#
+#  Structured [[ CAMERA: KEY=value | KEY=value ]] sub-keys.
+#  Freeform tags (no '=' present) pass through unchanged as raw shot text.
+# ─────────────────────────────────────────────────────────────────────────────
+
+CAMERA_FRAMING = {
+    "wide",
+    "medium",
+    "medium-close",
+    "close",
+    "ots-left",
+    "ots-right",
+    "oneshot",
+    "insert",
+}
+
+CAMERA_MOVE = {
+    "static",
+    "push",
+    "pull",
+    "pan-follow",
+    "drift",
+}
+
+CAMERA_TRANSITION = {
+    "cut",          # hard cut (default)
+    "hold",         # freeze/slow-hold before cut
+    "hold-empty",   # hold on empty space after subject exits
+    "smash",        # hard cut before action completes (mid-sentence interrupt)
+}
+
+# FRAMING value → prose for [SHOT / CAMERA] paragraph
+_FRAMING_PROSE: dict[str, str] = {
+    "wide":           "Wide shot",
+    "medium":         "Medium shot",
+    "medium-close":   "Medium close-up",
+    "close":          "Close-up",
+    "ots-left":       "Over-the-shoulder (camera behind left character)",
+    "ots-right":      "Over-the-shoulder (camera behind right character)",
+    "oneshot":        "Single-character shot",
+    "insert":         "Insert shot",
+}
+
+# MOVE value → prose appended after framing description
+_MOVE_PROSE: dict[str, str] = {
+    "static":       "Camera static.",
+    "push":         "Slow push in toward subject.",
+    "pull":         "Slow pull back from subject.",
+    "pan-follow":   "Camera pans to follow subject.",
+    "drift":        "Imperceptible slow drift — atmospheric.",
+}
+
+# TRANSITION value → override text for [DRAMA / CUT] last line
+_TRANSITION_DRAMA_CUT: dict[str, str] = {
+    "cut":        "Cut on the beat. Clean.",
+    "hold":       "Hold on the moment. Let it breathe before the cut.",
+    "hold-empty": ("Hold on the empty space after the subject exits. "
+                   "The absence carries as much weight as the presence."),
+    "smash":      "Hard cut on the interruption — the action never completes.",
+}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  LIGHTING ANNOTATION VOCABULARY  (v0.9.2)
+#
+#  Used as a sub-key in [[ CAMERA: ... | LIGHTING=value ]] or as a
+#  standalone beat-scoped note [[ LIGHTING: value ]].
+#
+#  Two values may be combined with a space, e.g. "evenly-lit practical-cool".
+#  The first value sets the exposure/contrast register; the second names
+#  the dominant source type.
+# ─────────────────────────────────────────────────────────────────────────────
+
+CAMERA_LIGHTING = {
+    # ── exposure / contrast register ──────────────────────────────────────────
+    "evenly-lit",       # uniform exposure, minimal shadows; comedy / sitcom default
+    "high-contrast",    # strong key, minimal fill, deep shadows; drama / thriller
+    "deep-shadow",      # extreme contrast, near-noir; very little fill
+    # ── source type ───────────────────────────────────────────────────────────
+    "practical-cool",   # lit by cool in-scene sources (screens, holograms, neon)
+    "practical-warm",   # lit by warm in-scene sources (lamps, candles, fire)
+    "motivated",        # motivated off-frame source (window, streetlamp)
+    "single-source",    # one hard directional source (flashlight, spotlight)
+    "daylight",         # natural exterior daylight, even exposure
+    "golden-hour",      # warm backlit golden-hour light, long shadows
+    "candlelight",      # warm flickering practical, intimate
+    "neon",             # mixed cool/warm neon practicals
+    "screen-glow",      # subject lit by monitor/device, cool directional
+}
+
+# LIGHTING value → brief prose for [SHOT / CAMERA] paragraph
+_LIGHTING_SHOT_PROSE: dict[str, str] = {
+    "evenly-lit":     "Evenly lit.",
+    "high-contrast":  "High-contrast lighting.",
+    "deep-shadow":    "Deep-shadow lighting — minimal fill.",
+    "practical-cool": "Lit by cool in-scene practicals.",
+    "practical-warm": "Lit by warm in-scene practicals.",
+    "motivated":      "Motivated lighting from off-frame source.",
+    "single-source":  "Single light source, hard directional shadows.",
+    "daylight":       "Natural daylight.",
+    "golden-hour":    "Warm golden-hour backlight.",
+    "candlelight":    "Warm candlelight.",
+    "neon":           "Neon practicals, mixed color temperature.",
+    "screen-glow":    "Screen-glow key, cool and directional.",
+}
+
+# LIGHTING value → fuller prose for [SETTING / ATMOSPHERE] paragraph
+_LIGHTING_ATMOSPHERE_PROSE: dict[str, str] = {
+    "evenly-lit":     ("Evenly lit throughout. Consistent exposure, minimal "
+                       "shadows — characters clearly visible."),
+    "high-contrast":  ("High-contrast lighting. Strong key source; fill "
+                       "deliberately reduced. Deep shadows at the edges."),
+    "deep-shadow":    ("Near-noir lighting. One strong key; almost no fill. "
+                       "Shadows dominate — only the lit areas read clearly."),
+    "practical-cool": ("Lit by cool-temperature in-scene practicals — "
+                       "holographic displays, screens, or neon. Characters "
+                       "well-exposed despite the cool cast."),
+    "practical-warm": ("Lit by warm in-scene practicals — lamps, candles, "
+                       "or firelight. Warm colour cast, soft shadows."),
+    "motivated":      ("Motivated lighting from an implied off-frame source "
+                       "(window, streetlamp). Light is directional but natural."),
+    "single-source":  ("Single light source. Hard directional shadows. "
+                       "Everything outside the beam falls dark."),
+    "daylight":       ("Natural daylight. Even, neutral exposure. "
+                       "No strong shadows unless the sun is angled."),
+    "golden-hour":    ("Warm golden-hour backlight. Long shadows, rim-lit "
+                       "subjects, warm orange-amber cast."),
+    "candlelight":    ("Warm flickering candlelight. Intimate, low-contrast. "
+                       "Slight motion in the light source."),
+    "neon":           ("Neon practicals. Mixed cool and warm colour, "
+                       "even overall exposure."),
+    "screen-glow":    ("Subject lit primarily by screen light — cool, "
+                       "directional, slightly underlit at the edges."),
+}
+
+
+def parse_lighting_value(raw: str) -> list[str]:
+    """
+    Parse a LIGHTING sub-key value or standalone ``[[ LIGHTING: ]]`` note.
+
+    Accepts one or two space-separated values from ``CAMERA_LIGHTING``.
+    Unknown values are warned to stderr and kept as-is (freeform fallback).
+    Returns a list of up to two normalised value strings, e.g.::
+
+        parse_lighting_value("evenly-lit practical-cool")
+        → ["evenly-lit", "practical-cool"]
+
+        parse_lighting_value("high-contrast")
+        → ["high-contrast"]
+    """
+    parts = raw.strip().lower().split()
+    result = []
+    for p in parts[:2]:   # accept at most two values
+        if p not in CAMERA_LIGHTING:
+            print(f"  [LIGHTING] warning: unknown value {p!r} "
+                  f"(valid: {sorted(CAMERA_LIGHTING)})", file=sys.stderr)
+        result.append(p)
+    return result
+
+
+def parse_camera_tag(raw: str) -> dict:
+    """
+    Parse a [[ CAMERA: ... ]] note value into a structured dict.
+
+    Two formats are supported:
+
+    **Structured** (contains ``=``)::
+
+        "FRAMING=wide | SUBJECT=Nona | MOVE=push | TRANSITION=smash"
+
+        → {
+              "framing":    "wide",
+              "subject":    "Nona",
+              "move":       "push",
+              "transition": "smash",
+              "raw":        "<original string>",
+              "freeform":   False,
+          }
+
+    **Freeform** (no ``=`` present) — backward compatible::
+
+        "Slow push toward the dodecahedron as it dims."
+
+        → {
+              "framing":    None,
+              "subject":    None,
+              "move":       None,
+              "transition": None,
+              "raw":        "<original string>",
+              "freeform":   True,
+          }
+
+    Unknown sub-key values are accepted and stored (with a stderr warning
+    so the author can catch typos).
+    """
+    raw = raw.strip()
+    result: dict = {
+        "framing":    None,
+        "subject":    None,
+        "move":       None,
+        "transition": None,
+        "lighting":   None,   # v0.9.2: list[str] or None
+        "raw":        raw,
+        "freeform":   False,
+    }
+
+    if "=" not in raw:
+        result["freeform"] = True
+        return result
+
+    for part in raw.split("|"):
+        part = part.strip()
+        if not part:
+            continue
+        if "=" not in part:
+            print(f"  [CAMERA] warning: ignoring malformed sub-key {part!r}",
+                  file=sys.stderr)
+            continue
+        key, _, val = part.partition("=")
+        key = key.strip().lower()
+        val = val.strip()
+
+        if key == "framing":
+            if val not in CAMERA_FRAMING:
+                print(f"  [CAMERA] warning: unknown FRAMING value {val!r} "
+                      f"(valid: {sorted(CAMERA_FRAMING)})", file=sys.stderr)
+            result["framing"] = val
+
+        elif key == "subject":
+            result["subject"] = val      # free-form — any name or "ensemble"
+
+        elif key == "move":
+            if val not in CAMERA_MOVE:
+                print(f"  [CAMERA] warning: unknown MOVE value {val!r} "
+                      f"(valid: {sorted(CAMERA_MOVE)})", file=sys.stderr)
+            result["move"] = val
+
+        elif key == "transition":
+            if val not in CAMERA_TRANSITION:
+                print(f"  [CAMERA] warning: unknown TRANSITION value {val!r} "
+                      f"(valid: {sorted(CAMERA_TRANSITION)})", file=sys.stderr)
+            result["transition"] = val
+
+        elif key == "lighting":
+            result["lighting"] = parse_lighting_value(val)
+
+        else:
+            print(f"  [CAMERA] warning: unrecognised sub-key {key!r} — ignored",
+                  file=sys.stderr)
+
+    return result
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  TIERED IMPLIED PROP INFERENCE
@@ -347,6 +769,7 @@ _KNOWN_NOTE_KEYS = {
     "negative":         "negative",
     "kind":             "kind",     # file-level species/type templates
     "camera":           "camera",   # mid-scene camera override
+    "lighting":         "lighting", # mid-scene lighting override (v0.9.2)
 }
 
 # Regex to parse [[ KIND: name | description ]] — pipe separates name from desc
@@ -491,13 +914,23 @@ def _extract_fountain_notes(raw_text: str) -> dict:
                 scene_notes[owner_heading]["mood"] = value
 
         else:
-            # SCENE POPULATION, NEGATIVE, and CAMERA are mid-scene events
+            # SCENE POPULATION, NEGATIVE, CAMERA, and LIGHTING are mid-scene
+            # events. CAMERA and LIGHTING values are pre-parsed here so
+            # ScenePromptBuilder never needs to call parse_*() itself.
+            camera_val: dict | str = ""
+            lighting_val: list     = []
+            if canonical == "camera":
+                camera_val = parse_camera_tag(value)
+            elif canonical == "lighting":
+                lighting_val = parse_lighting_value(value)
+
             event = {
                 "line_number": line_no,
                 "heading":     owner_heading,
-                "population":  value if canonical == "population" else "",
-                "negative":    value if canonical == "negative"    else "",
-                "camera":      value if canonical == "camera"      else "",
+                "population":  value        if canonical == "population" else "",
+                "negative":    value        if canonical == "negative"   else "",
+                "camera":      camera_val   if canonical == "camera"     else "",
+                "lighting":    lighting_val if canonical == "lighting"   else [],
             }
             # Merge consecutive events at the same line into one dict
             if note_events and note_events[-1]["line_number"] == line_no \
@@ -508,6 +941,8 @@ def _extract_fountain_notes(raw_text: str) -> dict:
                     note_events[-1]["negative"] = event["negative"]
                 if event["camera"]:
                     note_events[-1]["camera"] = event["camera"]
+                if event["lighting"]:
+                    note_events[-1]["lighting"] = event["lighting"]
             else:
                 note_events.append(event)
 
@@ -1398,15 +1833,22 @@ class ScenePromptBuilder:
                  mood: str = "",
                  population: str = "",
                  negative: str = "",
-                 camera: str = "",
+                 camera: "dict | str" = "",
+                 lighting: "list | None" = None,
                  clip_mode: str = "per-speaker",
+                 shot_count: bool = False,
                  prop_char_display_names: dict | None = None):
         self.heading              = heading
         self.mood: str            = mood
         self.population: str      = population
         self.negative: str        = negative
-        self.camera: str          = camera      # from [[ CAMERA: ... ]]
-        self.clip_mode: str       = clip_mode   # "per-speaker" or "timed"
+        # camera: either a parsed dict from parse_camera_tag() or a raw
+        # freeform string (backward-compatible).  Set via update_notes().
+        self.camera: "dict | str" = camera
+        # lighting: list of up to two values from CAMERA_LIGHTING, or [].
+        self.lighting: list       = lighting or []
+        self.clip_mode: str       = clip_mode
+        self.shot_count: bool     = shot_count
         # Maps prop type key → display name, e.g. {"dodecahedron": "Governor of Venus"}
         self.prop_char_display_names: dict = prop_char_display_names or {}
         self.setting_lines: list[str]   = []
@@ -1419,6 +1861,11 @@ class ScenePromptBuilder:
         self._subscenes: list[dict]      = []
         self._subscene_counter: int      = 0
         self._current_speaker: str       = ""  # tracks speaker for per-speaker mode
+
+        # shot-count state (v0.9.2): track the last camera+lighting signature
+        # to detect when a new shot number should be assigned
+        self._current_shot_number: int   = 0
+        self._last_shot_signature: str   = ""  # serialised camera+lighting state
 
     # ── public feed methods ───────────────────────────────────────────────
 
@@ -1458,14 +1905,24 @@ class ScenePromptBuilder:
             self.props_mentioned.append(prop_name)
 
     def update_notes(self, population: str = "", negative: str = "",
-                     camera: str = ""):
-        """Override mid-scene SCENE POPULATION, NEGATIVE, and/or CAMERA values."""
+                     camera: "dict | str" = "",
+                     lighting: "list | None" = None):
+        """Override mid-scene SCENE POPULATION, NEGATIVE, CAMERA, and/or
+        LIGHTING values.
+
+        ``camera`` should be a parsed dict from ``parse_camera_tag()`` (as
+        produced by ``_extract_fountain_notes``) or a freeform string.
+        ``lighting`` should be a list from ``parse_lighting_value()``.
+        Empty / None values leave the current values unchanged.
+        """
         if population:
             self.population = population
         if negative:
             self.negative = negative
         if camera:
             self.camera = camera
+        if lighting:
+            self.lighting = lighting
 
     def _prop_display_name(self, prop_key: str) -> str:
         """Return the human display name for a prop-character key.
@@ -1541,6 +1998,27 @@ class ScenePromptBuilder:
 
     # ── subscene management ───────────────────────────────────────────────
 
+    def _shot_signature(self) -> str:
+        """
+        Return a string that uniquely identifies the current camera+lighting
+        setup.  A change in this signature triggers a new shot number.
+
+        The signature encodes every sub-key of the active CAMERA tag plus
+        the active LIGHTING values, so two consecutive subscenes share a
+        shot number only when both camera framing AND lighting are identical.
+        """
+        if isinstance(self.camera, dict) and not self.camera.get("freeform"):
+            cam_part = "|".join(
+                f"{k}={self.camera.get(k)}"
+                for k in ("framing", "subject", "move", "transition")
+            )
+        elif isinstance(self.camera, str):
+            cam_part = f"freeform={self.camera[:40]}"
+        else:
+            cam_part = "none"
+        light_part = "+".join(self.lighting) if self.lighting else "none"
+        return f"cam:{cam_part}::light:{light_part}"
+
     def _close_subscene(self, drama_score: int = 0):
         if not self._current_beats:
             return
@@ -1549,7 +2027,7 @@ class ScenePromptBuilder:
         beats    = self._current_beats
         duration = self._current_duration
 
-        drama_type  = _classify_drama(beats, drama_score)
+        drama_type   = _classify_drama(beats, drama_score)
         active_chars = _active_chars_in_beats(beats, self.characters_present)
 
         # scene slug for ID
@@ -1557,10 +2035,43 @@ class ScenePromptBuilder:
                             self.heading.lower())[:30].strip('_') or "scene"
         ss_id = f"{scene_slug}_ss{self._subscene_counter:02d}"
 
-        self._subscenes.append({
+        # ── shot-count: assign number when camera/lighting changes ────────
+        sig = self._shot_signature()
+        if self.shot_count:
+            if sig != self._last_shot_signature:
+                self._current_shot_number += 1
+                self._last_shot_signature = sig
+            shot_number = self._current_shot_number
+            shot_label  = f"S-{shot_number:02d}"
+        else:
+            shot_number = None
+            shot_label  = None
+
+        # ── build shot_meta (includes lighting in v0.9.2) ────────────────
+        shot_meta = {
+            "framing":    (self.camera.get("framing")
+                           if isinstance(self.camera, dict) else None),
+            "subject":    (self.camera.get("subject")
+                           if isinstance(self.camera, dict) else None),
+            "move":       (self.camera.get("move")
+                           if isinstance(self.camera, dict) else None),
+            "transition": (self.camera.get("transition")
+                           if isinstance(self.camera, dict) else None),
+            "lighting":   self.lighting or None,
+            "freeform":   (self.camera.get("freeform")
+                           if isinstance(self.camera, dict) else bool(self.camera)),
+        }
+
+        # ── assemble subscene dict — shot fields first for readability ────
+        subscene: dict = {}
+        if self.shot_count:
+            subscene["shot_label"]  = shot_label
+            subscene["shot_number"] = shot_number
+        subscene.update({
             "subscene_id":          ss_id,
             "estimated_duration_s": round(duration, 1),
             "drama_type":           drama_type,
+            "shot_meta":            shot_meta,
             "beat_summary":         _summarise_beats(beats, self.prop_char_display_names),
             "video_prompt":         self._build_video_prompt(
                                         beats, duration, drama_type, active_chars),
@@ -1568,25 +2079,88 @@ class ScenePromptBuilder:
             "still_prompts":        self._build_still_prompts(
                                         beats, drama_type, active_chars),
         })
+        self._subscenes.append(subscene)
 
         self._current_beats    = []
         self._current_duration = 0.0
 
-    # ── video prompt ──────────────────────────────────────────────────────
+    # ── shot size / camera ────────────────────────────────────────────────
 
-    # ── shot size inference ───────────────────────────────────────────────
+    def _camera_to_shot_line(self, beats: list, active_chars: dict,
+                              drama_type: str) -> tuple:
+        """
+        Convert the active ``self.camera`` value to a ``(shot_line,
+        drama_cut_override)`` tuple.
+
+        ``shot_line``
+            Text for the ``[SHOT / CAMERA]`` paragraph.
+        ``drama_cut_override``
+            Replacement text for the last sentence of ``[DRAMA / CUT]``,
+            or ``None`` if the normal drama-type logic should apply.
+
+        Three cases:
+
+        1. ``self.camera`` is empty → fall back to heuristics; no override.
+        2. ``self.camera`` is a freeform string (or a dict with
+           ``freeform=True``) → use the raw text; no override.
+        3. ``self.camera`` is a structured dict → compose from sub-keys;
+           ``TRANSITION=`` sub-key supplies the drama-cut override.
+        """
+        camera = self.camera
+
+        # ── case 1: no camera annotation ─────────────────────────────────
+        if not camera:
+            return self._infer_shot_size(beats, active_chars, drama_type), None
+
+        # ── case 2: freeform string (legacy / prose override) ────────────
+        if isinstance(camera, str):
+            return camera, None
+
+        # ── case 2b: parsed dict that is freeform ────────────────────────
+        if isinstance(camera, dict) and camera.get("freeform"):
+            return camera.get("raw", ""), None
+
+        # ── case 3: structured dict ───────────────────────────────────────
+        parts = []
+
+        framing = camera.get("framing")
+        if framing:
+            parts.append(_FRAMING_PROSE.get(framing, framing.capitalize()))
+        else:
+            # No FRAMING sub-key: fall back to heuristic for the shot description
+            parts.append(self._infer_shot_size(beats, active_chars, drama_type))
+
+        subject = camera.get("subject")
+        if subject and subject.lower() != "ensemble":
+            parts.append(f"Subject: {subject}.")
+
+        move = camera.get("move")
+        if move:
+            parts.append(_MOVE_PROSE.get(move, move.capitalize() + "."))
+        # no MOVE sub-key → omit movement note; heuristic already covers it
+
+        # Append brief lighting note if active (expanded prose goes in atmosphere)
+        if self.lighting:
+            light_prose = " ".join(
+                _LIGHTING_SHOT_PROSE.get(v, v) for v in self.lighting
+            )
+            parts.append(light_prose)
+
+        shot_line = " ".join(parts)
+
+        # Drama cut override from TRANSITION sub-key
+        transition = camera.get("transition")
+        drama_cut_override = _TRANSITION_DRAMA_CUT.get(transition) if transition else None
+
+        return shot_line, drama_cut_override
 
     def _infer_shot_size(self, beats: list, active_chars: dict,
                           drama_type: str) -> str:
         """
-        Return a camera direction line based on scene content.
-        If a [[ CAMERA: ... ]] note is active, that takes priority.
-        Otherwise infers from beat content and drama type.
+        Heuristic fallback: infer a camera direction from beat content.
+        Called by ``_camera_to_shot_line`` when no structured CAMERA tag
+        is active or when FRAMING is absent from a structured tag.
         """
-        # Fountain+ CAMERA note takes priority over all heuristics
-        if self.camera:
-            return self.camera
-
         n_chars   = len(active_chars)
         has_walk  = any(b.get("action") in
                         ("walk_to", "walk_to_prop", "run_to", "run_to_prop",
@@ -1599,27 +2173,18 @@ class ScenePromptBuilder:
         n_lines   = sum(1 for b in beats
                         if b.get("action") in ("say", "prop_say"))
 
-        # Entry → wide to catch the movement
         if has_entry and has_walk:
             return "Wide shot, static camera. Room visible."
         if has_entry:
             return "Wide establishing shot, slow push in as character enters."
-
-        # Exit → static wide, let the space open up
         if has_exit and n_lines == 0:
             return "Wide shot, static camera. Hold on the empty space."
-
-        # Prop-driven drama → feature the prop
         if has_prop_event and n_lines == 0:
             return "Medium shot centered on the prop. Slow push in."
-
-        # Pure walk / movement, no dialogue
         if has_walk and n_lines == 0:
             return "Wide shot, camera pans to follow movement."
 
-        # Single character speaking (per-speaker mode typical case)
         if n_chars == 1 and n_lines >= 1:
-            # Check if the sole speaker is a prop-character
             sole_key = next(iter(active_chars), None)
             is_prop_char = (sole_key in self.prop_char_display_names
                             if sole_key else False)
@@ -1629,21 +2194,17 @@ class ScenePromptBuilder:
                 return "Medium close-up. Slow push in."
             return "Medium close-up. Camera static."
 
-        # Two characters, dialogue
         if n_lines >= 2 and n_chars == 2:
             if drama_type in ("joke", "pause"):
                 return "Medium two-shot. Camera static, let the performances work."
             return "Over-the-shoulder. Cut on the drama beat."
 
-        # Three or more characters
         if n_lines >= 2 and n_chars >= 3:
             return "Wide three-shot. Slow push in toward the speaker."
 
-        # Beat / pause / wait — no dialogue, no movement
         if all(b.get("action") == "wait" for b in beats if b.get("action")):
             return "Static hold. Let the silence breathe."
 
-        # Drama-type fallbacks
         if drama_type == "cliffhanger":
             return "Medium shot, slow push in toward the reveal."
         if drama_type == "joke":
@@ -1659,6 +2220,8 @@ class ScenePromptBuilder:
         Uses the most recent setting lines (which include # REVIEW text from
         the Fountain action lines — atmospheric descriptions that PAM couldn't
         convert to actions).
+
+        In v0.9.2, the expanded LIGHTING prose is appended after the mood tag.
         """
         if not self.setting_lines and not self.heading:
             return ""
@@ -1677,6 +2240,13 @@ class ScenePromptBuilder:
         # Append Fountain+ mood tag if present
         if self.mood:
             parts.append(f"Mood and palette: {self.mood}.")
+
+        # Append expanded LIGHTING prose if active (v0.9.2)
+        if self.lighting:
+            light_expanded = " ".join(
+                _LIGHTING_ATMOSPHERE_PROSE.get(v, v) for v in self.lighting
+            )
+            parts.append(f"Lighting: {light_expanded}")
 
         return " ".join(parts)
 
@@ -1881,16 +2451,32 @@ class ScenePromptBuilder:
     def _build_video_prompt(self, beats: list, duration: float,
                              drama_type: str, active_chars: dict) -> str:
         """
-        Four-paragraph cinematic format:
-          [SHOT / CAMERA]
-          [SETTING / ATMOSPHERE]
-          [CHARACTERS & ACTION]
-          [DRAMA / CUT]
+        Four-paragraph cinematic format::
+
+            [SHOT / CAMERA]
+            [SETTING / ATMOSPHERE]
+            [CHARACTERS & ACTION]
+            [DRAMA / CUT]
+
+        The ``[SHOT / CAMERA]`` paragraph is built from the active
+        ``[[ CAMERA: ]]`` annotation (structured or freeform) if present,
+        otherwise from heuristic inference.
+
+        When a structured ``TRANSITION=`` sub-key is present it replaces
+        the normal drama-type cut line in ``[DRAMA / CUT]``.
         """
-        shot       = self._infer_shot_size(beats, active_chars, drama_type)
+        shot_line, drama_cut_override = self._camera_to_shot_line(
+            beats, active_chars, drama_type)
+
         atmosphere = self._build_atmosphere()
         action_par = self._build_characters_action(beats, active_chars)
         drama_cut  = self._build_drama_cut(beats, drama_type, active_chars)
+
+        # TRANSITION= sub-key overrides the drama-cut sentence
+        if drama_cut_override is not None:
+            # Replace only the last sentence of drama_cut so framing context
+            # (reactor name, prop name) is still preserved where useful.
+            drama_cut = drama_cut_override
 
         # Prepend population note to characters & action if present
         if self.population and action_par:
@@ -1898,8 +2484,21 @@ class ScenePromptBuilder:
         elif self.population:
             action_par = f"[Scene contains: {self.population}]"
 
+        # Include shot_meta comment when a structured tag is active
+        shot_meta = ""
+        if (isinstance(self.camera, dict)
+                and not self.camera.get("freeform")
+                and any(self.camera.get(k) for k in
+                        ("framing", "subject", "move", "transition"))):
+            parts = [f"{k.upper()}={self.camera[k]}"
+                     for k in ("framing", "subject", "move", "transition")
+                     if self.camera.get(k)]
+            if self.lighting:
+                parts.append(f"LIGHTING={' '.join(self.lighting)}")
+            shot_meta = f"  ← {' | '.join(parts)}"
+
         paragraphs = []
-        paragraphs.append(f"[SHOT / CAMERA]  {shot}")
+        paragraphs.append(f"[SHOT / CAMERA]  {shot_line}{shot_meta}")
         if atmosphere:
             paragraphs.append(f"[SETTING / ATMOSPHERE]  {atmosphere}")
         if action_par:
@@ -2186,7 +2785,8 @@ class ScenePromptBuilder:
 
 def convert_fountain(fountain_path: str, scale: float = 0.7,
                      title_override: str = None,
-                     clip_mode: str = "per-speaker"):
+                     clip_mode: str = "per-speaker",
+                     shot_count: bool = False):
     """Convert a Fountain file to PAM actions + AI video prompts.
 
     Returns
@@ -2621,10 +3221,18 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
         """Call update_notes() for any queued events at or before up_to_line."""
         while _note_queue and _note_queue[0]["line_number"] <= up_to_line:
             ev = _note_queue.pop(0)
+            # LIGHTING can arrive either as a standalone [[ LIGHTING: ]] note
+            # (ev["lighting"]) or embedded in a CAMERA tag as LIGHTING=value.
+            lighting = ev.get("lighting") or None
+            cam = ev.get("camera", "")
+            if (not lighting and isinstance(cam, dict)
+                    and cam.get("lighting")):
+                lighting = cam["lighting"]
             current_scene.update_notes(
                 population=ev.get("population", ""),
                 negative=ev.get("negative", ""),
-                camera=ev.get("camera", ""),
+                camera=cam,
+                lighting=lighting,
             )
 
     # ── Prompt builder ───────────────────────────────────────────────────
@@ -2632,6 +3240,7 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
     current_scene = ScenePromptBuilder(
         "(opening)",
         clip_mode=clip_mode,
+        shot_count=shot_count,
         prop_char_display_names=prop_char_display_names,
     )
 
@@ -2746,6 +3355,7 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                 negative                = "",
                 camera                  = "",
                 clip_mode               = clip_mode,
+                shot_count              = shot_count,
                 prop_char_display_names = prop_char_display_names,
             )
             for cname in hg_characters:
@@ -3085,9 +3695,65 @@ def write_prompts(prompts, output_path):
         json.dump(prompts, f, indent=2, ensure_ascii=False)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  CLI
-# ─────────────────────────────────────────────────────────────────────────────
+def export_shots_csv(prompts: dict, output_path: str) -> int:
+    """
+    Write a shot-list CSV from a prompts dict that contains shot_label /
+    shot_number fields (produced when ``shot_count=True``).
+
+    Columns (designed for spreadsheet use — no video_prompt, which is too
+    long for a cell):
+
+        shot_label  shot_number  subscene_id  scene
+        duration_s  drama_type
+        framing  subject  move  transition  lighting
+        beat_summary  negative_prompt
+
+    Returns the number of rows written.
+    """
+    import csv
+
+    rows = []
+    for scene in prompts.get("scenes", []):
+        scene_heading = scene.get("heading", "")
+        for ss in scene.get("subscenes", []):
+            meta    = ss.get("shot_meta") or {}
+            summary = ss.get("beat_summary", [])
+            summary_text = " | ".join(summary) if isinstance(summary, list) else str(summary)
+            lighting_val = meta.get("lighting")
+            lighting_str = (" ".join(lighting_val)
+                            if isinstance(lighting_val, list) else "")
+            rows.append({
+                "shot_label":      ss.get("shot_label", ""),
+                "shot_number":     ss.get("shot_number", ""),
+                "subscene_id":     ss.get("subscene_id", ""),
+                "scene":           scene_heading,
+                "duration_s":      ss.get("estimated_duration_s", ""),
+                "drama_type":      ss.get("drama_type", ""),
+                "framing":         meta.get("framing") or "",
+                "subject":         meta.get("subject") or "",
+                "move":            meta.get("move") or "",
+                "transition":      meta.get("transition") or "",
+                "lighting":        lighting_str,
+                "beat_summary":    summary_text,
+                "negative_prompt": ss.get("negative_prompt", ""),
+            })
+
+    fieldnames = [
+        "shot_label", "shot_number", "subscene_id", "scene",
+        "duration_s", "drama_type",
+        "framing", "subject", "move", "transition", "lighting",
+        "beat_summary", "negative_prompt",
+    ]
+
+    with open(output_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    return len(rows)
+
+
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -3128,14 +3794,42 @@ def main():
         ),
     )
 
+    parser.add_argument(
+        "--shot-count",
+        action="store_true",
+        help=(
+            "Assign shot_label (S-01, S-02 …) and shot_number fields to "
+            "each subscene in prompts.json.  A new shot number is assigned "
+            "whenever the CAMERA or LIGHTING setup changes from the previous "
+            "subscene; consecutive subscenes that share the same setup inherit "
+            "the same shot number.  Fields appear at the top of each subscene "
+            "object for easy scanning in a JSON editor."
+        ),
+    )
+
+    parser.add_argument(
+        "--csv",
+        metavar="PATH",
+        help=(
+            "Write a shot-list CSV to PATH.  Implies --shot-count.  "
+            "Columns: shot_label, shot_number, subscene_id, scene, "
+            "duration_s, drama_type, framing, subject, move, transition, "
+            "lighting, beat_summary, negative_prompt.  "
+            "The video_prompt is omitted (too long for a spreadsheet cell)."
+        ),
+    )
+
     args = parser.parse_args()
+
+    # --csv implies --shot-count
+    shot_count = args.shot_count or bool(args.csv)
 
     stem        = Path(args.fountain).stem
     prompts_out = args.prompts or f"{stem}_prompts.json"
 
     actions, prompts = convert_fountain(
         args.fountain, scale=args.scale, title_override=args.title,
-        clip_mode=args.clip_mode)
+        clip_mode=args.clip_mode, shot_count=shot_count)
 
     # ── prompts-only mode ─────────────────────────────────────────────────
     if args.prompts_only:
@@ -3143,7 +3837,11 @@ def main():
         n_scenes    = len(prompts["scenes"])
         n_subscenes = prompts.get("subscene_count", 0)
         print(f"Prompts-only mode.")
-        print(f"Wrote {n_subscenes} subscenes across {n_scenes} scenes → {prompts_out}")
+        print(f"Wrote {n_subscenes} subscenes across {n_scenes} scenes "
+              f"→ {prompts_out}")
+        if args.csv:
+            n_rows = export_shots_csv(prompts, args.csv)
+            print(f"Shot list:  {args.csv}  ({n_rows} rows)")
         return
 
     # ── normal mode ───────────────────────────────────────────────────────
@@ -3163,6 +3861,16 @@ def main():
           f"{n_comments} comments, {n_reviews} review)")
     print(f"Prompts:    {prompts_out}  "
           f"({n_subscenes} subscenes across {n_scenes} scenes)")
+    if shot_count:
+        n_shots = max(
+            (ss.get("shot_number") or 0)
+            for scene in prompts.get("scenes", [])
+            for ss in scene.get("subscenes", [])
+        ) if any(
+            scene.get("subscenes")
+            for scene in prompts.get("scenes", [])
+        ) else 0
+        print(f"Shots:      {n_shots} distinct shot setups")
     print(f"Characters: {', '.join(prompts['characters'].keys())}")
     print()
 
@@ -3171,6 +3879,10 @@ def main():
         for a in actions:
             if "_comment" in a and "REVIEW" in a["_comment"]:
                 print(f"  → {a['_comment'][10:]}")
+
+    if args.csv:
+        n_rows = export_shots_csv(prompts, args.csv)
+        print(f"Shot list CSV: {args.csv}  ({n_rows} rows)")
 
     _patch_hints(actions, prompts)
 
