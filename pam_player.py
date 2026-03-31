@@ -97,7 +97,97 @@ def _resolve_pose(name: str | None, default=None, fig=None):
     )
 
 
-class PAMPlayer(Scene):
+# ─────────────────────────────────────────────────────────────────────────────
+#  CAMERA MODE  (v0.9.2)
+#
+#  Maps FRAMING and MOVE values from the prompts shot_meta to Manim
+#  camera parameters.  Called at each _subscene_marker when PAM_CAMERA_MODE=1.
+#
+#  Manim's MovingCamera uses:
+#    self.camera.frame.move_to(point)   — pan to a world position
+#    self.camera.frame.set_width(w)     — zoom (wider w = zoomed out)
+#    self.camera.frame.animate          — animated version of both
+#
+#  PAM's world is roughly 14.2 units wide × 8 units tall at default zoom.
+#  scale=0.7 characters are ~4.2 units tall; two fit side-by-side at width≈14.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# FRAMING → (frame_width, y_offset_from_stage_centre)
+# frame_width: narrower = tighter shot.  stage centre y ≈ -0.5 for standing chars.
+_FRAMING_CAMERA: dict[str, tuple] = {
+    "wide":         (14.2, 0.0),    # full stage, default
+    "medium":       (9.0,  0.2),    # waist-up, slight raise
+    "medium-close": (6.0,  0.6),    # chest-up
+    "close":        (4.0,  1.0),    # face and shoulders
+    "ots-left":     (8.0,  0.3),    # over-the-shoulder — same width as medium
+    "ots-right":    (8.0,  0.3),
+    "oneshot":      (5.5,  0.5),    # single character centered
+    "insert":       (3.5,  0.5),    # extreme close on prop/detail
+}
+
+# MOVE → run_time for the camera animation (seconds)
+_MOVE_RT: dict[str, float] = {
+    "static":     0.0,    # instant (no animation)
+    "push":       1.2,
+    "pull":       1.2,
+    "pan-follow": 0.6,
+    "drift":      2.5,
+}
+
+
+def _apply_camera(meta: dict, scene: "Scene"):
+    """
+    Reposition the Manim camera based on a shot_meta dict.
+
+    Called at each ``_subscene_marker`` when camera-mode is active.
+    Uses ``self.camera.frame`` (MovingCameraScene) if available, falls
+    back to a no-op for standard Scene (which has a fixed camera).
+
+    Parameters
+    ----------
+    meta  : shot_meta dict from prompts.json — keys: framing, subject,
+            move, transition, lighting.
+    scene : the Manim Scene (or PAMPlayer) instance.
+    """
+    frame = getattr(getattr(scene, "camera", None), "frame", None)
+    if frame is None:
+        return   # standard Scene — no movable camera
+
+    framing = (meta.get("framing") or "wide").lower()
+    move    = (meta.get("move")    or "static").lower()
+    subject = (meta.get("subject") or "ensemble").lower()
+
+    target_w, y_off = _FRAMING_CAMERA.get(framing, (14.2, 0.0))
+    rt = _MOVE_RT.get(move, 0.0)
+
+    # Default camera target: stage centre
+    target_x = 0.0
+    target_y = -0.5 + y_off   # stage floor ≈ -2.6, heads ≈ 1.5
+
+    # For named subjects, try to nudge the camera toward their side.
+    # This is a best-effort heuristic — exact positions aren't available here.
+    if subject not in ("ensemble", "none", ""):
+        if subject in ("nona",):
+            target_x = -1.5    # Nona tends to be screen-left
+        elif subject in ("sidel",):
+            target_x = 1.5     # Sidel tends to be screen-right
+        elif subject in ("governor", "dodecahedron"):
+            target_x = 0.0     # Governor is centre
+            target_y = 1.0 + y_off   # Governor hovers above table
+
+    if rt > 0:
+        scene.play(
+            frame.animate.set_width(target_w).move_to(
+                np.array([target_x, target_y, 0])),
+            run_time=rt,
+            rate_func=smooth,
+        )
+    else:
+        frame.set_width(target_w)
+        frame.move_to(np.array([target_x, target_y, 0]))
+
+
+class PAMPlayer(MovingCameraScene):
     """Read a JSON screenplay and perform it."""
 
     def construct(self):
@@ -107,6 +197,35 @@ class PAMPlayer(Scene):
         script_path = os.environ.get("PAM_SCRIPT", "screenplay.json")
         with open(script_path, "r") as f:
             actions = json.load(f)
+
+        # ── camera-mode: load prompts JSON for subscene sync ─────────────
+        # Set PAM_PROMPTS=path/to/prompts.json or PAM_CAMERA_MODE=1 alongside
+        # PAM_SCRIPT to enable automatic camera repositioning.
+        # Each _subscene_marker action in the PAM JSON carries a subscene_id
+        # that is looked up here to retrieve framing and move instructions.
+        _camera_mode = bool(os.environ.get("PAM_CAMERA_MODE", ""))
+        _subscene_index: dict = {}   # subscene_id → shot_meta dict
+        if _camera_mode:
+            prompts_path = os.environ.get(
+                "PAM_PROMPTS",
+                script_path.replace(".json", "_prompts.json"),
+            )
+            try:
+                with open(prompts_path, "r") as f:
+                    _prompts = json.load(f)
+                for scene in _prompts.get("scenes", []):
+                    for ss in scene.get("subscenes", []):
+                        sid  = ss.get("subscene_id", "")
+                        meta = ss.get("shot_meta") or {}
+                        if sid:
+                            _subscene_index[sid] = meta
+                print(f"PAMPlayer: camera-mode ON — "
+                      f"{len(_subscene_index)} subscenes loaded from "
+                      f"'{prompts_path}'")
+            except FileNotFoundError:
+                print(f"PAMPlayer: camera-mode requested but prompts file "
+                      f"'{prompts_path}' not found — camera-mode disabled.")
+                _camera_mode = False
 
         # ── optional title ───────────────────────────────────────────────
         title_mob = subtitle_mob = None
@@ -512,6 +631,15 @@ class PAMPlayer(Scene):
         for step in actions:
             if "_comment" in step or "_hint" in step:   # skip annotations
                 continue
+
+            # ── _subscene_marker: camera-mode sync ───────────────────────
+            if "_subscene_marker" in step:
+                if _camera_mode:
+                    sid  = step["_subscene_marker"]
+                    meta = _subscene_index.get(sid) or step.get("_shot_meta") or {}
+                    _apply_camera(meta, self)
+                continue
+
             act = step["action"]
 
             # ── cast ─────────────────────────────────────────────────────
