@@ -1837,6 +1837,7 @@ class ScenePromptBuilder:
                  lighting: "list | None" = None,
                  clip_mode: str = "per-speaker",
                  shot_count: bool = False,
+                 on_close: "callable | None" = None,
                  prop_char_display_names: dict | None = None):
         self.heading              = heading
         self.mood: str            = mood
@@ -1849,6 +1850,10 @@ class ScenePromptBuilder:
         self.lighting: list       = lighting or []
         self.clip_mode: str       = clip_mode
         self.shot_count: bool     = shot_count
+        # Callback fired when a subscene closes: on_close(subscene_id, shot_meta)
+        # Used to inject _subscene_marker actions into the PAM JSON for
+        # pam_player.py --camera-mode sync.
+        self._on_close = on_close
         # Maps prop type key → display name, e.g. {"dodecahedron": "Governor of Venus"}
         self.prop_char_display_names: dict = prop_char_display_names or {}
         self.setting_lines: list[str]   = []
@@ -2080,6 +2085,10 @@ class ScenePromptBuilder:
                                         beats, drama_type, active_chars),
         })
         self._subscenes.append(subscene)
+
+        # Notify convert_fountain to inject a PAM marker action
+        if self._on_close:
+            self._on_close(ss_id, shot_meta)
 
         self._current_beats    = []
         self._current_duration = 0.0
@@ -3236,11 +3245,21 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
             )
 
     # ── Prompt builder ───────────────────────────────────────────────────
+    # _on_subscene_close: called each time a subscene closes.
+    # Injects a _subscene_marker entry into the PAM JSON so pam_player
+    # --camera-mode can sync camera state by subscene_id.
+    def _on_subscene_close(ss_id: str, shot_meta: dict):
+        actions.append({
+            "_subscene_marker": ss_id,
+            "_shot_meta":       shot_meta,
+        })
+
     scene_prompts = []
     current_scene = ScenePromptBuilder(
         "(opening)",
         clip_mode=clip_mode,
         shot_count=shot_count,
+        on_close=_on_subscene_close,
         prop_char_display_names=prop_char_display_names,
     )
 
@@ -3292,6 +3311,38 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
         spec = cast_spec.get(prop_key, {})
         spawn_pos = spec.get("spawn", {})
         style     = spec.get("style", {})
+
+        # Before the prop-character speaks for the first time, fade in any
+        # humanoid who was physically introduced (appeared in an Action element)
+        # before the first prop-char Dialog element in the parsed document.
+        #
+        # We scan the screenplain document elements in order, collecting
+        # humanoid names found in Action lines until we hit the first Dialog
+        # element belonging to a prop-character.  Only those humanoids get
+        # pre-faded — characters who enter later (like Nona sweeping in) are
+        # correctly left for their own fade_in.
+        #
+        # We emit fade_in directly (not via _emit_fade_in) to avoid the
+        # "first fade_in" cascade that would re-trigger this function.
+        introduced_before_prop_dialog: set = set()
+        for elem in doc:
+            if isinstance(elem, Action):
+                txt = _action_text(elem).upper()
+                for cname in hg_characters:
+                    if cname.split()[0] in txt:
+                        introduced_before_prop_dialog.add(cname)
+            elif isinstance(elem, Dialog):
+                cname = str(elem.character).strip()
+                if char_key.get(cname, cname.lower()) in prop_char_keys:
+                    break   # reached first prop-char dialogue — stop scanning
+
+        for cname in list(hg_characters):
+            ckey = char_key.get(cname, cname.lower().split()[0])
+            if ckey not in faded_in and cname in introduced_before_prop_dialog:
+                fi = {"action": "fade_in", "who": ckey}
+                actions.append(fi)
+                current_scene.add_pam_action(fi)
+                faded_in.add(ckey)
 
         if prop_key == "dodecahedron":
             sp = {
@@ -3356,6 +3407,7 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                 camera                  = "",
                 clip_mode               = clip_mode,
                 shot_count              = shot_count,
+                on_close                = _on_subscene_close,
                 prop_char_display_names = prop_char_display_names,
             )
             for cname in hg_characters:
@@ -3685,7 +3737,19 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
 # ─────────────────────────────────────────────────────────────────────────────
 
 def write_screenplay(actions, output_path, keep_comments=True):
-    clean = actions if keep_comments else [a for a in actions if "_comment" not in a]
+    """Write the PAM JSON screenplay.
+
+    ``_comment`` and ``_hint`` entries are stripped when *keep_comments* is
+    False.  ``_subscene_marker`` entries are always kept — they are required
+    by ``pam_player --camera-mode`` for subscene sync.
+    """
+    def _keep(a):
+        if "_subscene_marker" in a:
+            return True          # always keep camera-mode markers
+        if not keep_comments and ("_comment" in a or "_hint" in a):
+            return False
+        return True
+    clean = [a for a in actions if _keep(a)]
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(clean, f, indent=2, ensure_ascii=False)
 
