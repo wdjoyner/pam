@@ -1,7 +1,7 @@
 Title: Nona vs the AI Governor
 Credit: Written by
 Source: David Joyner
-Draft date: 2026/03/30
+Draft date: 2026/03/31
 Contact: wdjoyner@gmail.com
 
 
@@ -59,7 +59,7 @@ Why is my city still on forty percent power?
 [[ CAMERA: FRAMING=medium-close | SUBJECT=Sidel | MOVE=static | TRANSITION=cut ]]
 
 SIDEL
-Sorry Mayor Sonnof, the Solar Converters are behind schedule. Six months, at minimum.
+Sorry Mayor Sonnof, the on-going repairs for the Solar Converters are behind schedule. Another six months, at minimum.
 
 [[ CAMERA: FRAMING=ots-right | SUBJECT=Governor | MOVE=static | TRANSITION=smash ]]
 
@@ -119,7 +119,7 @@ Sergeant Sidel — what's the current plastic supply?
 [[ CAMERA: FRAMING=oneshot | SUBJECT=Sidel | MOVE=static | TRANSITION=cut ]]
 
 SIDEL
-None. Situation: desperate. By analysis of Earthnet shows that planet has a massive surplus of plastic trash.
+None. Situation: desperate. Analysis of Earthnet shows that planet has a massive surplus of plastic trash.
 
 [[ CAMERA: FRAMING=oneshot | SUBJECT=Nona | MOVE=static | TRANSITION=cut ]]
 
@@ -177,7 +177,7 @@ So, no, it's not ready?
 [[ CAMERA: FRAMING=oneshot | SUBJECT=Sidel | MOVE=static | TRANSITION=cut ]]
 
 SIDEL
-Technically, "yes, maybe" — but also moving toward not a "no".
+Technically, "affirmatively maybe" — but also moving toward a not "negative".
 
 [[ CAMERA: FRAMING=oneshot | SUBJECT=Nona | MOVE=static | TRANSITION=cut ]]
 
@@ -251,7 +251,7 @@ It's not a blocker.
 [[ CAMERA: FRAMING=oneshot | SUBJECT=Nona | MOVE=static | TRANSITION=cut ]]
 
 NONA
-Wouldn't they notice Earthlings dying? The Earthlings would be very upset at that.
+Wouldn't they notice Earthlings dying? The Earthlings would be *very* upset at that.
 
 [[ CAMERA: FRAMING=medium | SUBJECT=Governor | MOVE=push | TRANSITION=smash ]]
 
@@ -278,18 +278,19 @@ Yes, Madam Governor.
 [[ CAMERA: FRAMING=medium | SUBJECT=Governor | MOVE=static | TRANSITION=cut ]]
 
 GOVERNOR
-Sergeant, start selecting your best operator from the Avatar Academy.
+Sergeant, start the selection process for your best operator from the Avatar Academy.
 
 [[ CAMERA: FRAMING=oneshot | SUBJECT=Nona | MOVE=static | TRANSITION=cut ]]
 
 NONA
 Madam Governor, can I ask a question?
 
+The dodecahedron dims, slows, and disappears. The AI Governor has left. 
+
 [[ SCENE POPULATION: Sidel, Nona only. Governor exits here. ]]
 [[ NEGATIVE: No dodecahedron. No geometric objects. No additional human figures. ]]
 
 [[ CAMERA: FRAMING=wide | SUBJECT=ensemble | MOVE=static | TRANSITION=hold-empty ]]
-The dodecahedron dims, slows, and goes dark. It vanishes.
 
 Nona stares at the empty air where the Governor was. The holographic planets continue their silent orbits above her. She looks very small in the room.
 
