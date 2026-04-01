@@ -15,6 +15,7 @@ calls with the appropriate keyframe cycles from `poses.py`.
 """
 
 from __future__ import annotations
+import textwrap
 from manim import *
 import numpy as np
 
@@ -494,28 +495,39 @@ class HumanGraph:
 
     def say(self, text: str, scene: Scene,
             hold=1.2, font_size=20, rt_in=0.4, rt_out=0.3,
-            side="right"):
+            side="right", max_bubble_w=5.0, post_wait=0.0,
+            extra_anims=None):
         """Pop a speech bubble above the head, hold, then dismiss.
 
         Parameters
         ----------
         side : str
-            ``"right"`` (default) places the bubble to the right of the
-            head.  ``"left"`` places it to the left — useful for
-            characters on the right side of the screen.
+            ``"right"`` (default) or ``"left"``.
+        max_bubble_w : float
+            Maximum bubble width in world units.  Default ``5.0``.
+        post_wait : float
+            Extra pause after the bubble fades out.  Default ``0.0``.
+            Set via ``PADDING_WAIT`` in pam_player.py.
         """
         sp = self._apply_scale(self.pose)
         hx = (sp["head"] + self.offset)[0]
         hy = (sp["head"] + self.offset)[1]
         s = self.style
 
-        # ── measure text first, then fit the box around it ───────────────
+        # ── pre-wrap text to fit max_bubble_w ────────────────────────────
+        # Courier New at font_size 20 ≈ 0.113 world units per character.
+        # Scale linearly with font_size so wrapping is always accurate.
+        char_w = 0.113 * (font_size / 20)
+        pad = 0.32
+        usable_w = max_bubble_w - pad * 2
+        chars_per_line = max(10, int(usable_w / char_w))
+        wrapped = textwrap.fill(text, width=chars_per_line)
+
         txt = Text(
-            text, font=s["head_font"], font_size=font_size,
+            wrapped, font=s["head_font"], font_size=font_size,
             color=s["highlight_color"], weight=BOLD,
         )
-        pad = 0.32
-        bw = txt.width + pad * 2
+        bw = min(txt.width + pad * 2, max_bubble_w)
         bh = txt.height + pad * 1.2
 
         # screen safe margins (Manim default frame is 14.2 wide, 8 tall)
@@ -535,10 +547,8 @@ class HumanGraph:
             color=s["head_stroke"], fill_color=s["head_color"],
             fill_opacity=0.95, stroke_width=2,
         ).move_to(np.array([bx, by, 0]))
-
         txt.move_to(box.get_center())
 
-        # tail: small triangle pointing from the box down toward the head
         tail_x = np.clip(hx, bx - bw / 2 + 0.3, bx + bw / 2 - 0.3)
         tail = Polygon(
             np.array([tail_x - 0.12, by - bh / 2, 0]),
@@ -548,13 +558,15 @@ class HumanGraph:
             fill_opacity=0.95, stroke_width=1.5,
         )
         bubble = VGroup(box, tail, txt)
-        scene.play(FadeIn(bubble, scale=0.85), run_time=rt_in)
+        fade_anims = [FadeIn(bubble, scale=0.85)] + (extra_anims or [])
+        scene.play(*fade_anims, run_time=rt_in)
         scene.wait(hold)
         scene.play(FadeOut(bubble), run_time=rt_out)
+        if post_wait > 0:
+            scene.wait(post_wait)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  ALIEN GRAPH  —  short, wide-torso humanoid (Venusian etc.)
 # ─────────────────────────────────────────────────────────────────────────────
 
 class AlienGraph(HumanGraph):
@@ -790,16 +802,22 @@ class DogGraph:
 
     def say(self, text: str, scene: Scene,
             hold=1.2, font_size=18, rt_in=0.4, rt_out=0.3,
-            side="right"):
+            side="right", max_bubble_w=5.0, post_wait=0.0,
+            extra_anims=None):
         """Speech bubble above the dog's head."""
         s = self.style
         head_pos = self.pose["head"] + self.offset
         hx, hy = head_pos[0], head_pos[1]
 
-        txt = Text(text, font="Courier New", font_size=font_size,
-                   color=s["highlight_color"], weight=BOLD)
+        char_w = 0.113 * (font_size / 20)
         pad = 0.28
-        bw = txt.width + pad * 2
+        usable_w = max_bubble_w - pad * 2
+        chars_per_line = max(10, int(usable_w / char_w))
+        wrapped = textwrap.fill(text, width=chars_per_line)
+
+        txt = Text(wrapped, font="Courier New", font_size=font_size,
+                   color=s["highlight_color"], weight=BOLD)
+        bw = min(txt.width + pad * 2, max_bubble_w)
         bh = txt.height + pad * 1.2
 
         x_margin = 0.3
@@ -827,9 +845,12 @@ class DogGraph:
             fill_opacity=0.95, stroke_width=1.5,
         )
         bubble = VGroup(box, tail, txt)
-        scene.play(FadeIn(bubble, scale=0.85), run_time=rt_in)
+        fade_anims = [FadeIn(bubble, scale=0.85)] + (extra_anims or [])
+        scene.play(*fade_anims, run_time=rt_in)
         scene.wait(hold)
         scene.play(FadeOut(bubble), run_time=rt_out)
+        if post_wait > 0:
+            scene.wait(post_wait)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1033,17 +1054,23 @@ class GovernorGraph:
 
     def say(self, text: str, scene: Scene,
             hold=1.4, font_size=20, rt_in=0.4, rt_out=0.3,
-            side="right"):
+            side="right", max_bubble_w=5.0, post_wait=0.0,
+            extra_anims=None):
         """
         Pop a speech bubble beside the dodecahedron, hold, then dismiss.
 
         The Governor has no mouth — the bubble appears beside the shape
         with no pointer tail (consistent with the screen direction notes).
         """
-        txt = Text(text, font="Courier New", font_size=font_size,
-                   color=self._color_gold, weight=BOLD)
+        char_w = 0.113 * (font_size / 20)
         pad = 0.32
-        bw = txt.width + pad * 2
+        usable_w = max_bubble_w - pad * 2
+        chars_per_line = max(10, int(usable_w / char_w))
+        wrapped = textwrap.fill(text, width=chars_per_line)
+
+        txt = Text(wrapped, font="Courier New", font_size=font_size,
+                   color=self._color_gold, weight=BOLD)
+        bw = min(txt.width + pad * 2, max_bubble_w)
         bh = txt.height + pad * 1.2
 
         x_margin = 0.3
@@ -1058,7 +1085,7 @@ class GovernorGraph:
 
         box = RoundedRectangle(
             width=bw, height=bh, corner_radius=0.15,
-            color=self._accent, fill_color="#0d2340",
+            color=self._color_gold, fill_color="#0d2340",
             fill_opacity=0.95, stroke_width=2,
         ).move_to(np.array([bx, by, 0]))
         txt.move_to(box.get_center())
@@ -1067,14 +1094,16 @@ class GovernorGraph:
         bubble = VGroup(box, txt)
 
         # pulse once as the bubble appears
-        scene.play(
+        fade_anims = [
             FadeIn(bubble, scale=0.88),
             self._poly.animate.scale(1.12).set_fill(opacity=1.0),
-            run_time=rt_in,
-        )
+        ] + (extra_anims or [])
+        scene.play(*fade_anims, run_time=rt_in)
         scene.play(
             self._poly.animate.scale(1 / 1.12).set_fill(opacity=0.88),
             run_time=0.1,
         )
         scene.wait(hold)
         scene.play(FadeOut(bubble), run_time=rt_out)
+        if post_wait > 0:
+            scene.wait(post_wait)
