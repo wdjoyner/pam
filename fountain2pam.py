@@ -3281,8 +3281,8 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
 
     def _emit_fade_in(who_key: str):
         a = {"action": "fade_in", "who": who_key}
+        current_scene.add_pam_action(a)   # before append, consistent with _emit
         actions.append(a)
-        current_scene.add_pam_action(a)
         faded_in.add(who_key)
         for prop_key, owner_key in worn_props.items():
             if owner_key == who_key:
@@ -3381,10 +3381,17 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
         prop_char_spawned.add(prop_key)
 
     def _emit(a: dict):
-        """Append action to both the PAM list and the prompt builder."""
-        actions.append(a)
+        """Append action to both the PAM list and the prompt builder.
+
+        ORDERING: add_pam_action() is called BEFORE actions.append() so
+        that if a speaker change triggers _close_subscene() → _on_subscene_close(),
+        the _subscene_marker is inserted into actions BEFORE the triggering
+        action.  This ensures pam_player sees the camera marker just before
+        the new speaker's line, not after it.
+        """
         if "_comment" not in a:
-            current_scene.add_pam_action(a)
+            current_scene.add_pam_action(a)   # may trigger _on_subscene_close
+        actions.append(a)                      # appended after any marker
 
     # ── Second pass: convert elements ────────────────────────────────────
     for elem in doc:
