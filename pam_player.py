@@ -71,6 +71,11 @@ from pam.props import build_prop
 BG_COLOR    = "#0a0e1a"
 LABEL_COLOR = "#4a7ab5"
 
+# Post-bubble pause added after each speech bubble fades out.
+# Gives lines room to land before the next speaker cuts in.
+# Set to 0.2 or 0.3 for a more relaxed rhythm; 0.0 for no padding.
+PADDING_WAIT = 0.0
+
 _DEFAULT = "__default__"
 
 # Actions that resolve to a single scene.play() and can be parallelised
@@ -103,77 +108,81 @@ def _resolve_pose(name: str | None, default=None, fig=None):
 #  Maps FRAMING and MOVE values from the prompts shot_meta to Manim
 #  camera parameters.  Called at each _subscene_marker when PAM_CAMERA_MODE=1.
 #
-#  Manim's MovingCamera uses:
-#    self.camera.frame.move_to(point)   — pan to a world position
-#    self.camera.frame.set_width(w)     — zoom (wider w = zoomed out)
-#    self.camera.frame.animate          — animated version of both
+#  Manim's MovingCameraScene uses self.camera.frame — a Rectangle that can
+#  be resized (zoom) and repositioned (pan) with animate or directly.
 #
-#  PAM's world is roughly 14.2 units wide × 8 units tall at default zoom.
-#  scale=0.7 characters are ~4.2 units tall; two fit side-by-side at width≈14.
+#  PAM world coordinates (scale=0.7 characters):
+#    Floor:        y ≈ -2.6
+#    Ankle/feet:   y ≈ -2.0
+#    Waist:        y ≈ -0.5
+#    Shoulders:    y ≈  0.5
+#    Head:         y ≈  1.2
+#    Stage width:  x ∈ [-6, 6]  (default frame width 14.2 shows full stage)
+#    Governor:     x = 0.0, y = 1.5  (hovering above table)
 # ─────────────────────────────────────────────────────────────────────────────
 
-# FRAMING → (frame_width, y_offset_from_stage_centre)
-# frame_width: narrower = tighter shot.  stage centre y ≈ -0.5 for standing chars.
+# FRAMING → (frame_width, frame_centre_y)
+# Narrower width = more zoomed in.
+# centre_y is where the camera vertically centres — mid-body for dialogue shots.
 _FRAMING_CAMERA: dict[str, tuple] = {
-    "wide":         (14.2, 0.0),    # full stage, default
-    "medium":       (9.0,  0.2),    # waist-up, slight raise
-    "medium-close": (6.0,  0.6),    # chest-up
-    "close":        (4.0,  1.0),    # face and shoulders
-    "ots-left":     (8.0,  0.3),    # over-the-shoulder — same width as medium
-    "ots-right":    (8.0,  0.3),
-    "oneshot":      (5.5,  0.5),    # single character centered
-    "insert":       (3.5,  0.5),    # extreme close on prop/detail
+    "wide":         (14.2, -0.5),   # full stage
+    "medium":       (8.0,  -0.2),   # waist-up
+    "medium-close": (5.5,   0.3),   # chest-up
+    "close":        (3.5,   0.9),   # face and shoulders
+    "ots-left":     (7.0,   0.0),   # OTS — slightly wider than medium
+    "ots-right":    (7.0,   0.0),
+    "oneshot":      (5.0,   0.3),   # single character
+    "insert":       (3.0,   1.5),   # extreme close — prop/detail level
 }
 
-# MOVE → run_time for the camera animation (seconds)
+# MOVE → whether to animate the camera transition and how long
+# static = instant cut (no camera animation, just reposition)
+# all others = smooth animated transition
 _MOVE_RT: dict[str, float] = {
-    "static":     0.0,    # instant (no animation)
-    "push":       1.2,
-    "pull":       1.2,
-    "pan-follow": 0.6,
-    "drift":      2.5,
+    "static":     0.0,    # instant — no scene.play() call
+    "push":       0.8,
+    "pull":       0.8,
+    "pan-follow": 0.5,
+    "drift":      1.5,
 }
 
 
-def _apply_camera(meta: dict, scene: "Scene"):
+def _apply_camera(meta: dict, scene: "MovingCameraScene",
+                  char_x_positions: dict):
     """
     Reposition the Manim camera based on a shot_meta dict.
 
     Called at each ``_subscene_marker`` when camera-mode is active.
-    Uses ``self.camera.frame`` (MovingCameraScene) if available, falls
-    back to a no-op for standard Scene (which has a fixed camera).
 
     Parameters
     ----------
-    meta  : shot_meta dict from prompts.json — keys: framing, subject,
-            move, transition, lighting.
-    scene : the Manim Scene (or PAMPlayer) instance.
+    meta            : shot_meta dict — keys: framing, subject, move.
+    scene           : the PAMPlayer (MovingCameraScene) instance.
+    char_x_positions: dict mapping character key → current world x position,
+                      used to centre the frame on the named subject.
+                      Also accepts "dodecahedron" → x position of the Governor.
     """
     frame = getattr(getattr(scene, "camera", None), "frame", None)
     if frame is None:
-        return   # standard Scene — no movable camera
+        return
 
     framing = (meta.get("framing") or "wide").lower()
     move    = (meta.get("move")    or "static").lower()
     subject = (meta.get("subject") or "ensemble").lower()
 
-    target_w, y_off = _FRAMING_CAMERA.get(framing, (14.2, 0.0))
+    target_w, target_y = _FRAMING_CAMERA.get(framing, (14.2, -0.5))
     rt = _MOVE_RT.get(move, 0.0)
 
-    # Default camera target: stage centre
-    target_x = 0.0
-    target_y = -0.5 + y_off   # stage floor ≈ -2.6, heads ≈ 1.5
+    # Centre x: use actual character position if known, else stage centre
+    if subject in ("ensemble", "none", ""):
+        target_x = 0.0
+    else:
+        # Look up the subject's actual x position from the live cast/prop data
+        target_x = char_x_positions.get(subject, 0.0)
 
-    # For named subjects, try to nudge the camera toward their side.
-    # This is a best-effort heuristic — exact positions aren't available here.
-    if subject not in ("ensemble", "none", ""):
-        if subject in ("nona",):
-            target_x = -1.5    # Nona tends to be screen-left
-        elif subject in ("sidel",):
-            target_x = 1.5     # Sidel tends to be screen-right
-        elif subject in ("governor", "dodecahedron"):
-            target_x = 0.0     # Governor is centre
-            target_y = 1.0 + y_off   # Governor hovers above table
+    # Governor hovers above the table — raise y for insert/close shots on it
+    if subject in ("governor", "dodecahedron") and framing in ("insert", "close"):
+        target_y = 1.5
 
     if rt > 0:
         scene.play(
@@ -183,15 +192,181 @@ def _apply_camera(meta: dict, scene: "Scene"):
             rate_func=smooth,
         )
     else:
+        # Instant reposition — no animation, no scene time consumed
         frame.set_width(target_w)
         frame.move_to(np.array([target_x, target_y, 0]))
 
 
+def _camera_anim(meta: dict, scene: "MovingCameraScene",
+                 char_x_positions: dict):
+    """
+    Return a Manim animation object for the camera move described by *meta*,
+    or ``None`` if the move is instant (static) or no frame is available.
+
+    Unlike ``_apply_camera``, this does NOT call ``scene.play()`` — it returns
+    an animation that can be included in an existing ``scene.play()`` call so
+    the camera moves concurrently with a speech bubble fade-in.
+
+    Only used for animated moves (push / pull / pan-follow / drift).
+    Static cuts are handled by ``_apply_camera`` directly at the marker.
+    """
+    frame = getattr(getattr(scene, "camera", None), "frame", None)
+    if frame is None:
+        return None
+
+    framing = (meta.get("framing") or "wide").lower()
+    move    = (meta.get("move")    or "static").lower()
+    subject = (meta.get("subject") or "ensemble").lower()
+
+    zoom, target_y = _FRAMING_CAMERA.get(framing, (1.0, _WIDE_Y))
+    target_w = _WIDE_W * zoom
+    rt = _MOVE_RT.get(move, 0.0)
+
+    if rt == 0.0:
+        return None   # static — handled elsewhere
+
+    if subject in ("ensemble", "none", ""):
+        target_x = 0.0
+    else:
+        target_x = char_x_positions.get(subject, 0.0)
+        half_w = target_w / 2
+        target_x = float(np.clip(target_x, -7.1 + half_w, 7.1 - half_w))
+
+    if subject in ("governor", "dodecahedron") and framing == "insert":
+        target_y = 1.5
+
+    return frame.animate.set_width(target_w).move_to(
+        np.array([target_x, target_y, 0]))
+
+
 class PAMPlayer(MovingCameraScene):
-    """Read a JSON screenplay and perform it."""
+    """
+    Animate a PAM JSON screenplay produced by fountain2pam.py.
+
+    Basic usage
+    -----------
+    ::
+
+        manim -pql pam_player.py PAMPlayer
+
+    Environment variables
+    ---------------------
+    PAM_SCRIPT
+        Path to the PAM JSON screenplay.  Default: ``screenplay.json``.
+
+    PAM_CAMERA_MODE
+        Set to ``1`` to enable automatic camera repositioning based on
+        the CAMERA annotations in the original Fountain file.  Default:
+        off (fixed wide shot throughout).
+
+    PAM_PROMPTS
+        Path to the prompts JSON produced by fountain2pam.py alongside
+        the PAM JSON.  Only used when PAM_CAMERA_MODE=1.  Default:
+        ``<PAM_SCRIPT stem>_prompts.json`` (auto-derived from PAM_SCRIPT).
+
+    Camera mode — full pipeline
+    ---------------------------
+    Camera mode requires that the PAM JSON and prompts JSON were both
+    generated by fountain2pam v0.9.2 or later, which injects
+    ``_subscene_marker`` entries into the PAM JSON.  These markers
+    carry the FRAMING and MOVE values from the Fountain+ CAMERA tags
+    and are used to reposition the Manim camera at each subscene
+    boundary.
+
+    Step 1 — annotate your Fountain file with CAMERA tags::
+
+        [[ CAMERA: FRAMING=medium | SUBJECT=Sidel | MOVE=static | TRANSITION=cut ]]
+
+        SIDEL
+        She insisted conservation applies to her as well.
+
+    Note: every ``[[ ]]`` note must be followed by a blank line before
+    a character cue, or screenplain will not parse the dialogue
+    correctly.
+
+    Step 2 — convert with fountain2pam.py::
+
+        python fountain2pam.py scene.fountain \\
+            -o scene.json \\
+            --prompts scene_prompts.json \\
+            --shot-count
+
+    Step 3 — verify the PAM JSON contains markers::
+
+        python3 -c "
+        import json
+        data = json.load(open('scene.json'))
+        markers = [a for a in data if '_subscene_marker' in a]
+        print(len(markers), 'markers found')
+        "
+
+    Step 4 — render with camera mode::
+
+        PAM_CAMERA_MODE=1 \\
+        PAM_SCRIPT=scene.json \\
+        PAM_PROMPTS=scene_prompts.json \\
+        manim -pql pam_player.py PAMPlayer
+
+    If PAM_PROMPTS is omitted, the player looks for
+    ``scene_prompts.json`` automatically (replacing ``.json`` with
+    ``_prompts.json`` in the PAM_SCRIPT path).
+
+    FRAMING values and their Manim frame widths
+    --------------------------------------------
+    ===============  ===========  ====================================
+    FRAMING          Frame width  Description
+    ===============  ===========  ====================================
+    ``wide``         14.2         Full stage — default
+    ``medium``        8.0         Waist-up
+    ``medium-close``  5.5         Chest-up
+    ``close``         3.5         Face and shoulders
+    ``ots-left``      7.0         Over-the-shoulder (camera left)
+    ``ots-right``     7.0         Over-the-shoulder (camera right)
+    ``oneshot``       5.0         Single character centred
+    ``insert``        3.0         Extreme close — prop or detail
+    ===============  ===========  ====================================
+
+    MOVE values and their camera behaviour
+    ---------------------------------------
+    ============  =========  ==========================================
+    MOVE          Run time   Behaviour
+    ============  =========  ==========================================
+    ``static``    instant    Hard cut — no camera animation
+    ``push``      0.8 s      Smooth zoom in toward subject
+    ``pull``      0.8 s      Smooth zoom out from subject
+    ``pan-follow``0.5 s      Quick pan to new subject position
+    ``drift``     1.5 s      Slow atmospheric drift
+    ============  =========  ==========================================
+
+    SUBJECT values
+    --------------
+    Any character key (e.g. ``Nona``, ``Sidel``) or prop name
+    (e.g. ``dodecahedron``, ``Governor``).  The camera centres on
+    the subject's actual world x position at the time the marker
+    fires.  Use ``ensemble`` (or omit SUBJECT) to keep the camera
+    centred on the stage.
+
+    Fountain+ annotation example (full scene opening)
+    --------------------------------------------------
+    ::
+
+        [[ MOOD: cool blue-green, holographic, bureaucratic-noir ]]
+        [[ CAMERA: FRAMING=wide | SUBJECT=ensemble | MOVE=drift
+           | TRANSITION=hold | LIGHTING=evenly-lit practical-cool ]]
+
+        The room is a domed observatory...
+
+        [[ CAMERA: FRAMING=medium | SUBJECT=Governor | MOVE=static
+           | TRANSITION=cut ]]
+
+        GOVERNOR
+        I'm waiting for your report, Sergeant Sidel.
+    """
 
     def construct(self):
         self.camera.background_color = BG_COLOR
+        print(f"DEBUG camera_mode={os.environ.get('PAM_CAMERA_MODE')}")
+        print(f"DEBUG script={os.environ.get('PAM_SCRIPT', 'screenplay.json')}")
 
         # ── load screenplay ──────────────────────────────────────────────
         script_path = os.environ.get("PAM_SCRIPT", "screenplay.json")
@@ -251,6 +426,12 @@ class PAMPlayer(MovingCameraScene):
 
         # ── prop registry ────────────────────────────────────────────────
         props: dict[str, VGroup] = {}   # name → Manim VGroup with pam_* attrs
+
+        # ── deferred camera state ────────────────────────────────────────
+        # Camera moves are stored here at each _subscene_marker and applied
+        # concurrently with the next FadeIn(bubble) in say() / prop_say().
+        # This avoids camera animation consuming time before dialogue starts.
+        _pending_camera: list = []   # 0 or 1 entry: [meta, char_x_snapshot]
 
         def _get_fig(name: str) -> HumanGraph | None:
             if name in cast:
@@ -349,11 +530,18 @@ class PAMPlayer(MovingCameraScene):
 
             # ── say ──────────────────────────────────────────────────────
             if act == "say":
+                _cam_anim = None
+                if _pending_camera:
+                    _cmeta, _cxpos = _pending_camera[0]
+                    _cam_anim = _camera_anim(_cmeta, self, _cxpos)
+                    _pending_camera.clear()
                 fig.say(
                     step["text"], self,
                     hold=step.get("hold", 1.2),
                     font_size=step.get("font_size", 20),
                     side=step.get("side", "right"),
+                    post_wait=PADDING_WAIT,
+                    extra_anims=[_cam_anim] if _cam_anim else None,
                 )
                 return None
 
@@ -637,7 +825,27 @@ class PAMPlayer(MovingCameraScene):
                 if _camera_mode:
                     sid  = step["_subscene_marker"]
                     meta = _subscene_index.get(sid) or step.get("_shot_meta") or {}
-                    _apply_camera(meta, self)
+                    # Build a live x-position snapshot from current cast and props
+                    char_x = {}
+                    for ckey, cspec in cast.items():
+                        fig = cspec.get("fig")
+                        if fig is not None:
+                            char_x[ckey] = float(fig.offset[0])
+                    for pname, prop in props.items():
+                        char_x[pname] = float(getattr(prop, "pam_x", 0.0))
+                        ptype = getattr(prop, "pam_type", "")
+                        if ptype:
+                            char_x[ptype] = char_x[pname]
+                    # For static cuts: apply immediately (no scene time used).
+                    # For animated moves: defer so the camera moves concurrently
+                    # with the next FadeIn(bubble) rather than before it.
+                    move = (meta.get("move") or "static").lower()
+                    if _MOVE_RT.get(move, 0.0) == 0.0:
+                        _apply_camera(meta, self, char_x)
+                        _pending_camera.clear()
+                    else:
+                        _pending_camera.clear()
+                        _pending_camera.append((meta, char_x))
                 continue
 
             act = step["action"]
@@ -824,18 +1032,28 @@ class PAMPlayer(MovingCameraScene):
                 if not prop or not text:
                     continue
 
+                # Consume any pending deferred camera move
+                _cam_anim = None
+                if _pending_camera:
+                    _cmeta, _cxpos = _pending_camera[0]
+                    _cam_anim = _camera_anim(_cmeta, self, _cxpos)
+                    _pending_camera.clear()
+                _cam_extra = [_cam_anim] if _cam_anim else None
+
                 # ── GovernorGraph: delegate to its say() method ───────────
                 gov = getattr(prop, "pam_governor", None)
                 if gov is not None:
                     gov.say(text, self, hold=hold, font_size=font_size,
-                            rt_in=rt_in, rt_out=rt_out, side=side)
+                            rt_in=rt_in, rt_out=rt_out, side=side,
+                            post_wait=PADDING_WAIT, extra_anims=_cam_extra)
                     continue
 
                 # ── DogGraph: delegate to its say() method ────────────────
                 dog = getattr(prop, "pam_dog", None)
                 if dog is not None:
                     dog.say(text, self, hold=hold, font_size=font_size,
-                            rt_in=rt_in, rt_out=rt_out, side=side)
+                            rt_in=rt_in, rt_out=rt_out, side=side,
+                            post_wait=PADDING_WAIT, extra_anims=_cam_extra)
                     continue
 
                 # ── Generic prop: manual speech bubble ────────────────────
@@ -882,9 +1100,12 @@ class PAMPlayer(MovingCameraScene):
                     fill_opacity=0.95, stroke_width=1.2,
                 )
                 bubble = VGroup(box, tail, txt)
-                self.play(FadeIn(bubble, scale=0.88), run_time=rt_in)
+                _fade_anims = [FadeIn(bubble, scale=0.88)] + (_cam_extra or [])
+                self.play(*_fade_anims, run_time=rt_in)
                 self.wait(hold)
                 self.play(FadeOut(bubble), run_time=rt_out)
+                if PADDING_WAIT > 0:
+                    self.wait(PADDING_WAIT)
                 continue
 
             # ── on_screen_text ───────────────────────────────────────────
