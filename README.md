@@ -1,20 +1,19 @@
 # PAM — Pose And Motion
-### Stick-figure animation library for Manim · v0.9.0
+### Stick-figure animation library for Manim · v0.9.3
 
 PAM is a Manim-based toolkit for animating stick-figure characters as
-mathematical graphs. Poses are plain Python dictionaries mapping joint
-names to coordinates; motions are sequences of pose-to-pose
-interpolations. Write animations in Python, or drive them from a JSON
-screenplay on the command line.
+mathematical graphs.  Poses are plain Python dictionaries mapping joint names
+to coordinates; motions are sequences of pose-to-pose interpolations.  Write
+animations in Python, or drive them from a JSON screenplay on the command line.
 
 ---
 
-## Credits
+### Credits
 
-PAM was developed by **David Joyner** with AI assistance from
-**Claude Sonnet 4.6** (Anthropic), which co-authored the majority of
-the codebase — including the JSON screenplay player, the Fountain-to-PAM
-converter, the prop system, speech bubble layout, and this documentation.
+PAM was developed by David Joyner with AI assistance from Claude Sonnet 4.6
+(Anthropic), which co-authored the majority of the codebase — including the
+JSON screenplay player, the Fountain-to-PAM converter, the prop system, speech
+bubble layout, the character registry system, and this documentation.
 
 ---
 
@@ -26,289 +25,437 @@ converter, the prop system, speech bubble layout, and this documentation.
 - [Quick start](#quick-start)
 - [The skeleton graph](#the-skeleton-graph)
 - [Body-type builds](#body-type-builds)
+- [Gender presets](#gender-presets)
 - [Persistent scale](#persistent-scale)
 - [Named poses and keyframe cycles](#named-poses-and-keyframe-cycles)
 - [Writing animations in Python](#writing-animations-in-python)
-  - [HumanGraph constructor](#humangraph-constructor)
-  - [HumanGraph methods](#humangraph-methods)
-  - [AlienGraph](#aliengraph)
-  - [DogGraph](#doggraph)
-  - [GovernorGraph](#governorgraph)
-  - [Pose helper functions](#pose-helper-functions)
 - [The PAM module public API](#the-pam-module-public-api)
 - [Props system](#props-system)
 - [Customizing appearance](#customizing-appearance)
+- [The character registry — characters.txt](#the-character-registry--characterstxt)
+- [Fountain+ CHARACTER annotation](#fountain-character-annotation)
+- [Rendering the character gallery](#rendering-the-character-gallery)
 - [The production pipeline](#the-production-pipeline)
 - [Command-line tools](#command-line-tools)
-  - [pam_player.py](#pam_playerpy)
-  - [fountain2pam.py](#fountain2pampy)
-  - [Fountain+ syntax guide](#fountain-syntax-guide)
-  - [Subscene prompts](#subscene-prompts)
 - [The PAM JSON screenplay format](#the-pam-json-screenplay-format)
-  - [Full action reference](#full-action-reference)
-  - [The props declaration](#the-props-declaration)
-  - [Parallel actions](#parallel-actions)
-  - [Annotation entries](#annotation-entries)
-  - [Editing JSON by hand](#editing-json-by-hand)
 - [Coordinate system and conventions](#coordinate-system-and-conventions)
 - [Tips and caveats](#tips-and-caveats)
-- [Major changes from 0.7.3 to 0.9.0](#major-changes-from-073-to-090)
+- [Major changes by version](#major-changes-by-version)
 - [License](#license)
 
 ---
 
 ## What PAM does
 
-PAM treats a stick-figure as a mathematical graph *G = (V, E)* with
-|V| = 15 joints (vertices) and |E| = 16 bones (edges). Every frame of
-animation is defined by a **pose** — a dictionary mapping each joint
-name to an `[x, y, 0]` coordinate. Animation is pose-to-pose
-interpolation: PAM smoothly moves every vertex and edge from one pose
-dictionary to the next.
+PAM treats a stick-figure as a mathematical graph G = (V, E).  The humanoid
+skeleton has |V| = 15 joints and |E| = 16 edges; the alien skeleton has
+|V| = 16 joints and |E| = 17 edges.  Every frame of animation is defined by a
+pose — a dictionary mapping each joint name to an [x, y, 0] coordinate.
+Animation is pose-to-pose interpolation: PAM smoothly moves every vertex and
+edge from one pose dictionary to the next.
 
 On top of this foundation PAM provides:
 
 - **Named poses and cycles** covering standing, walking (8-frame cycle),
-  running (6-frame cycle with flight phase), sitting, waving, and
-  carrying.
-- **Four character types:** humanoid (`HumanGraph`), alien
-  (`AlienGraph`), dog (`DogGraph`), and prop-character
-  (`GovernorGraph` — a spinning dodecahedron).
-- **Four body-type builds** — `default`, `narrow`, `broad`, `alien` —
-  each with distinct proportions and a default color palette.
+  running (6-frame cycle with flight phase), sitting, waving, and carrying.
+- **Four character types**: humanoid (`HumanGraph`), alien (`AlienGraph`),
+  dog (`DogGraph`), and prop-character (`GovernorGraph` — a dodecahedron
+  with Schlegel diagram and spinning disc options).
+- **Four body-type builds** — `default`, `narrow`, `broad`, `alien` — each
+  with distinct proportions and a default color palette.
+- **Gender presets** (`male`, `female`, `child`) that set build, torso height,
+  and scale in one step.  Alien characters have their own gender-differentiated
+  builds with distinct torso bar height and width.
 - **Props** — chair, desk, hat, door, dodecahedron — placed via a JSON
   declaration and spawnable mid-scene.
-- **Speech bubbles** that size themselves to the text and stay within
-  screen margins.
-- **A JSON screenplay player** (`pam_player.py`) that drives all of the
-  above from a simple declarative screenplay file.
-- **A Fountain converter** (`fountain2pam.py`) that turns a standard
-  Fountain screenplay into a PAM JSON file and per-subscene AI video
-  prompts.
+- **Speech bubbles** that size themselves to the text and stay within screen
+  margins.
+- **A character registry** (`characters.txt`) listing every cast member with
+  type, gender, color, and label.  Populated by hand or automatically from
+  Fountain+ `CHARACTER` annotations.
+- **A character gallery renderer** (`character_gallery.py`) that reads
+  `characters.txt` and produces a single Manim frame showing every character
+  in front and side view (or type-appropriate pair), all standing on a common
+  ground line.
+- **A JSON screenplay player** (`pam_player.py`) that drives all of the above
+  from a simple declarative screenplay file.
+- **A Fountain converter** (`fountain2pam.py`) that turns a standard Fountain
+  screenplay into a PAM JSON file and per-subscene AI video prompts, with
+  support for Fountain+ metadata notes including the new `CHARACTER` key.
 
 ---
 
 ## Directory layout
 
-```text
+```
 your-project/
-├── pam/                    ← the library (a Python package)
-│   ├── __init__.py         ← re-exports everything; version string
-│   ├── poses.py            ← joint list, edge list, pose registry,
-│   │                          keyframe cycles, pose helper functions
-│   ├── figure.py           ← HumanGraph, AlienGraph, DogGraph,
-│   │                          GovernorGraph class definitions
-│   ├── builds.py           ← body-type presets (proportions + palette)
-│   └── props.py            ← stage prop builders (chair, desk, …)
-│
-├── pam_player.py           ← JSON screenplay player (top-level script)
-└── fountain2pam.py         ← Fountain → PAM JSON + AI prompt converter
+  pam/                    ← the library (a Python package)
+    __init__.py           ← re-exports everything; version string
+    poses.py              ← joint list, edge list, pose registry,
+                            keyframe cycles, pose helper functions
+    figure.py             ← HumanGraph, AlienGraph, DogGraph,
+                            GovernorGraph class definitions
+    builds.py             ← body-type presets (proportions + palette)
+    props.py              ← stage prop builders (chair, desk, …)
+  pam_player.py           ← JSON screenplay player (top-level script)
+  fountain2pam.py         ← Fountain → PAM JSON + AI prompt converter
+  character_gallery.py    ← renders characters.txt as a Manim gallery page
+  characters.txt          ← character registry (hand-edited or auto-synced)
+  pam-render              ← shell wrapper around pam_player.py
 ```
 
-The `pam/` directory is a Python package — keep it as a subdirectory.
-The `.py` scripts live **next to** it, not inside it.
+The `pam/` directory is a Python package — keep it as a subdirectory.  The
+`.py` scripts live next to it, not inside it.
 
 ---
 
 ## Prerequisites
 
 - Python 3.10+
-- [Manim Community Edition](https://docs.manim.community/)
-- [screenplain](https://pypi.org/project/screenplain/)
-  (`pip install screenplain`) — required only for `fountain2pam.py`
+- Manim Community Edition v0.17+
+- `screenplain` (`pip install screenplain`) — required only for
+  `fountain2pam.py`
 
 ---
 
 ## Quick start
 
-### Run the JSON screenplay player
+**Render a JSON screenplay**
 
 ```bash
 PAM_SCRIPT=screenplay.json manim -pql pam_player.py PAMPlayer
 ```
 
-`-pql` = preview + low quality (fast). Use `-pqh` for high quality.
+`-pql` = preview + low quality (fast).  Use `-pqh` for high quality.
 
-### Write a scene in Python
+Or use the shell wrapper:
+
+```bash
+./pam-render --script screenplay.json --output my_animation --quality l
+```
+
+**Convert a Fountain screenplay**
+
+```bash
+python fountain2pam.py my_script.fountain
+python fountain2pam.py my_script.fountain --prompts-only
+python fountain2pam.py my_script.fountain --prompts-only \
+    --prompts tntd_subscenes.json
+```
+
+**Render the character gallery**
+
+```bash
+manim -pqh --save_last_frame character_gallery.py CharacterGallery
+WHITE_BG=1 manim -pqh --save_last_frame character_gallery.py CharacterGallery
+```
+
+**Write a scene in Python**
 
 ```python
-from pam import HumanGraph, AlienGraph, DogGraph, GovernorGraph
+from manim import *
+from pam import HumanGraph, AlienGraph
 
 class MyScene(Scene):
     def construct(self):
-        fig = HumanGraph(build="narrow", offset=[-2, 0, 0])
-        fig.fade_in(self)
-        fig.walk_to(2.0, self)
-        fig.wave(self)
-        fig.say("Hello!", self, side="right")
-        fig.fade_out(self)
-```
-
-### Convert a Fountain screenplay
-
-```bash
-python fountain2pam.py screenplay.fountain
-python fountain2pam.py screenplay.fountain -o my_scene.json \
-    --prompts my_prompts.json
+        # Human female — narrow build, torso high
+        bertha = HumanGraph(gender="female", color="#cc3399",
+                            style={"head_label": "B"}, offset=[-3, 0, 0])
+        # Alien male — wide torso bar sits low
+        charlie = AlienGraph(gender="male", color="#3dd68c",
+                             style={"head_label": "C"}, offset=[1, 0, 0])
+        bertha.fade_in(self)
+        charlie.fade_in(self)
+        bertha.walk_to(0.0, self)
+        bertha.say("Hello!", self, side="right")
+        bertha.fade_out(self)
 ```
 
 ---
 
 ## The skeleton graph
 
+### Humanoid skeleton
+
 The humanoid skeleton is a graph with 15 joints and 16 edges.
 
-```text
-         head
-          |
-         neck
-        /    \
-  lshoulder  rshoulder
-    |  \      /  |
-    |  torso     |
-    |   /  \     |
-  lelbow lhip rhip  relbow
-    |      |    |      |
-  lwrist lknee rknee rwrist
+```
+          head
+           |
+          neck
+          / \
+   lshoulder rshoulder
+      |    \ /    |
+      |   torso   |
+      |    / \    |
+   lelbow lhip rhip relbow
+      |    |    |    |
+   lwrist lknee rknee rwrist
            |    |
-         lankle rankle
+        lankle rankle
 ```
 
-### Joint list (canonical order)
+**Joint list (canonical order)**
 
-```text
-head, neck, lshoulder, rshoulder, torso,
-lelbow, relbow, lwrist, rwrist,
-lhip, rhip, lknee, rknee, lankle, rankle
+```
+head, neck,
+lshoulder, rshoulder,
+torso,
+lelbow, relbow,
+lwrist, rwrist,
+lhip, rhip,
+lknee, rknee,
+lankle, rankle
 ```
 
-### Edge list
+**Edge list**
 
-```text
-head — neck
-neck — lshoulder,   neck — rshoulder
-lshoulder — torso,  rshoulder — torso
-lshoulder — lelbow, rshoulder — relbow
-lelbow — lwrist,    relbow — rwrist
-torso — lhip,       torso — rhip
-lhip — rhip
-lhip — lknee,       rhip — rknee
-lknee — lankle,     rknee — rankle
+```
+head–neck
+neck–lshoulder,   neck–rshoulder
+lshoulder–torso,  rshoulder–torso
+lshoulder–lelbow, rshoulder–relbow
+lelbow–lwrist,    relbow–rwrist
+torso–lhip,       torso–rhip
+lhip–rhip
+lhip–lknee,       rhip–rknee
+lknee–lankle,     rknee–rankle
 ```
 
-The `l`/`r` prefix denotes the character's own left/right (the mirror
-of the viewer's left/right when the character faces the camera).
+The `l`/`r` prefix denotes the character's own left/right (the mirror of the
+viewer's left/right when the character faces the camera).
+
+### Alien skeleton
+
+The alien skeleton replaces the single `torso` vertex with two vertices —
+`torso_left` and `torso_right` — connected by a horizontal edge.  Each side
+inherits the old torso's connections to its own shoulder and hip:
+
+```
+   lshoulder ── torso_left ── torso_right ── rshoulder
+                    |                  |
+                  lhip               rhip
+```
+
+This gives the wide-waisted Venusian silhouette.  The bar is visible in
+**front view** and collapses to a single invisible point in **side view**,
+preserving the turned-sideways illusion.
+
+**Alien joint list** (16 joints):
+
+```
+head, neck,
+lshoulder, rshoulder,
+torso_left, torso_right,
+lelbow, relbow,
+lwrist, rwrist,
+lhip, rhip,
+lknee, rknee,
+lankle, rankle
+```
+
+**Additional alien edges** (17 total — the three standard torso edges are
+replaced):
+
+```
+lshoulder–torso_left,  rshoulder–torso_right
+torso_left–torso_right                         ← the wide torso bar
+torso_left–lhip,       torso_right–rhip
+```
 
 ### DogGraph joints
 
-DogGraph uses a separate 18-joint side-view skeleton:
-`head`, `neck`, `spine_front`, `spine_mid`, `spine_rear`,
-`tail_base`, `tail_tip`,
-`fl_shoulder`, `fl_elbow`, `fl_paw`,
-`rl_hip`, `rl_knee`, `rl_paw`,
-`fr_shoulder`, `fr_elbow`, `fr_paw`,
-`rr_hip`, `rr_knee`, `rr_paw`.
-Far-side legs render at 35% opacity.
+`DogGraph` uses a separate 19-joint side-view skeleton:
+`head`, `neck`, `spine_front`, `spine_mid`, `spine_rear`, `tail`,
+`fl_hip`, `fl_knee`, `fl_paw` (front-left, near side),
+`fr_hip`, `fr_knee`, `fr_paw` (front-right, far side),
+`rl_hip`, `rl_knee`, `rl_paw` (rear-left, near side),
+`rr_hip`, `rr_knee`, `rr_paw` (rear-right, far side).
+
+Far-side legs render at reduced opacity to give a standard technical-drawing
+depth cue.
 
 ---
 
 ## Body-type builds
 
-Body-type builds define both the joint proportions and the default
-color palette for each character type.
+Body-type builds define both the joint proportions and the default color
+palette for each character type.
 
 | Build | Shoulder w | Hip w | Height | Default palette |
-|-------|-----------|-------|--------|-----------------|
+|---|---|---|---|---|
 | `default` | 0.80 | 0.45 | 2.6 | Blue |
-| `narrow`  | 0.60 | 0.40 | 2.6 | Rose-red |
-| `broad`   | 0.95 | 0.48 | 2.6 | Teal |
-| `alien`   | 1.10 | 1.00 | 2.1 | Green |
+| `narrow` | 0.60 | 0.40 | 2.6 | Rose-red |
+| `broad` | 0.95 | 0.48 | 2.6 | Teal |
+| `alien` | 1.10 | 1.00 | 2.1 | Green |
+| `alien_female` | 0.95 | 1.00 | 2.1 | Green |
 
-Pass the build name to `HumanGraph(build="narrow")` or declare it in
-the `cast` block of the JSON screenplay.
+Pass the build name to `HumanGraph(build="narrow")` or declare it in the cast
+block:
 
-The `alien` build gives AlienGraph its characteristic wide torso:
-shoulder width 1.10, hip width 1.00 (nearly as wide as the shoulders),
-and a shorter overall height of 2.1 world units.
+```json
+{"action": "cast", "characters": {
+  "nona":  {"build": "alien",  "offset": [-3, 0, 0]},
+  "sidel": {"build": "alien",  "offset": [ 3, 0, 0]},
+  "lucy":  {"build": "narrow", "offset": [-3, 0, 0]},
+  "lenny": {"build": "broad",  "offset": [ 3, 0, 0]}
+}}
+```
+
+---
+
+## Gender presets
+
+### Humanoid gender
+
+Pass `gender=` to `HumanGraph` to set build, torso height, and scale in one
+step.  Explicit `build=` or `height=` kwargs always override the preset.
+
+| Value | Build | Torso y | Height scale |
+|---|---|---|---|
+| `"male"` | `broad` | 0.40 (low) | 1.0 |
+| `"female"` | `narrow` | 1.00 (high) | 1.0 |
+| `"child"` | `narrow` | 0.70 | 0.65 |
+
+```python
+# Male — broad build, torso vertex sits low
+guard = HumanGraph(gender="male",   color="#3366cc",
+                   style={"head_label": "G"}, offset=[-3, 0, 0])
+
+# Female — narrow build, torso vertex sits high
+nona  = HumanGraph(gender="female", color="#cc3399",
+                   style={"head_label": "N"}, offset=[ 0, 0, 0])
+
+# Child — narrow build, 65% height
+bart  = HumanGraph(gender="child",  color="#44bb88",
+                   style={"head_label": "K"}, offset=[ 3, 0, 0])
+
+# Override: female build but custom height
+vera  = HumanGraph(gender="female", height=1.15, color="#2a9d8f",
+                   style={"head_label": "V"}, offset=[ 3, 0, 0])
+```
+
+### Alien gender
+
+Pass `gender=` to `AlienGraph` to select the male or female alien build.
+
+| Value | Build | `torso_y` | `torso_bar_scale` | `head_radius` | `shoulder_w` |
+|---|---|---|---|---|---|
+| `"male"` (default) | `alien` | 0.30 — bar low | 1.10 — wider than hips | 0.30 | 1.10 |
+| `"female"` | `alien_female` | 0.80 — bar high | 0.85 — narrower than hips | 0.34 | 0.95 |
+
+```python
+# Alien male — bar sits low, wide
+charlie = AlienGraph(gender="male",   color="#3dd68c",
+                     style={"head_label": "C"}, offset=[-2, 0, 0])
+
+# Alien female — bar sits high, narrower, larger head
+debby   = AlienGraph(gender="female", color="#aacc00",
+                     style={"head_label": "D"}, offset=[ 2, 0, 0])
+```
+
+`gender` also accepts `"male"` and `"female"` on `dog` and `dodecahedron`
+character types in `characters.txt` — it drives voice casting but has no
+visual effect on those types.
+
+### Alien proportions tuning reference
+
+All alien gender parameters live in `builds.py` and can be adjusted by hand.
+The key lines are:
+
+```python
+# builds.py
+
+_ALIEN_PROPORTIONS = dict(          # male alien
+    ...
+    torso_y         = 0.30,         # height of the torso bar (low)
+    torso_bar_scale = 1.10,         # bar width = hip_w × scale (wider than hips)
+    head_radius     = 0.30,
+    shoulder_w      = 1.10,
+    ...
+)
+
+_ALIEN_FEMALE_PROPORTIONS = dict(   # female alien
+    ...
+    torso_y         = 0.80,         # height of the torso bar (high)
+    torso_bar_scale = 0.85,         # bar width = hip_w × scale (narrower than hips)
+    head_radius     = 0.34,         # larger head
+    shoulder_w      = 0.95,         # narrower shoulders
+    ...
+)
+```
+
+`torso_y` sets the **y-coordinate** of both `torso_left` and `torso_right`.
+`torso_bar_scale` controls the **half-width** of the bar as a multiple of
+`hip_w`: values above 1.0 produce a bar wider than the hip edge; values below
+1.0 produce a narrower bar.
 
 ---
 
 ## Persistent scale
 
-Every figure carries a persistent scale that survives pose changes:
+Call `set_scale()` once and every subsequent action — walking, waving,
+sitting — will use the scaled proportions automatically.
 
 ```python
-fig = HumanGraph(
-    offset=[-2, 0, 0],
-    scale_sy=0.7,           # 70% of full height
-    scale_sx=0.7,           # 70% of full width
-    scale_anchor="lankle",  # left ankle stays planted
-)
+fig.set_scale(sy=0.7, sx=0.7, anchor="lankle")  # 70% height and width
+fig.walk_to(2.0, self)                           # still 70%
+fig.set_scale()                                  # reset to 1.0
 ```
 
-The anchor joint is the one that stays fixed when scaling.
-
-| Anchor | Use case |
-|--------|----------|
-| `"lankle"` | Keep the left foot planted (most common) |
-| `"torso"` | Shrink/grow symmetrically around center of mass |
-| `"head"` | Shrink downward from the top |
-
-Scale is applied every frame via `_apply_scale()`, so it survives
-`walk_to`, `sit_down`, `wave`, and all other choreography methods.
-
-In the JSON screenplay, scale is declared in the `cast` block:
+In a JSON screenplay:
 
 ```json
-"scale": {"sy": 0.7, "sx": 0.7, "anchor": "lankle"}
+{"action": "scale", "who": "alice", "sy": 0.7, "sx": 0.7, "anchor": "lankle"}
 ```
+
+Or set it at character creation in the cast declaration:
+
+```json
+"alice": {
+  "build":  "narrow",
+  "offset": [-3, 0, 0],
+  "scale":  {"sy": 0.7, "sx": 0.7, "anchor": "lankle"}
+}
+```
+
+**Anchor joints** — the joint that stays fixed during scaling:
+
+| Anchor | Effect |
+|---|---|
+| `"lankle"` | Left ankle fixed; figure grows upward (default) |
+| `"head"` | Head fixed; figure grows downward |
+| `"torso"` | Torso fixed; figure grows in both directions |
 
 ---
 
 ## Named poses and keyframe cycles
 
-All named poses are registered in the `POSES` dict. Lookup is
-case-insensitive and tolerates hyphens or spaces in place of
-underscores.
+Poses are accessed via `POSES["name"]`.  Use them in JSON `morph` actions or
+Python `morph_to`.
 
-```python
-from pam.poses import POSES, CYCLES
+**Static poses**
 
-pose  = POSES["sitting_mid"]   # same as POSES["sitting-mid"]
-cycle = CYCLES["walk"]         # list of (pose, dx) tuples
+```
+standing_front, standing_side, sitting_mid, sitting_down,
+wave_up, wave_right, wave_left, carry_hold,
+walk_r_lift, walk_r_swing, walk_r_extend, walk_r_plant,
+walk_l_lift, walk_l_swing, walk_l_extend, walk_l_plant,
+run_r_push, run_r_flight, run_r_land,
+run_l_push, run_l_flight, run_l_land,
+carry_walk_r, carry_walk_r_plant, carry_walk_l, carry_walk_l_plant
 ```
 
-### Static poses
+**Keyframe cycles**
 
-| Key | Description |
-|-----|-------------|
-| `standing_front` | Upright, facing camera (default) |
-| `standing_side` | Upright, facing right (required for locomotion) |
-| `sitting_mid` | Halfway through sit-down |
-| `sitting_down` | Fully seated |
-| `wave_up` | Right arm raised |
-| `wave_right` | Right arm waved right |
-| `wave_left` | Right arm waved left |
-| `carry_hold` | Both arms extended forward (side view) |
-| `walk_l_lift` … `walk_l_plant` | 4 walk-cycle frames, left foot leading |
-| `walk_r_lift` … `walk_r_plant` | 4 walk-cycle frames, right foot leading |
-| `run_l_flight` … `run_l_push` | 3 run-cycle frames, left foot leading |
-| `run_r_flight` … `run_r_push` | 3 run-cycle frames, right foot leading |
-| `carry_walk_l` … `carry_walk_r_plant` | 4 carry-walk frames |
-| `dog_standing` | Dog upright (side view) |
-| `dog_trot_a`, `dog_trot_b` | Dog trot keyframes |
-
-### Keyframe cycles
-
-| Key | Frames | Description |
-|-----|--------|-------------|
-| `walk` | 8 | Left-right walking cycle |
-| `run` | 6 | Running cycle with flight phase |
-| `wave` | 3 | Arm wag left–right–left |
-| `sit` | 2 | Sit-down transition |
-| `stand` | 2 | Stand-up transition |
-| `carry_walk` | 4 | Walking while carrying object |
-| `dog_trot` | 4 | Four-legged trot |
+| Cycle | Frames | Use |
+|---|---|---|
+| `WALK_CYCLE` | 8 | Standard walk |
+| `RUN_CYCLE` | 6 | Run with flight phase |
+| `WAVE_CYCLE` | 3 | Arm wave |
+| `SIT_CYCLE` | 3 | Sit-down transition |
+| `STAND_CYCLE` | 3 | Stand-up transition |
+| `CARRY_WALK_CYCLE` | 4 | Walk while carrying |
 
 ---
 
@@ -317,129 +464,157 @@ cycle = CYCLES["walk"]         # list of (pose, dx) tuples
 ### HumanGraph constructor
 
 ```python
-HumanGraph(
-    offset=[0, 0, 0],      # world position of the figure's local origin
-    build="default",       # "default" | "narrow" | "broad" | "alien"
-    style={},              # see Customizing appearance
-    scale_sx=1.0,          # horizontal scale factor
-    scale_sy=1.0,          # vertical scale factor
-    scale_anchor="lankle", # joint that stays fixed during scaling
+from pam import HumanGraph
+
+fig = HumanGraph(
+    gender       = None,       # "male" | "female" | "child"
+                               # sets build + torso_y; overridden by explicit build=
+    build        = "default",  # "default" | "narrow" | "broad" | "alien"
+    offset       = [0, 0, 0],  # world position [x, y, z]
+    style        = {},         # optional style dict
+    height       = 1.0,        # uniform vertical scale multiplier
+    color        = None,       # single hex color — derives full palette automatically
+    scale_sy     = 1.0,        # persistent y scale
+    scale_sx     = 1.0,        # persistent x scale
+    scale_anchor = "lankle",   # anchor joint for scaling
 )
 ```
 
 ### HumanGraph methods
 
-All methods take `scene` as their first argument (the Manim `Scene`
-instance).
-
 | Method | Key parameters | Notes |
-|--------|---------------|-------|
-| `fade_in(scene)` | `rt_edges=1.4`, `rt_dots=1.0` | Edges appear first, then joints |
-| `fade_out(scene)` | `rt=1.0` | Fades the entire figure |
-| `walk_to(x, scene)` | `rt_per_kf=0.22` | Requires `standing_side` pose first |
-| `run_to(x, scene)` | `rt_per_kf=0.12` | Requires `standing_side` pose first |
-| `sit_down(scene)` | `rt_per_kf=0.5` | Front-view; morphs through sit cycle |
-| `stand_up(scene)` | `rt_per_kf=0.5` | Reverse of sit_down |
-| `wave(scene)` | `cycles=2`, `rt_lift=0.4`, `rt_wag=0.24` | Front-view right-arm wave |
-| `carry(obj, x, scene)` | `rt_per_kf=0.28` | Requires `standing_side` pose first |
-| `say(text, scene)` | `hold=1.2`, `font_size=20`, `side="right"` | Speech bubble above head |
-| `turn(to_pose, scene)` | `rt_squash=0.20`, `rt_expand=0.30` | Squash-expand 90° turn illusion |
-| `morph_to(pose, scene)` | `rt=0.18`, `dx=0.0`, `dy=0.0` | Interpolate to any pose dict |
-| `set_pose(pose)` | `dx=0.0`, `dy=0.0` | Instant reposition (no animation) |
-| `highlight_edges(joints, scene)` | `color`, `width=3.5`, `rt=0.2` | Recolour edges touching named joints |
-| `unhighlight_edges(keys, scene)` | `rt=0.2` | Restore default colors |
+|---|---|---|
+| `fade_in(scene, t)` | `t=0.5` | Draw edges then joints |
+| `fade_out(scene, t)` | `t=0.5` | Shrink and fade |
+| `morph_to(pose, scene, t)` | any named pose or dict | Smooth interpolation |
+| `turn(pose, scene, t)` | `STANDING_SIDE` or `STANDING_FRONT` | Required before walk/run |
+| `walk_to(x, scene, t)` | destination x | Requires side pose |
+| `run_to(x, scene, t)` | destination x | Requires side pose |
+| `sit_down(prop, scene)` | prop object | Auto-adds turn + walk |
+| `stand_up(scene)` | — | Returns to standing front |
+| `wave(scene, direction)` | `"up"` \| `"right"` \| `"left"` | |
+| `carry(prop, scene)` | prop object | Requires side pose |
+| `say(text, scene, hold, side)` | `hold=1.5`, `side="right"` | Auto-wraps long lines |
+| `set_scale(sy, sx, anchor)` | defaults: `1.0, 1.0, "lankle"` | Persistent across actions |
+| `highlight_edges(scene, color, t)` | — | Flash edge color |
+| `exit_through(prop, scene)` | door prop | Walk to door + fade out |
 
-**`say()` side parameter:**
-- `"right"` — bubble to the right of the head (use for characters on
-  the left side of the screen)
-- `"left"` — bubble to the left (use for characters on the right side)
-
-**`carry()` note:** the object must already be added to the scene. The
-method moves it to the midpoint of the two wrists each keyframe.
+`side` for `say()`: characters on the left of the screen should use
+`side="right"` to push the bubble toward center.
 
 ### AlienGraph
 
-`AlienGraph` is a subclass of `HumanGraph` using the `alien` build.
-All `HumanGraph` methods are available.
+Venusian proportions: shorter, wider waist, split torso bar.  API is identical
+to `HumanGraph` with the addition of a `gender=` parameter.
 
 ```python
-sidel = AlienGraph(offset=[-2, 0, 0])
+from pam import AlienGraph
+
+sidel = AlienGraph(
+    gender = "female",          # "male" | "female"
+    offset = [-2, 0, 0],
+    style  = {"head_label": "S"},
+    color  = "#3dd68c",
+)
 sidel.fade_in(self)
+sidel.walk_to(1.0, self)
 sidel.say("Ready, Governor.", self, side="right")
 ```
 
+| `gender` | Build | Torso bar |
+|---|---|---|
+| `"male"` (default) | `alien` | Low, wide |
+| `"female"` | `alien_female` | High, narrower, larger head |
+
 ### DogGraph
 
+Four-legged robot dog.  Constructed via `spawn_prop` with
+`figure_type="dog"`.
+
 ```python
-DogGraph(
-    offset=[0, 0, 0],
-    style={}    # edge_color, far_edge_color, node_color, etc.
-)
+from pam.figure import DogGraph
+
+dog = DogGraph(offset=[0, 0, 0], style={"far_edge_color": "#1a2a28"})
 ```
 
 | Method | Key parameters | Notes |
-|--------|---------------|-------|
-| `fade_in(scene)` | `rt_edges=1.2`, `rt_dots=0.8` | |
-| `fade_out(scene)` | `rt=1.0` | |
-| `trot_to(x, scene)` | `stride=0.14` | Side-view four-legged trot |
-| `say(text, scene)` | `hold=1.2`, `font_size=18` | Bubble above head |
+|---|---|---|
+| `trot_to(x, scene, stride, t)` | `stride=0.22` | Four-legged gait |
+| `say(text, scene, hold)` | `hold=1.5` | Bubble above head |
 
-**`stride` values:** `0.14` (slow), `0.22` (chair-follow pace),
-`0.35` (running alongside a humanoid).
+**Stride guidance:**
+
+| Stride | Use case |
+|---|---|
+| 0.14 | Slow companion trot |
+| 0.22 | Following a humanoid to a chair |
+| 0.35 | Running alongside a humanoid |
 
 ### GovernorGraph
 
-A spinning dodecahedron with three color states. No humanoid skeleton.
+Dodecahedron character with two display styles.
 
 ```python
-GovernorGraph(
-    x=0, y=1.5,
-    radius=0.42,
-    color="#e8c547",           # "gold" active state
-    low_power_color="#d47b00", # "amber" standby state
-    spin_rate=0.35,
+from pam.figure import GovernorGraph
+
+gov = GovernorGraph(
+    x               = 0.0,
+    y               = 1.5,
+    radius          = 0.42,
+    color           = "#e8c547",
+    low_power_color = "#d47b00",
+    accent          = "#ffdd88",
+    style           = "schlegel",   # "schlegel" (default) | "spin"
+    spin_rate       = 0.35,
+    label           = None,
 )
+gov.fade_in(self)
+gov.say("I'm waiting for your report.", self)
+gov.set_state("amber", self)
+gov.set_state("gold",  self)
+gov.fade_out(self)
 ```
 
-| Method | Parameters | Notes |
-|--------|-----------|-------|
-| `fade_in(scene)` | `rt=1.0` | |
-| `fade_out(scene)` | `rt=0.8` | Powers down then fades |
-| `say(text, scene)` | `hold=1.2`, `font_size=18` | Yellow speech bubble |
-| `pulse(scene)` | `color`, `scale=1.25` | Flash once |
-| `set_state(state, scene)` | `rt=0.4` | `"gold"`, `"amber"`, or `"dark"` |
+**Display styles:**
 
-**Color states:** `"gold"` (active), `"amber"` (low-power/waiting),
-`"dark"` (powered down, fully transparent).
+| Style | Description |
+|---|---|
+| `"schlegel"` (default) | 2-D Schlegel diagram — 20 vertices, 30 edges, static |
+| `"spin"` | Filled 12-sided polygon with continuous rotation updater |
+
+Use `"schlegel"` for the graph-theory aesthetic and character gallery.
+Use `"spin"` for animated scenes where the kinetic read is needed.
+
+**Color states** (used with `prop_color` or `set_state`):
+
+| Hex | State |
+|---|---|
+| `#e8c547` | Gold — speaking (default) |
+| `#e87a1a` | Amber-orange — low power / paused |
+| `#cc3333` | Red — alert or interrupting |
+| `#3a7bd5` | Blue — processing |
+| `#2a9d8f` | Teal — calm |
+| `#9b59b6` | Purple — uncertain |
 
 ### Pose helper functions
 
 ```python
-from pam.poses import (
-    front_pose, side_pose, alien_front_pose,
-    blend, mirror_x, offset_pose, scale_pose, build_poses,
-)
+from pam import (front_pose, side_pose, blend,
+                 mirror_x, offset_pose, scale_pose, build_poses)
 ```
 
 | Function | Description |
-|----------|-------------|
-| `front_pose(**proportions)` | Build a front-facing pose from proportion values |
-| `side_pose(**proportions)` | Build a side-facing pose |
-| `alien_front_pose(**proportions)` | Wide-torso front pose |
-| `blend(pose_a, pose_b, t=0.5)` | Linearly interpolate: `(1-t)*a + t*b` |
-| `mirror_x(pose)` | Swap left↔right joints and flip x |
-| `offset_pose(pose, dx=0, dy=0)` | Shift all joints by `(dx, dy)` |
-| `scale_pose(pose, sy=1, sx=1, anchor="torso")` | Scale about a fixed joint |
-| `build_poses(proportions)` | Build the full pose/cycle dict for a custom build |
+|---|---|
+| `front_pose(**kwargs)` | Build a symmetrical front-facing pose |
+| `side_pose(**kwargs)` | Build a side-view pose |
+| `blend(pose_a, pose_b, t)` | Interpolate between two poses |
+| `mirror_x(pose)` | Reflect a pose left-right |
+| `offset_pose(pose, dx, dy)` | Shift all joints by (dx, dy) |
+| `scale_pose(pose, sy, sx, anchor)` | Scale a pose around an anchor joint |
+| `build_poses(proportions, torso_y_override)` | Build the full pose set for a proportions dict |
 
-**`scale_pose` example:**
-
-```python
-from pam.poses import STANDING_FRONT, scale_pose
-
-# Keep left ankle planted, scale to 70%
-small = scale_pose(STANDING_FRONT, sy=0.7, sx=0.7, anchor="lankle")
-```
+`build_poses` accepts an optional `torso_y_override` float that replaces the
+build's default `torso_y` — used internally by gender presets.
 
 ---
 
@@ -447,27 +622,37 @@ small = scale_pose(STANDING_FRONT, sy=0.7, sx=0.7, anchor="lankle")
 
 ```python
 from pam import (
-    # Character classes
+    # skeleton constants
+    JOINTS, EDGES,
+    ALIEN_JOINTS, ALIEN_EDGES,
+
+    # pose helpers
+    front_pose, side_pose, blend, mirror_x, offset_pose, scale_pose,
+    build_poses,
+
+    # named poses (default build proportions)
+    STANDING_FRONT, STANDING_SIDE,
+    SITTING_MID, SITTING_DOWN,
+    WAVE_UP, WAVE_RIGHT, WAVE_LEFT,
+    CARRY_HOLD,
+
+    # keyframe cycles
+    WALK_CYCLE, RUN_CYCLE, WAVE_CYCLE,
+    SIT_CYCLE, STAND_CYCLE,
+    CARRY_WALK_CYCLE,
+
+    # registries
+    POSES, CYCLES,
+
+    # builds and gender presets
+    BUILDS, get_build,
+    GENDER_DEFAULTS,
+
+    # figure classes
     HumanGraph, AlienGraph, DogGraph, GovernorGraph,
     DEFAULT_STYLE,
 
-    # Pose constants
-    STANDING_FRONT, STANDING_SIDE,
-    SITTING_MID, SITTING_DOWN,
-    WAVE_UP, WAVE_RIGHT, WAVE_LEFT, CARRY_HOLD,
-
-    # Keyframe cycles
-    WALK_CYCLE, RUN_CYCLE, WAVE_CYCLE,
-    SIT_CYCLE, STAND_CYCLE, CARRY_WALK_CYCLE,
-
-    # Dog skeleton
-    DOG_JOINTS, DOG_EDGES, DOG_FAR_EDGES, DOG_FAR_JOINTS,
-    dog_side_pose, DOG_STANDING, DOG_TROT_CYCLE,
-
-    # Registries
-    POSES, CYCLES, BUILDS, get_build,
-
-    # Props
+    # props
     build_prop, PROP_TYPES, PROP_DEFAULTS,
     build_chair, build_desk, build_hat, build_door, build_dodecahedron,
 )
@@ -477,919 +662,883 @@ from pam import (
 
 ## Props system
 
-Props are Manim `VGroup` objects with extra `pam_*` attributes.
+Every prop is a Manim `VGroup` with extra attributes:
 
-### Prop types
-
-| Type | Key parameters | Default y |
-|------|---------------|-----------|
-| `chair` | `x`, `color`, `label` | `-2.6` (floor) |
-| `desk` | `x`, `color`, `monitor=False` | `-2.6` |
-| `hat` | `x`, `color` | placed on head via `on_head_of` |
-| `door` | `x`, `color` | `-2.6` |
-| `dodecahedron` | `x`, `y`, `color`, `accent` | varies |
-
-### `build_prop()`
+| Attribute | Description |
+|---|---|
+| `.pam_name` | Registry key string |
+| `.pam_type` | Type string (`"chair"`, `"desk"`, etc.) |
+| `.pam_x` | World x-coordinate (center) |
+| `.pam_y` | World y-coordinate |
+| `.pam_surface_y` | y-coordinate of the usable top surface |
 
 ```python
 from pam.props import build_prop
 
-chair = build_prop("chair_lucy", type="chair",
-                   x=-0.6, color="#f09999", label="LU")
+desk  = build_prop("sidels_desk", type="desk", x=-3.0, monitor=True)
+chair = build_prop("chair_1",     type="chair", x=-1.0)
+door  = build_prop("exit",        type="door",  x=6.0)
+gov   = build_prop("governor",    type="dodecahedron",
+                   x=0.0, y=1.5, color="#e8c547", animate="spin")
+
+self.play(FadeIn(desk))
 ```
 
-All props carry: `pam_name`, `pam_type`, `pam_x`, `pam_y`,
-`pam_surface_y`.
+**Built-in prop types:** `chair`, `desk`, `table`, `console`, `computer`,
+`workstation`, `hat`, `door`, `dodecahedron`, `dog`.
 
-### Prop-character props
+**Prop-character routing** — add to `PROP_CHARACTER_TYPES` in
+`fountain2pam.py` to route a character's dialogue to `prop_say` actions
+instead of a stick figure:
 
-`GovernorGraph` and `DogGraph` declared in the `cast` block are
-prop-characters: they live in the `props` registry, receive dialogue
-via `prop_say`, and use `"prop"` (not `"who"`) in all locomotion
-actions.
+```python
+PROP_CHARACTER_TYPES = {
+    "GOVERNOR": "dodecahedron",
+    "DOG":      "dog",
+}
+```
 
 ---
 
 ## Customizing appearance
 
-Every humanoid figure accepts a `style` dict:
+Pass a `style` dict to `HumanGraph()` or include it in the cast declaration.
+All keys are optional.
 
 | Key | Default (default build) | Description |
-|-----|------------------------|-------------|
+|---|---|---|
 | `edge_color` | `"#3a7bd5"` | Bone/edge color |
-| `node_color` | `"#1e3a5f"` | Joint interior fill |
-| `node_stroke` | `"#5b9cf6"` | Joint outline |
+| `node_color` | `"#1e3a5f"` | Joint fill color |
+| `node_stroke` | `"#5b9cf6"` | Joint outline color |
 | `head_color` | `"#0d2340"` | Head circle fill |
 | `head_stroke` | `"#7ec8ff"` | Head circle outline |
-| `head_label` | `"v₀"` | Text on the head |
-| `head_font` | `"Courier New"` | Label font |
-| `head_font_sz` | `14` | Label font size |
-| `edge_width` | `2.5` | Edge stroke width |
-| `highlight_color` | `"#7ec8ff"` | Color used by `highlight_edges` and bubbles |
+| `head_label` | `"v₀"` | Text inside the head circle |
+| `head_font` | `"Courier New"` | Font for head label and bubbles |
+| `head_font_sz` | 14 | Font size for head label |
+| `edge_width` | 2.5 | Stroke width for edges |
+| `highlight_color` | `"#7ec8ff"` | Color used by `highlight_edges()` |
+| `head_radius` | 0.28 | Head circle radius |
+| `node_radius` | 0.14 | Joint circle radius |
 
-DogGraph also accepts `far_edge_color` (far-side legs; defaults to
-`edge_color` at 35% opacity).
+`DogGraph` additionally accepts `far_edge_color` (opacity-reduced far-side
+legs).
 
-### Built-in palettes
+**Single-color shorthand** — derive a full palette from one hex color:
 
-| Build | `edge_color` | `head_stroke` |
-|-------|-------------|--------------|
-| `default` | `#3a7bd5` (blue) | `#7ec8ff` |
-| `narrow` | `#d46a6a` (rose-red) | `#f4aaaa` |
-| `broad` | `#2a9d8f` (teal) | `#88ddcc` |
-| `alien` | `#4db87a` (green) | `#a0e8b8` |
+```python
+fig = HumanGraph(color="#cc3333", offset=[-2, 0, 0])
+```
+
+**Custom build:**
+
+```python
+from pam import get_build
+
+my_build = get_build("default")
+my_build["proportions"]["shoulder_w"] = 1.1
+my_build["style"]["edge_color"] = "#ff6600"
+fig = HumanGraph(build=my_build, offset=[0, 0, 0])
+```
+
+---
+
+## The character registry — characters.txt
+
+`characters.txt` is the single source of truth for the cast.  It is read by
+`character_gallery.py` and written by `fountain2pam.py` when it encounters
+`CHARACTER` Fountain+ annotations.
+
+### File format
+
+One character per line.  Blank lines and lines beginning with `#` are ignored.
+Keys are `key=value` pairs separated by whitespace:
+
+```
+name=albert    type=human        gender=male    color=#3366cc  label=A
+name=bertha    type=human        gender=female  color=#cc3399  label=B
+name=charlie   type=alien        gender=male    color=#3dd68c  label=C
+name=debby     type=alien        gender=female  color=#aacc00  label=D
+name=spot      type=dog          gender=male    color=#c8832a  label=S
+name=bart      type=human        gender=child   color=#44bb88  label=K
+name=governor  type=dodecahedron gender=female  color=#e8c547  label=G  style=schlegel
+```
+
+### Default characters
+
+The file ships pre-populated with seven characters covering all types and
+genders:
+
+| Name | Type | Gender | Color |
+|---|---|---|---|
+| albert | human | male | `#3366cc` (blue) |
+| bertha | human | female | `#cc3399` (rose) |
+| charlie | alien | male | `#3dd68c` (green) |
+| debby | alien | female | `#aacc00` (acid) |
+| spot | dog | male | `#c8832a` (tawny) |
+| bart | human | child | `#44bb88` (teal) |
+| governor | dodecahedron | female | `#e8c547` (gold) |
+
+### Key reference
+
+| Key | Required | Description |
+|---|---|---|
+| `name` | yes | Unique identifier, no spaces.  Used as the PAM `who`/`prop` key. |
+| `type` | yes | `human` \| `alien` \| `dog` \| `dodecahedron` |
+| `gender` | yes | `male` \| `female` \| `child`.  Drives voice casting for all types; also controls visual build for `human` and `alien`. |
+| `color` | no | Edge/stroke hex color.  Omit for build default. |
+| `label` | no | Single character displayed inside the head node. |
+| `height` | no | Vertical scale multiplier for `human`/`alien` (default 1.0). |
+| `build` | no | Override PAM build: `default` \| `narrow` \| `broad` \| `alien` \| `alien_female`.  Normally inferred from `type` + `gender`. |
+| `style` | no | `GovernorGraph` display style: `schlegel` (default) \| `spin`.  `dodecahedron` type only. |
+
+---
+
+## Fountain+ CHARACTER annotation
+
+The `CHARACTER` key lets you declare cast members inside the `.fountain` file.
+When `fountain2pam.py` runs, it reads every `CHARACTER` annotation and syncs
+the records to `characters.txt` alongside the screenplay.
+
+### Syntax
+
+```fountain
+[[ CHARACTER: name=<id> type=<type> gender=<gender> [optional keys] ]]
+```
+
+The value is a whitespace-separated list of `key=value` pairs, identical to a
+line in `characters.txt`.  Required keys: `name`, `type`, `gender`.
+
+```fountain
+[[ CHARACTER: name=albert   type=human        gender=male    color=#3366cc  label=A ]]
+[[ CHARACTER: name=bertha   type=human        gender=female  color=#cc3399  label=B ]]
+[[ CHARACTER: name=governor type=dodecahedron gender=female  color=#e8c547  label=G  style=schlegel ]]
+```
+
+### Full cast declaration example
+
+Place `CHARACTER` annotations at the top of the first scene, immediately below
+the scene heading:
+
+```fountain
+INT. VENUS CITY OBSERVATORY - NIGHT
+
+[[ CHARACTER: name=sidel    type=alien        gender=female  color=#3dd68c  label=S ]]
+[[ CHARACTER: name=nona     type=alien        gender=female  color=#aacc00  label=N ]]
+[[ CHARACTER: name=governor type=dodecahedron gender=female  color=#e8c547  label=G  style=schlegel ]]
+[[ CHARACTER: name=ramis    type=dog          gender=male    color=#c8832a  label=R ]]
+
+[[ MOOD: cool blue-green, holographic, bureaucratic-noir ]]
+[[ SCENE POPULATION: Governor, Sidel.  No other characters until Nona enters. ]]
+
+The room is a domed observatory filled with holographic displays.
+```
+
+`CHARACTER` annotations may appear anywhere in the file — the converter
+collects all of them regardless of position.  Placing them at the top of the
+first scene is a convention, not a requirement.
+
+### Pipeline flow
+
+After running `fountain2pam.py`, `characters.txt` is updated automatically:
+
+```
+tntd.fountain
+    │
+    └──→ fountain2pam.py
+              │
+              ├──→ tntd.json             (PAM animation screenplay)
+              ├──→ tntd_prompts.json     (AI video + still prompts)
+              └──→ characters.txt        (synced from CHARACTER annotations)
+                        │
+                        └──→ character_gallery.py
+                                  │
+                                  └──→ CharacterGallery  (Manim frame)
+```
+
+`characters.txt` is updated in place — existing entries are updated, new names
+are appended, comments and blank lines are preserved.
+
+---
+
+## Rendering the character gallery
+
+`character_gallery.py` reads `characters.txt` (or `$CHARACTERS`) and renders
+a single Manim frame showing every character in two columns.
+
+**View pairs by character type:**
+
+| Type | Left column | Right column |
+|---|---|---|
+| `human` | front view | side view |
+| `alien` | front view | side view |
+| `dog` | standing pose | trot-A pose |
+| `dodecahedron` | spin style (filled disc) | schlegel style (graph diagram) |
+
+All figures stand on a common ground line regardless of type or scale.
+
+**Usage:**
+
+```bash
+# Dark background (default)
+manim -pqh --save_last_frame character_gallery.py CharacterGallery
+
+# White background (print-friendly)
+WHITE_BG=1 manim -pqh --save_last_frame character_gallery.py CharacterGallery
+
+# Different registry file
+CHARACTERS=my_cast.txt manim -pqh --save_last_frame character_gallery.py CharacterGallery
+```
+
+The gallery auto-scales figure size and column spacing based on the number of
+characters in the file, so it works without adjustment for casts of 2 to 10+
+characters.
 
 ---
 
 ## The production pipeline
 
-```text
-screenplay.fountain
+```
+Fountain screenplay
       │
       └──→ fountain2pam.py
                 │
-                ├──→ screenplay.json    ← review _hints, patch, render
-                │         │
-                │         └──→ pam_player.py  →  Manim MP4
-                │
-                └──→ prompts.json       ← per-subscene AI video prompts
+                ├──→ screenplay.json    (PAM blocking animation)
+                ├──→ prompts.json       (AI video + still prompts, per subscene)
+                └──→ characters.txt     (synced from CHARACTER annotations)
                           │
-                          └──→ Kling / Veo / Runway / Sora / etc.
+      ┌───────────────────┴──────────────────────┐
+      │                                           │
+pam_player.py                          Kling / Flow / Veo
+(Manim render)                        (AI video generation)
+      │                                           │
+blocking MP4                          AI video clips (per subscene)
+      │                                           │
+      └─────────────────┬─────────────────────────┘
+                        │
+               Final Cut Pro X (assembly)
 ```
+
+The blocking MP4 is used for timing reference and client review.  AI video
+clips are generated per subscene from `prompts.json` and assembled in Final
+Cut Pro X.
 
 ---
 
 ## Command-line tools
 
-### pam_player.py
+### pam_player.py and pam-render
+
+`pam_player.py` is a Manim `Scene` subclass called `PAMPlayer`.
+
+**Direct usage:**
 
 ```bash
-# Low quality preview (fast)
 PAM_SCRIPT=screenplay.json manim -pql pam_player.py PAMPlayer
-
-# High quality
-PAM_SCRIPT=screenplay.json manim -pqh pam_player.py PAMPlayer
-
-# 4K, no preview window
-PAM_SCRIPT=screenplay.json manim -qk pam_player.py PAMPlayer
 ```
 
-**Manim quality flags:**
+Manim quality flags: `-ql` = low (480p15), `-qm` = medium (720p30),
+`-qh` = high (1080p60), `-qk` = 4K.
 
-| Flag | Resolution | FPS |
-|------|-----------|-----|
-| `-ql` | 480p | 15 |
-| `-qm` | 720p | 30 |
-| `-qh` | 1080p | 60 |
-| `-qk` | 2160p (4K) | 60 |
+**Via the shell wrapper:**
 
-Add `-p` to any flag to open a preview window after rendering.
+```bash
+./pam-render [--script|-s FILE] [--output|-o NAME] [--quality|-q LEVEL]
+```
 
-The screenplay file is set via the `PAM_SCRIPT` environment variable
-(default: `screenplay.json` in the current directory).
+| Option | Default | Description |
+|---|---|---|
+| `--script FILE` | `screenplay.json` | PAM JSON file |
+| `--output NAME` | `PAMPlayer` | Output filename stem (no `.mp4`) |
+| `--quality LEVEL` | `l` | Manim quality: `l`, `m`, `h`, or `k` |
 
----
+Output is placed in `media/videos/pam_player/<quality>/`.
 
 ### fountain2pam.py
 
-```bash
-# Basic conversion
-python fountain2pam.py screenplay.fountain
-
-# Specify output paths
-python fountain2pam.py screenplay.fountain \
-    -o my_scene.json \
-    --prompts my_prompts.json
-
-# Scale all figures to 70%
-python fountain2pam.py screenplay.fountain --scale 0.7
-
-# Override title card text
-python fountain2pam.py screenplay.fountain --title "Lucy meets Lenny"
-
-# Prompts only (no PAM JSON)
-python fountain2pam.py screenplay.fountain --prompts-only
-
-# Strip _comment / _hint from the JSON
-python fountain2pam.py screenplay.fountain --no-comments
-
-# Timed clip mode
-python fountain2pam.py screenplay.fountain --clip-mode timed
-```
+Converts a `.fountain` screenplay to PAM JSON and AI video prompts, and syncs
+`characters.txt` from `CHARACTER` annotations.
 
 **Options:**
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-o FILE` | `{stem}.json` | PAM JSON output path |
-| `--prompts FILE` | `{stem}_prompts.json` | AI prompts output path |
-| `--scale N` | `1.0` | Figure scale (0.5–1.0 typical) |
-| `--title TEXT` | From Fountain header | Override title card |
-| `--no-comments` | off | Strip `_comment`/`_hint` entries |
+| Option | Default | Description |
+|---|---|---|
+| `-o, --output PATH` | `<stem>.json` | PAM screenplay output |
+| `--prompts PATH` | `<stem>_prompts.json` | AI prompts output |
+| `--scale FLOAT` | 0.7 | Scale factor for all characters |
+| `--title TEXT` | (from Fountain header) | Override the title card |
+| `--no-comments` | off | Strip `# REVIEW` comments from output |
 | `--prompts-only` | off | Skip PAM JSON; write prompts only |
-| `--clip-mode` | `per-speaker` | `per-speaker` or `timed` |
-
-**What it generates automatically:**
-
-From dialogue cues: one cast entry per character, build and palette
-assignment, starting positions (`x = ±4.5` for two characters).
-
-From action lines: `fade_in`/`fade_out`, `say`, `wave`, `sit_down`,
-`stand_up`, `walk_to_prop`, `run_to`, `trot_to`. Parallel locomotion
-for "X and Y run to the right/left" and "X and Y walk toward each
-other". Automatic `turn` before/after every locomotion sequence.
-
-**Tiered implied-prop inference:**
-
-| Tier | Confidence | Examples | Effect |
-|------|-----------|----------|--------|
-| 1 | High | `sits` → chair, `exits` → door | Prop added + `_hint` |
-| 2 | Medium | `answers the phone`, `pours` | Placeholder + `_hint` |
-| 3 | Low | `turns on the lights`, `picks up` | `_hint` only |
-
-**PATCH HINTS** are printed to stdout after every conversion, listing
-every item needing manual attention with exact action indices and
-copy-pasteable JSON.
-
----
-
-### Fountain+ syntax guide
-
-`[[ KEY: value ]]` notes embedded in the Fountain file are read by the
-converter. They are valid Fountain notes (hidden by standard renderers),
-so they do not affect standard screenplay formatting.
-
-Fountain+ exists to enrich a standard `.fountain` screenplay so that
-`fountain2pam.py` can generate both better PAM JSON blocking and higher-quality
-AI video prompts. The idea is simple: put richer production metadata
-*into the screenplay file itself* so the same source file can drive
-PAM animation, prompt generation, and later video assembly.
-
-### Basic syntax
-
-```fountain
-[[ KEY: value ]]
-```
-
-Notes may span multiple lines:
-
-```fountain
-[[ KEY: first line
-   continuation line ]]
-```
-
-Keys are case-insensitive and terminate at the first colon.
-
-### Supported keys
-
-| Key | Scope | Effect |
-|-----|-------|--------|
-| `MOOD` | Scene | Visual tone appended to every subscene prompt |
-| `SCENE POPULATION` | Scene / mid-scene | Character presence note for AI prompt generation |
-| `NEGATIVE` | Scene / mid-scene | Negative prompt text |
-| `CAMERA` | Scene / mid-scene | Camera direction override |
-| `KIND` | File | Species/type template for character descriptions |
-
-### `MOOD`
-
-Use `MOOD` immediately after a scene heading to specify visual tone,
-lighting, palette, and general emotional register for all subscenes in
-that scene.
-
-```fountain
-INT. VENUS CITY OBSERVATORY - NIGHT
-
-[[ MOOD: cool blue-green, holographic, bureaucratic-noir ]]
-```
-
-Use 3–5 strong descriptive terms rather than vague labels.
-
-### `SCENE POPULATION`
-
-Use `SCENE POPULATION` to tell the converter which characters are
-present at a given point in the scene. This is especially useful for AI
-video generation, because it helps prevent missing or hallucinated
-characters in a shot.
-
-```fountain
-[[ SCENE POPULATION: Governor, Sidel. No other characters. ]]
-```
-
-Update it whenever characters enter or exit:
-
-```fountain
-[[ SCENE POPULATION: Governor, Sidel, then Nona enters. ]]
-```
-
-```fountain
-[[ SCENE POPULATION: Sidel, Nona only. Governor exits here. ]]
-```
-
-In practice, this works best when paired with an updated `NEGATIVE`
-note so the active prompt and the “do not render” guidance stay aligned.
-
-### `NEGATIVE`
-
-Use `NEGATIVE` to supply explicit negative-prompt text for image or
-video generators.
-
-```fountain
-[[ NEGATIVE: No additional human figures. No crowd. No extras.
-   No faces on the dodecahedron. ]]
-```
-
-Update it after entrances or exits:
-
-```fountain
-[[ NEGATIVE: No dodecahedron. No geometric objects.
-   No additional human figures. ]]
-```
-
-### `CAMERA`
-
-Use `CAMERA` when you want to override the converter’s default shot
-choice.
-
-```fountain
-[[ CAMERA: Wide establishing shot. ]]
-```
-
-```fountain
-[[ CAMERA: slow push in toward the Governor during this exchange ]]
-```
-
-```fountain
-[[ CAMERA: over-the-shoulder from Sidel's perspective ]]
-```
-
-When `CAMERA` is present, it takes priority over automatic camera
-heuristics.
-
-### `KIND`
-
-`KIND` defines a reusable species/type template for character
-appearance. Place these notes anywhere in the file; they are file-level,
-not tied to a single scene.
-
-```fountain
-[[ KIND: Venusian | short, green-skinned humanoid, wide-waisted,
-   large dark eyes, minimal body hair ]]
-```
-
-```fountain
-[[ KIND: talking dog | four-legged, golden retriever coloring,
-   expressive face, wears a small bow tie ]]
-```
-
-Tag a character with a kind on the intro line:
-
-```fountain
-NONA SONNOF [Venusian] — short, early 50s, formidable...
-RAMIS [Dog], a compact robot dog with silver-grey joints, trots in.
-```
-
-The converter uses the kind template as a species/type baseline and
-combines it with the character’s own description.
-
-### Prop-character routing via `[Kind]`
-
-Characters tagged as non-humanoid or special prop-characters can be
-routed to non-`HumanGraph` representations when appropriate.
-
-```fountain
-RAMIS [Dog], a compact robot dog with silver-grey joints, trots in.
-```
-
-This allows dialogue to route to `prop_say` and movement to the proper
-non-humanoid action such as `trot_to`.
-
-### Complete scene opening example
-
-```fountain
-INT. VENUS CITY OBSERVATORY - NIGHT
-
-[[ MOOD: cool blue-green, holographic, bureaucratic-noir ]]
-[[ SCENE POPULATION: Governor, Sidel. No other characters
-   until Nona enters at her cue. ]]
-[[ NEGATIVE: No additional human figures. No crowd. No extras.
-   No faces on the dodecahedron. ]]
-
-The room is a domed observatory. Cool blue-green light from slowly
-orbiting holographic planets. Foreground: a long conference table
-with a computer terminal. Background: two robot sentinels at sealed
-blast doors, status lights blinking amber.
-```
-
-### Practical guidance for stronger prompts
-
-#### 1. Put `MOOD` under the scene heading
-
-Use 3–5 words covering palette, lighting style, and emotional register.
-
-```fountain
-INT. HOSPITAL CORRIDOR - DAY
-
-[[ MOOD: cold white fluorescent, clinical, quietly tense ]]
-```
-
-#### 2. Write the opening action block like a cinematographer
-
-Go near → far, mention the light source early, and end on the overall
-mood impression.
-
-```fountain
-The room is a domed observatory. Cool blue-green light from slowly
-orbiting holographic planets. Foreground: a long conference table
-with a computer terminal. Midground: star maps covering the curved
-walls. Background: two robot sentinels at sealed blast doors,
-status lights blinking amber. The air feels bureaucratic and
-slightly ominous.
-```
-
-#### 3. On character introduction, give build/age, wardrobe, and posture
-
-```fountain
-SERGEANT SIDEL [Venusian] — compact, mid-40s, the kind of face
-that has followed orders for twenty years and found it agreeable.
-Classic Venusian military dress uniform: deep cobalt blue, high
-collar, gold piping at the shoulders and cuffs, regulation boots.
-Stands at attention: chin up, arms at sides, eyes forward.
-```
-
-#### 4. For prop-characters, describe size, surface, glow behavior, and states
-
-```fountain
-The GOVERNOR OF VENUS — a slowly rotating dodecahedron roughly the
-size of a basketball, hovering at eye level above the conference
-table. Translucent gold, glowing from within. Each face catches
-light differently as it turns. It pulses brighter when speaking.
-It goes amber-orange in low-power mode. It goes dark when it exits.
-It has no face and needs none.
-```
-
-#### 5. For entrances, describe silhouette, wardrobe, entrance energy, and first gesture
-
-```fountain
-NONA SONNOF [Venusian] — short, early 50s, formidable in the way
-that small objects under high pressure are formidable. Futuristic
-Venusian business suit: structured but fluid, deep charcoal with
-subtle iridescent trim that shifts color in the light. She sweeps
-in through the blast doors with the energy of someone who owns
-every room she enters.
-```
-
-#### 6. Use parentheticals for gaze or body orientation, not just tone
-
-```fountain
-NONA
-(not looking at Sidel — eyes on the Governor)
-Every time one fails, the hospital fills up.
-```
-
-#### 7. For “unanimatable” lines, write what the camera sees
-
-```fountain
-A beat. The holographic Earth diagram pulses quietly behind them.
-Nobody moves. The room hums.
-```
-
-Anything PAM cannot map directly into blocking may still enrich the
-AI prompt output.
-
-#### 8. For prop color changes, include color, motion change, and dramatic meaning
-
-```fountain
-The dodecahedron's glow dims from gold to a flat amber-orange.
-Its rotation slows. A power-conservation mode — the AI equivalent
-of someone putting a hand up and saying "one moment."
-```
-
-#### 9. For on-screen text, add a lead-in line
-
-```fountain
-The dodecahedron's surface turns a corporate amber. Then, in
-clean sans-serif:
-
-> PLEASE WAIT...
-> THE GOVERNOR OF VENUS
-> WILL BE RIGHT WITH YOU.
-```
-
-#### 10. End scenes with a clear final image
-
-Describe what still moves and what emotional scale remains.
-
-```fountain
-Nona stares at the empty air where the Governor was. The
-holographic planets continue their silent orbits above her.
-She looks very small in the room.
-```
-
-### Quick reference card
-
-| What you're writing | Rule of thumb |
-|---|---|
-| Scene heading | Put `[[ MOOD: ... ]]` immediately below |
-| Species / type | Use `[[ KIND: name \| description ]]` anywhere in file |
-| Character intro | `[Kind]` tag, then build/age, wardrobe, posture |
-| Prop-character intro | size, surface, glow behavior, color states |
-| Entrance | silhouette, wardrobe, entrance energy, first gesture |
-| Parenthetical | eye contact or body orientation, not just tone |
-| Unanimatable action | write what the camera sees |
-| Prop color change | color, motion change, dramatic meaning |
-| On-screen text | add a context lead-in line |
-| Final image | say what remains moving and what the emotional scale is |
-| Population change | update `SCENE POPULATION` and `NEGATIVE` together |
-| Camera override | add `[[ CAMERA: ... ]]` before the relevant beat |
-| Small accessories | remove if they cause generator inconsistency |
-
----
-
-### Subscene prompts
-
-The `--prompts` output contains per-subscene video prompts in a
-four-paragraph cinematic format:
-
-```text
-[SHOT / CAMERA]          — framing and camera movement
-[SETTING / ATMOSPHERE]   — environment, lighting, mood
-[CHARACTERS & ACTION]    — who does what, in what order
-[DRAMA / CUT]            — what the scene is building toward
-```
+| `--clip-mode` | `per-speaker` | Clip splitting strategy |
+| `--shot-count` | off | Add shot labels to subscenes |
+| `--csv PATH` | — | Write shot-list CSV (implies `--shot-count`) |
 
 **Clip modes:**
 
 | Mode | Boundary rule | Best for |
-|------|--------------|---------|
-| `per-speaker` (default) | New clip per speaker change | Kling and similar |
-| `timed` | Drama-aware 5–10 second windows | Strong-consistency generators |
+|---|---|---|
+| `per-speaker` | New clip on every speaker change | Kling, Flow |
+| `timed` | Drama-aware 5–10 second windows | Generators with strong temporal consistency |
+
+**Dialogue chunking constants:**
+
+```python
+_SAY_TARGET_WORDS  = 9     # ideal words per bubble
+_SAY_MAX_WORDS     = 12    # hard ceiling before a forced break
+_SAY_SECS_PER_WORD = 0.18  # hold time per word
+_SAY_MIN_HOLD      = 0.9   # minimum hold in seconds
+```
+
+### Fountain+ syntax guide
+
+`fountain2pam.py` reads `[[ KEY: value ]]` notes embedded in the Fountain
+file.  These are valid Fountain notes — hidden by standard renderers (Highland,
+Fade In) — and are parsed before `screenplain` sees the file.
+
+**Supported keys:**
+
+| Key | Scope | Effect |
+|---|---|---|
+| `MOOD` | Scene-level | Visual tone appended to every `[SETTING / ATMOSPHERE]` paragraph |
+| `SCENE POPULATION` | Beat-scoped | Character presence note in `[CHARACTERS & ACTION]` |
+| `NEGATIVE` | Beat-scoped | Negative prompt text passed to the AI generator |
+| `CAMERA` | Beat-scoped | Camera framing — structured or freeform |
+| `LIGHTING` | Beat-scoped | Lighting setup — structured vocabulary or freeform |
+| `KIND` | File-level | Species/type template prepended to character descriptions |
+| `CHARACTER` | File-level | Character registry entry — synced to `characters.txt` |
+
+"Beat-scoped" means the note takes effect where it appears and persists until
+replaced by another note of the same key.
+
+**CAMERA sub-key vocabulary (v0.9.1):**
+
+```fountain
+[[ CAMERA: FRAMING=wide | SUBJECT=ensemble | MOVE=drift | TRANSITION=hold ]]
+```
+
+| Sub-key | Legal values |
+|---|---|
+| `FRAMING` | `wide` · `medium` · `medium-close` · `close` · `ots-left` · `ots-right` · `oneshot` · `insert` |
+| `SUBJECT` | Character name · prop name · `ensemble` |
+| `MOVE` | `static` · `push` · `pull` · `pan-follow` · `drift` |
+| `TRANSITION` | `cut` · `hold` · `hold-empty` · `smash` |
+
+Freeform tags (no `=` present) pass through unchanged and are fully backward
+compatible with v0.9.0.
+
+**CHARACTER key (v0.9.3):**
+
+```fountain
+[[ CHARACTER: name=albert type=human gender=male color=#3366cc label=A ]]
+```
+
+Required: `name`, `type`, `gender`.
+Optional: `color`, `label`, `height`, `build`, `style`.
+
+**Quick reference card:**
+
+| What you're writing | Rule of thumb |
+|---|---|
+| Scene heading | `[[ MOOD: ]]` note immediately below |
+| Cast declaration | `[[ CHARACTER: ]]` notes immediately below the heading |
+| Species/type | `[[ KIND: name \| description ]]` anywhere in file |
+| Character intro | `[Kind]` tag · build/age · wardrobe · posture |
+| Entrance | silhouette · wardrobe · entrance energy · first gesture |
+| Parenthetical | eye contact or body orientation, not just tone |
+| Unanimatable action | write what the camera sees |
+| Prop color change | color · animation change · narrative meaning |
+| Population change | `[[ SCENE POPULATION: ]]` + `[[ NEGATIVE: ]]` pair |
+| Camera change | `[[ CAMERA: FRAMING=... \| SUBJECT=... ]]` before the beat |
+
+### Subscene prompts
+
+Each subscene in `prompts.json` contains:
+
+**`video_prompt`** — four labeled paragraphs:
+
+```
+[SHOT / CAMERA]        camera direction, framing, movement
+[SETTING / ATMOSPHERE] location, lighting, mood tag
+[CHARACTERS & ACTION]  population note, beat-by-beat action
+[DRAMA / CUT]          where to cut and why
+```
+
+**Drama cut lines by type:**
+
+| Drama type | Cut line |
+|---|---|
+| `joke` | Cut on the punchline.  Hold on [reactor]'s reaction. |
+| `cliffhanger` | Hard cut on the interruption — the sentence never finishes. |
+| `pause` | Hold on the silence.  The pause carries more weight. |
+| `prop` | Cut as the [prop] changes.  Something has shifted. |
+| `neutral` | Hold on the moment.  Let it breathe before the cut. |
+
+`TRANSITION=` sub-keys override the drama cut line:
+
+| Value | Override text |
+|---|---|
+| `cut` | Cut on the beat.  Clean. |
+| `hold` | Hold on the moment.  Let it breathe before the cut. |
+| `hold-empty` | Hold on the empty space after the subject exits. |
+| `smash` | Hard cut on the interruption — the action never completes. |
+
+**`negative_prompt`** — verbatim text from the most recent `[[ NEGATIVE: ]]`
+note.
+
+**`shot_meta`** — structured dict with `framing`, `subject`, `move`,
+`transition` fields (populated when a structured `CAMERA` tag is active).
+
+**`still_prompts`** — three entries:
+
+| Key | Description |
+|---|---|
+| `first_frame` | Opening composition — who is where, what they are about to do |
+| `last_frame` | Drama-aware closing freeze |
+| `characters` | One reference still per active character |
 
 ---
 
 ## The PAM JSON screenplay format
 
-A PAM JSON file is an array of action objects read sequentially by
-`pam_player.py`. Objects with only `_comment` or `_hint` keys are
-skipped silently.
+A PAM screenplay is a JSON array of action objects read sequentially by
+`pam_player.py`.  Objects with only `_comment` or `_hint` keys are skipped
+silently.
 
 ### Full action reference
 
-#### `title`
+**title**
 
 ```json
-{"action": "title", "text": "My Scene", "subtitle": "Written by …"}
+{"action": "title", "text": "Scene Title", "subtitle": "optional"}
 ```
 
-#### `cast`
+**cast** — declares all characters.  Must appear before any `fade_in`.
 
 ```json
-{
-  "action": "cast",
-  "characters": {
-    "lucy": {
-      "figure_type": "human",
-      "build": "narrow",
-      "pose": "standing_front",
-      "scale": {"sy": 0.7, "sx": 0.7, "anchor": "lankle"},
-      "offset": [-4.5, 0, 0],
-      "style": {
-        "head_label": "Lucy",
-        "edge_color": "#d46a6a",
-        "node_color": "#4a1a1a",
-        "node_stroke": "#f09999",
-        "head_color": "#3a0a0a",
-        "head_stroke": "#f4aaaa",
-        "highlight_color": "#ffcccc"
-      }
-    },
-    "dog": {
-      "figure_type": "dog",
-      "build": "non-humanoid",
-      "spawn": {"x": -5.0, "y": -1.95},
-      "style": {
-        "edge_color": "#8899aa",
-        "far_edge_color": "#8899aa",
-        "node_color": "#1a2530",
-        "node_stroke": "#aabbcc"
-      }
-    }
+{"action": "cast", "characters": {
+  "nona": {
+    "build":  "alien",
+    "offset": [-3, 0, 0],
+    "scale":  {"sy": 0.7, "sx": 0.7, "anchor": "lankle"},
+    "style":  {"head_label": "Nona", "edge_color": "#2a9d8f"}
+  },
+  "sidel": {"build": "alien", "offset": [3, 0, 0]}
+}}
+```
+
+**props** — declares all stage props.
+
+```json
+{"action": "props", "items": {
+  "desk":  {"type": "desk",  "x": 1.0, "monitor": true},
+  "chair": {"type": "chair", "x": 0.8},
+  "door":  {"type": "door",  "x": 6.5}
+}}
+```
+
+**spawn_prop** — spawns a prop or prop-character mid-scene.
+
+```json
+{"action": "spawn_prop", "prop": "dodecahedron",
+ "figure_type": "dodecahedron", "x": 0.0, "y": 1.5}
+```
+
+**remove_prop**
+
+```json
+{"action": "remove_prop", "prop": "dodecahedron"}
+```
+
+**fade_in / fade_out**
+
+```json
+{"action": "fade_in",  "who": "nona", "t": 0.5}
+{"action": "fade_out", "who": "all",  "t": 0.5}
+```
+
+**say**
+
+```json
+{"action": "say", "who": "nona",
+ "text": "Why is my city still on forty percent power?",
+ "hold": 1.8, "side": "right"}
+```
+
+**prop_say**
+
+```json
+{"action": "prop_say", "prop": "dodecahedron",
+ "text": "Approved.", "hold": 1.2}
+```
+
+**prop_color**
+
+```json
+{"action": "prop_color", "prop": "dodecahedron",
+ "color": "#e87a1a", "t": 0.4}
+```
+
+**turn**
+
+```json
+{"action": "turn", "who": "sidel", "pose": "standing_side"}
+{"action": "turn", "who": "sidel", "pose": "standing_front"}
+```
+
+Required before `walk_to`, `run_to`, or `carry`.
+
+**walk_to / run_to**
+
+```json
+{"action": "walk_to", "who": "sidel", "x":  1.0, "t": 1.2}
+{"action": "run_to",  "who": "nona",  "x": -2.0, "t": 0.8}
+```
+
+**trot_to**
+
+```json
+{"action": "trot_to", "prop": "ramis",
+ "x": 1.5, "stride": 0.22, "t": 1.0}
+```
+
+Note: uses `"prop"`, not `"who"`.  The dog lives in the props registry.
+
+**sit_down / stand_up**
+
+```json
+{"action": "sit_down", "who": "sidel", "prop": "chair"}
+{"action": "stand_up", "who": "sidel"}
+```
+
+`sit_down` automatically inserts `turn → walk_to_prop → turn`.
+
+**wave**
+
+```json
+{"action": "wave", "who": "nona", "direction": "right"}
+```
+
+**exit_through**
+
+```json
+{"action": "exit_through", "who": "nona", "prop": "door"}
+```
+
+**pick_up / put_down**
+
+```json
+{"action": "pick_up",  "who": "sidel", "prop": "hat"}
+{"action": "put_down", "who": "sidel", "prop": "hat", "on": "desk"}
+```
+
+**wait**
+
+```json
+{"action": "wait", "t": 1.0}
+```
+
+**morph**
+
+```json
+{"action": "morph", "who": "nona", "pose": "wave_up", "t": 0.4}
+```
+
+Accepts any named pose or a raw joint dict.
+
+**on_screen_text**
+
+```json
+{"action": "on_screen_text",
+ "text": "PLEASE WAIT...\nTHE GOVERNOR OF VENUS",
+ "hold": 2.0}
+```
+
+**scale**
+
+```json
+{"action": "scale", "who": "alice",
+ "sy": 0.7, "sx": 0.7, "anchor": "lankle"}
+```
+
+### The props declaration
+
+```json
+{"action": "props", "items": {
+  "sidels_desk": {
+    "type":          "desk",
+    "x":             -2.0,
+    "monitor":       true,
+    "monitor_color": "#1af0c4",
+    "width":         1.6
+  },
+  "governor": {
+    "type":    "dodecahedron",
+    "x":       0.0,
+    "y":       1.5,
+    "color":   "#e8c547",
+    "accent":  "#cc3333",
+    "animate": "spin"
   }
-}
+}}
 ```
 
-`figure_type` values: `"human"`, `"alien"`, `"dog"`,
-`"dodecahedron"`.
-
-#### `props`
+### Parallel actions
 
 ```json
 {
-  "action": "props",
-  "items": {
-    "chair_lucy":  {"type": "chair", "x": -0.6, "color": "#f09999", "label": "LU"},
-    "chair_lenny": {"type": "chair", "x":  0.8, "color": "#5b9cf6", "label": "LE"}
-  }
-}
-```
-
-#### `fade_in` / `fade_out`
-
-```json
-{"action": "fade_in",  "who": "lucy"}
-{"action": "fade_out", "who": "all"}
-```
-
-#### `say`
-
-```json
-{
-  "action": "say",
-  "who": "lucy",
-  "text": "Hello there!",
-  "side": "right",
-  "hold": 0.9
-}
-```
-
-`side`: `"right"` (default) or `"left"`. `hold`: seconds visible.
-
-#### `prop_say`
-
-```json
-{"action": "prop_say", "prop": "dog", "text": "Woof!", "hold": 0.9}
-```
-
-#### `walk_to` / `run_to`
-
-```json
-{"action": "walk_to", "who": "lucy", "x": -0.5}
-{"action": "run_to",  "who": "lucy", "x":  4.5}
-```
-
-Figure must be in `standing_side` pose. Use `turn` to switch.
-
-#### `trot_to`
-
-```json
-{"action": "trot_to", "prop": "dog", "x": 3.3, "stride": 0.35}
-```
-
-Uses `"prop"` not `"who"`. `stride`: `0.14` slow, `0.35` running.
-
-#### `walk_to_prop`
-
-```json
-{"action": "walk_to_prop", "who": "lucy", "prop": "chair_lucy"}
-```
-
-#### `turn`
-
-```json
-{"action": "turn", "who": "lucy", "pose": "standing_side"}
-{"action": "turn", "who": "lucy", "pose": "standing_front"}
-```
-
-#### `sit_down` / `stand_up`
-
-```json
-{"action": "sit_down", "who": "lucy"}
-{"action": "stand_up", "who": "lucy"}
-```
-
-#### `wave`
-
-```json
-{"action": "wave", "who": "lucy", "cycles": 1}
-```
-
-#### `parallel`
-
-```json
-{
-  "action": "parallel",
-  "rt_per_kf": 0.12,
+  "action":    "parallel",
+  "rt_per_kf": 0.22,
   "do": [
-    {"who": "lucy",  "action": "run_to",  "x": 4.5},
-    {"who": "lenny", "action": "run_to",  "x": 3.8},
-    {"prop": "dog",  "action": "trot_to", "x": 3.3, "stride": 0.35}
+    {"who":  "nona",  "action": "walk_to", "x":  2.5},
+    {"who":  "sidel", "action": "walk_to", "x": -2.5},
+    {"prop": "ramis", "action": "trot_to", "x":  2.0, "stride": 0.22}
   ]
 }
 ```
 
-`rt_per_kf`: `0.22` (walk), `0.12` (run). Humanoids use `"who"`;
-prop-characters use `"prop"`.
-
-#### `spawn_prop`
-
-```json
-{"action": "spawn_prop", "prop": "dog", "figure_type": "dog",
- "x": -5.0, "y": -1.95}
-```
-
-#### `remove_prop`
-
-```json
-{"action": "remove_prop", "prop": "my_desk"}
-```
-
-#### `prop_color`
-
-```json
-{"action": "prop_color", "prop": "dodecahedron",
- "color": "amber", "rt": 0.4}
-```
-
-#### `on_screen_text`
-
-```json
-{"action": "on_screen_text", "text": "Three hours later…", "hold": 2.0}
-```
-
-#### `wait`
-
-```json
-{"action": "wait", "t": 1.5}
-```
-
----
-
-### The props declaration
-
-Named chairs follow the convention `chair_{character_key}` and are
-placed near screen center so characters walk toward each other before
-sitting:
-
-```json
-"chair_lucy":  {"type": "chair", "x": -0.6, …},
-"chair_lenny": {"type": "chair", "x":  0.8, …}
-```
-
----
-
-### Parallel actions
-
-The `parallel` action interleaves locomotion keyframes from multiple
-characters so they move simultaneously. It handles `walk_to`,
-`run_to`, and `trot_to` together in one block.
-
-Non-locomotion sub-actions (`turn`, `fade_out`) are collected and fired
-in a single `scene.play()` call after locomotion completes.
-
----
+Only locomotion actions (`walk_to`, `run_to`, `trot_to`, `walk_to_prop`,
+`run_to_prop`) may appear in `do`.  Multi-step choreography methods
+(`sit_down`, `wave`) fall back to sequential with a console warning.
 
 ### Annotation entries
 
 Both are skipped silently by `pam_player.py`:
 
 **`_comment`** — review flags from the converter:
+
 ```json
-{"_comment": "# REVIEW: Lucy and Lenny walk toward each other."}
+{"_comment": "# REVIEW: Nona and Sidel walk toward each other."}
 ```
 
-**`_hint`** — actionable patch instruction with copy-pasteable JSON,
-placed immediately before the stub action it describes:
+**`_hint`** — actionable patch instruction placed immediately before the stub
+it describes:
+
 ```json
-{
-  "_hint": "PATCH NEEDED — from: \"Lucy and Lenny run to the right.\"\n     Replace the walk_to below with:\n     {\"action\": \"parallel\", \"rt_per_kf\": 0.12, \"do\": [\n       {\"who\": \"lucy\",  \"action\": \"run_to\", \"x\": 4.5},\n       {\"who\": \"lenny\", \"action\": \"run_to\", \"x\": 3.8},\n       {\"prop\": \"dog\",  \"action\": \"trot_to\", \"x\": 3.3, \"stride\": 0.35}\n     ]}"
-},
-{"action": "walk_to", "who": "lucy", "x": -4.5}
+{"_hint": "PATCH NEEDED — from: 'Nona and Sidel run to the right.'\n  Replace the walk_to below with a parallel block."},
+{"action": "walk_to", "who": "nona", "x": -4.5}
 ```
-
-**Important:** `_comment` and `_hint` must never be placed as keys
-*inside* a parallel dict — `pam_player` skips the entire action if it
-sees either key at the top level of a step.
-
----
 
 ### Editing JSON by hand
 
-The most common manual edits after `fountain2pam.py` runs:
+The most common manual edits after running `fountain2pam.py`:
 
-1. **Fix movement x targets.** Filler stubs use the character's
-   starting x (no visible movement). Replace `x` with the real
-   destination. The `_hint` above each filler shows the suggested
-   value, correct action type, and a complete parallel block example.
+1. **Fix movement x targets.**  Filler stubs have `x` set to the character's
+   starting position.  Replace with the real destination.  The `_hint` above
+   each filler shows the suggested value and a complete parallel block example.
 
-2. **Move the dog spawn.** If the dog should appear from frame 1,
-   move its `spawn_prop` to immediately after the first `fade_in`.
-   With the current converter this happens automatically, but
-   hand-edited files may need it.
+2. **Move prop spawns.**  If a prop-character should appear from frame 1, move
+   its `spawn_prop` to immediately after the first `fade_in`.
 
-3. **Fix palettes.** The round-robin palette assignment may put the
-   wrong color on a character. Swap the `style` dicts in the `cast`
-   block. The PATCH HINTS output flags this with the correct hex
-   values.
+3. **Fix palettes.**  The round-robin palette assignment may assign the wrong
+   color.  Swap `style` dicts in the cast block.  `PATCH HINTS` output flags
+   mismatches with the correct hex values.
 
-4. **Add `turn` before/after locomotion.** The converter adds turns
-   automatically for filler stubs and resolved locomotion. For
-   hand-written moves, add:
+4. **Add turn before/after locomotion.**  Hand-written moves need:
+
    ```json
-   {"action": "turn", "who": "lucy", "pose": "standing_side"}
+   {"action": "turn", "who": "nona", "pose": "standing_side"}
    ```
-   before the walk/run, and:
-   ```json
-   {"action": "turn", "who": "lucy", "pose": "standing_front"}
-   ```
-   after it.
+
+   before the walk/run, and `"standing_front"` after it.
 
 ---
 
 ## Coordinate system and conventions
 
-- World origin `[0, 0, 0]` is the center of the Manim frame.
-- x increases to the right; y increases upward.
+- World origin `[0, 0, 0]` is the centre of the Manim frame.
+- `x` increases to the right; `y` increases upward.
 - Typical screen bounds: `x ∈ [-7.1, 7.1]`, `y ∈ [-4.0, 4.0]`.
-- Character `offset` is the world position of the figure's local
-  origin (the anchor point for scale).
-- With `scale_anchor="lankle"` and `scale_sy=0.7`, the left ankle sits
-  at `offset`, so `offset[1] = 0` places the foot on the ground line.
-- Default two-character scene: one starts at `x = -4.5` (left),
-  the other at `x = 4.5` (right).
-- Chairs are placed near `x = -0.6` and `x = 0.8` (near screen
-  center) so characters walk toward each other before sitting.
-- Dog spawn: `y = -1.95` places the paws at ground level for a
-  figure scaled to 0.7.
+- A figure at scale 1.0 is roughly 6 units tall.  At scale 0.7 (the
+  `fountain2pam.py` default) roughly 4.2 units — two figures fit comfortably
+  side by side.
+- Side-view figures face screen-right by convention.
+- Props sit at floor level by default (`y = -2.6`).
+- The dodecahedron spawns at `y = 1.5` by default — roughly eye level for a
+  scaled figure.
+- Dog spawn: `y = -1.95` places the paws at ground level for scale 0.7.
+- Default two-character scene: one at `x = -4.5`, one at `x = 4.5`.
 
 ---
 
 ## Tips and caveats
 
-**`carry()` requires `standing_side` pose.** Use `turn(STANDING_SIDE,
-scene)` first. Failure produces a distorted animation.
+**`walk_to` and `run_to` require `standing_side`.**  Add
+`{"action": "turn", "who": "...", "pose": "standing_side"}` first.  The
+converter adds this automatically; hand-written JSON must include it.
 
-**`walk_to` and `run_to` require `standing_side`.** Same requirement.
-The converter adds `turn` automatically; hand-written JSON must include
-it.
+**`trot_to` uses `"prop"`, not `"who"`.**  The dog lives in the props
+registry.  Using `"who": "dog"` silently drops the action.
 
-**`trot_to` uses `"prop"`, not `"who"`.** The dog lives in the props
-registry. Using `"who": "dog"` silently drops the action.
+**`carry()` requires `standing_side` pose.**  Same as `walk_to`.
 
-**`_comment` inside a parallel is fatal.** If a parallel dict has a
-top-level `_comment` key, `pam_player` skips the entire parallel. The
-converter always places `_comment` as a separate preceding action.
+**`_comment` inside a `parallel` is fatal.**  `pam_player` skips the entire
+parallel if it sees a top-level `_comment` key in any step.  The converter
+always places `_comment` as a separate preceding action.
 
-**`x: null` in locomotion crashes.** A `trot_to` or `walk_to` with
-`x: null` is skipped with a warning but may break the keyframe
-interleaver. Always set a concrete x before rendering.
+**`x: null` in locomotion.**  A `trot_to` or `walk_to` with `x: null` may
+break the keyframe interleaver.  Always set a concrete `x`.
 
-**Stride guidance for `trot_to`:**
+**The `insert` CAMERA framing** is a PAM-only beat — do not send to Kling.
+Use PAM render or a composited still for these beats.
 
-| `stride` | Use case |
-|----------|----------|
-| `0.14` | Slow companion trot |
-| `0.22` | Following a humanoid to a chair |
-| `0.35` | Running alongside a humanoid |
+**Freeform `[[ CAMERA: ]]` tags** (no `=` sign) pass through unchanged and
+are fully backward compatible with v0.9.0.
 
-**Speech bubble `side` vs screen position.** `side` controls which
-side of the head the bubble appears on. Characters on the left side of
-the screen should use `side="right"` (bubble toward screen center);
-characters on the right should use `side="left"`.
+**Re-running `fountain2pam` is idempotent** — it produces a fresh JSON each
+time.  Save manual edits under a different filename before re-running.
+`characters.txt` is the exception: the converter updates it in place,
+preserving existing entries and comments.
 
-**`per-speaker` clip mode** (default) is recommended for Kling and
-similar generators. Use `--clip-mode timed` for generators with strong
-temporal consistency.
+**`characters.txt` working directory.**  The converter writes `characters.txt`
+beside the `.fountain` source file.  If the gallery is run from a different
+directory, set `CHARACTERS=/path/to/characters.txt`.
 
-**Palette round-robin.** The converter assigns palettes in round-robin
-order from the built-in set. The PATCH HINTS output flags any mismatch
-between a character's name and their assigned color. Override by
-editing the `style` dict in the `cast` block.
+**Font warnings on Linux.**  If Manim warns that Courier New is not found,
+change the font in `builds.py` to `"Liberation Mono"` or `"DejaVu Sans Mono"`.
 
 ---
 
-## Major changes from 0.7.3 to 0.9.0
+## Major changes by version
 
-PAM 0.9.0 is not just a small incremental revision of 0.7.3. The core
-idea is unchanged — PAM remains a Manim-based graph-animation library
-driven by poses, JSON screenplays, and Fountain conversion — but the
-newer release reflects a substantially more mature system.
+### 0.9.3 (current)
 
-### 1. PAM expands beyond a mainly humanoid system
+**Character registry and gallery**
 
-In v0.7.3, the documentation is centered primarily on `HumanGraph`,
-three body builds (`default`, `narrow`, `broad`), and prop support.
-In v0.9.0, PAM is documented as a broader animation framework with
-first-class support for `AlienGraph`, `DogGraph`, and `GovernorGraph`,
-plus an added `alien` body build.
+- `characters.txt` — new file-based character registry.  One character per
+  line, `key=value` format.  Ships pre-populated with seven default characters
+  covering all types and genders.
+- `character_gallery.py` — new standalone Manim scene that reads
+  `characters.txt` and renders every character in a two-column layout (front +
+  side, or type-appropriate pair).  All figures stand on a common ground line.
+  Supports `WHITE_BG` and `CHARACTERS` environment variables.
+- Gallery view pairs: human/alien → front + side; dog → standing + trot-A;
+  dodecahedron → spin style + Schlegel diagram.
 
-### 2. Non-human skeletons become explicit API features
+**Fountain+ CHARACTER annotation**
 
-Version 0.9.0 documents a separate 18-joint `DogGraph` skeleton and
-its rendering conventions, including far-side-leg opacity. This makes
-non-human actors part of the documented public model rather than
-special cases.
+- New `CHARACTER` key in `fountain2pam.py`.  Annotations of the form
+  `[[ CHARACTER: name=... type=... gender=... ]]` are collected during
+  conversion and synced to `characters.txt` — adding new names, updating
+  existing ones in place.
+- `parse_character_line()` and `sync_characters_file()` — new public
+  functions for programmatic registry management.
 
-### 3. Persistent scale becomes more intrinsic
+**Gender presets (humanoid)**
 
-Version 0.7.3 documented persistent scale mainly through `set_scale()`
-and JSON `scale` actions. Version 0.9.0 reframes scale as a persistent
-property attached to the figure and applied every frame, with scale
-anchoring explained more centrally.
+- `HumanGraph` now accepts `gender="male"` | `"female"` | `"child"`.
+- Gender presets set `build`, `torso_y`, and `height` in one step.
+  Explicit kwargs always override the preset.
+- `torso_y` is passed through `build_poses()` as an override, so all
+  front-view poses (standing, sitting, wave) pick up the correct torso height.
 
-### 4. The Python API is more modular and explicit
+| Gender | Build | Torso y | Height |
+|---|---|---|---|
+| `male` | `broad` | 0.40 (low) | 1.0 |
+| `female` | `narrow` | 1.00 (high) | 1.0 |
+| `child` | `narrow` | 0.70 | 0.65 |
 
-The earlier README focused mainly on `HumanGraph`. The v0.9.0 version
-breaks the API into distinct sections for `HumanGraph`, `AlienGraph`,
-`DogGraph`, and `GovernorGraph`, with clearer usage notes for each.
+**Alien gender differentiation**
 
-### 5. The JSON screenplay model gets cleaner prop-character semantics
+- `AlienGraph` now accepts `gender="male"` | `"female"`.
+- New `alien_female` build (`_ALIEN_FEMALE_PROPORTIONS` in `builds.py`) with
+  distinct torso bar position, width, shoulder width, and head size.
+- `torso_bar_scale` — new proportions key controlling the half-width of the
+  alien torso bar as a multiple of `hip_w`.
 
-In v0.7.3, the JSON action vocabulary was already rich, but v0.9.0 makes
-the distinction between humanoid actions (`"who"`) and prop-character
-actions (`"prop"`) much more explicit, especially for `trot_to` and
-`prop_say`.
+| Gender | Build | `torso_y` | `torso_bar_scale` | `head_radius` | `shoulder_w` |
+|---|---|---|---|---|---|
+| `male` | `alien` | 0.30 (low) | 1.10 (wide) | 0.30 | 1.10 |
+| `female` | `alien_female` | 0.80 (high) | 0.85 (narrow) | 0.34 | 0.95 |
 
-### 6. Converter output gains a stronger patching workflow
+- `alien_front_pose_split()` now uses both `torso_y` and `torso_bar_scale`
+  from build proportions rather than computing geometric midpoints.
+- `alien_side_pose()` accepts explicit `torso_y` so gender overrides are
+  preserved in all side-view keyframes.
 
-Version 0.7.3 used `_comment` entries such as `# SCENE` and `# REVIEW`
-to annotate generated JSON. Version 0.9.0 keeps `_comment` but adds a
-stronger `_hint` convention with actionable patch instructions and
-copy-pasteable replacement JSON. That makes the converter-to-manual-edit
-workflow more disciplined.
+**Alien split-torso skeleton**
 
-### 7. The README becomes tighter and more operational
+- `ALIEN_JOINTS` and `ALIEN_EDGES` — new constants in `poses.py` defining
+  the 16-vertex, 17-edge alien skeleton topology.
+- `alien_front_pose_split()` — front-view pose builder returning
+  `torso_left` and `torso_right` keys.
+- `alien_side_pose()` — side-view pose builder; both torso vertices coincide
+  so the bar is invisible (preserves the side-view illusion).
+- `HumanGraph._build()` reads `joints` and `edges` from the build-poses dict,
+  so the alien skeleton is handled automatically without subclass overrides.
+- `AlienGraph` is now a thin subclass of `HumanGraph` with no overridden
+  animation methods.
 
-The 0.7.3 README spent more space teaching Fountain+ craft and AI
-prompt-writing style. The 0.9.0 README is terser, more declarative,
-and more focused on exact behavior, JSON format, and pipeline
-operation. This merged README restores the strongest practical
-guidance from 0.7.3 without losing the cleaner 0.9.0 organization.
+**GovernorGraph Schlegel diagram**
 
-### 8. The command-line story is slightly refocused
+- `GovernorGraph` now accepts `style="schlegel"` (default) or `style="spin"`.
+- `"schlegel"` renders a static 2-D Schlegel diagram: 20 vertices, 30 edges,
+  four concentric pentagons.
+- `"spin"` restores the original animated 12-sided polygon.
+- `pulse()`, `set_state()`, `say()`, and `fade_out()` all branch correctly on
+  style.
 
-Version 0.7.3 prominently documented both `pam_player.py` and the
-`pam-render` wrapper. Version 0.9.0 emphasizes `pam_player.py` and
-`fountain2pam.py` directly and gives less prominence to wrapper-based
-usage.
+**Zero-length edge handling**
 
-### 9. The project context is more explicit
+- `HumanGraph._build()` creates a `Line` for every edge, setting opacity to 0
+  for coincident vertices rather than skipping the key.
+- `_safe_line_anim()` now returns a list and uses opacity animations to
+  hide/show coincident edges (alien torso bar in side view) through
+  `morph_to`, `set_pose`, and `turn`.
 
-The newer README more clearly links PAM to the *Too Nice to Die*
-pipeline from Fountain through PAM blocking, AI still generation,
-video clips, and Final Cut Pro X assembly.
+---
 
-### Bottom line
+### 0.9.2
 
-Version 0.7.3 reads like a detailed README for a strong humanoid PAM
-system with screenplay and prompt tooling. Version 0.9.0 reads like
-the README for a broader, more mature animation framework with better
-non-human support, more formal prop-character semantics, and a more
-production-ready documentation style.
+- `LIGHTING` annotation — new beat-scoped Fountain+ key with structured
+  vocabulary (`evenly-lit`, `high-contrast`, `practical-cool`, etc.).
+- `LIGHTING=` sub-key inside `[[ CAMERA: ]]` annotations.
+- `--shot-count` flag — assigns `shot_label` and `shot_number` to each
+  subscene based on camera/lighting signature changes.
+- `--csv` flag — exports shot-list CSV (implies `--shot-count`).
+- `_subscene_marker` entries injected into PAM JSON for `pam_player`
+  `--camera-mode` sync.
+
+### 0.9.1
+
+- Structured `CAMERA` tags with four sub-keys: `FRAMING`, `SUBJECT`, `MOVE`,
+  `TRANSITION`.
+- `parse_camera_tag()` — parses structured vs. freeform camera values.
+- `_camera_to_shot_line()` — new `ScenePromptBuilder` method replaces direct
+  `_infer_shot_size()` call.
+- `TRANSITION=` overrides `[DRAMA / CUT]` line.
+- `shot_meta` field added to each subscene JSON.
+
+### 0.9.0
+
+- `AlienGraph`, `DogGraph`, `GovernorGraph` become first-class API features.
+- `per-speaker` clip mode added as default.
+- `_hint` convention replaces plain `_comment` for patch instructions.
+- Tiered implied-prop inference system.
+- `KIND` and `CAMERA` note types added.
+- `PATCH HINTS` printed after conversion.
+
+### 0.7.3
+
+- Original `HumanGraph` system, three builds, PAM JSON screenplay player.
+- `fountain2pam.py` with `MOOD`, `SCENE POPULATION`, `NEGATIVE` notes.
+- Per-speaker and timed clip modes.
+- `pam-render` shell wrapper.
 
 ---
 
 ## License
 
-MIT License — see `LICENSE` for details.
+MIT License — see LICENSE for details.
 
 ---
 
 ## Project context
 
 PAM was built to support *Too Nice to Die* — an animated sci-fi comedy
-screenplay set on Venus, part of the Avatar Academy universe. The
-production pipeline runs from Fountain screenplay through PAM blocking
-animation, AI still generation, Kling video clips, and Final Cut Pro X
-assembly.
+screenplay set on Venus, part of the Avatar Academy universe.  The production
+pipeline runs from Fountain screenplay through PAM blocking animation, AI still
+generation, Kling video clips, and Final Cut Pro X assembly.
 
-*PAM v0.9.0 · fountain2pam v0.9.0*  
+---
+
+*PAM v0.9.3 · fountain2pam v0.9.3*
 *Co-authored by David Joyner and Claude Sonnet 4.6 (Anthropic)*
