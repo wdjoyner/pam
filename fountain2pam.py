@@ -148,6 +148,7 @@ Supported keys
     ``push``       Slow dolly toward subject
     ``pull``       Slow dolly away from subject
     ``pan-follow`` Camera pans to track a moving character
+    ``pan-up``     Camera tilts up to reveal full height of SUBJECT prop (v0.9.4)
     ``drift``      Very slow imperceptible creep — atmospheric
     ============== =======================================================
 
@@ -230,6 +231,81 @@ Supported keys
     Then tag characters in action lines::
 
         SERGEANT SIDEL [Kind: Venusian] — compact, mid-40s ...
+
+``CHARACTER``  (file-level, new in v0.9.3)
+    Declare a PAM character and sync it to ``characters.txt`` in the same
+    directory as the ``.fountain`` file.  If a character with the same
+    ``name`` already exists in ``characters.txt`` it is updated in-place;
+    new names are appended.  This lets the screenplay be the single source
+    of truth for the cast.
+
+    Format — ``key=value`` pairs on one line::
+
+        [[ CHARACTER: name=albert type=human gender=male color=#3366cc label=A ]]
+
+    Required keys: ``name``, ``type``, ``gender``.
+    Optional keys: ``color``, ``label``, ``height``, ``build``, ``style``.
+
+    ``type`` values: ``human`` | ``alien`` | ``dog`` | ``dodecahedron``
+    ``gender`` values: ``male`` | ``female`` | ``child``
+      (``gender`` applies to every type — for ``dog`` and ``dodecahedron``
+      it drives voice casting but does not change the visual)
+
+    Example cast declaration at the top of a scene::
+
+        INT. VENUS CITY OBSERVATORY - NIGHT
+
+        [[ CHARACTER: name=sidel    type=alien        gender=female color=#3dd68c  label=S ]]
+        [[ CHARACTER: name=nona     type=alien        gender=female color=#aacc00  label=N ]]
+        [[ CHARACTER: name=governor type=dodecahedron gender=female color=#e8c547  label=G  style=schlegel ]]
+        [[ CHARACTER: name=ramis    type=dog          gender=male   color=#c8832a  label=R ]]
+
+    After running ``fountain2pam.py``, ``characters.txt`` will contain (or
+    update) these four entries, and running ``character_gallery.py`` will
+    render a gallery page for the full cast automatically.
+
+    Full pipeline example::
+
+        # 1. Convert screenplay → PAM JSON + prompts + sync characters.txt
+        python fountain2pam.py tntd.fountain
+
+        # 2. Render the character gallery from characters.txt
+        manim -pqh --save_last_frame character_gallery.py CharacterGallery
+
+        # 3. Animate the PAM JSON
+        manim -pqh tntd.fountain.json pam_player.py
+
+Examples
+--------
+
+Minimal conversion (PAM JSON + prompts)::
+
+    python fountain2pam.py tntd.fountain
+
+Conversion with all outputs::
+
+    python fountain2pam.py tntd.fountain \\
+        -o tntd.json \\
+        --prompts tntd_prompts.json \\
+        --shot-count \\
+        --csv tntd_shots.csv
+
+Prompts only (no PAM JSON)::
+
+    python fountain2pam.py tntd.fountain --prompts-only
+
+Per-speaker clip mode (default — best for Kling)::
+
+    python fountain2pam.py tntd.fountain --clip-mode per-speaker
+
+Timed clip mode (original 5-10 s drama-aware window)::
+
+    python fountain2pam.py tntd.fountain --clip-mode timed
+
+Render character gallery after sync::
+
+    python fountain2pam.py tntd.fountain
+    manim -pqh --save_last_frame character_gallery.py CharacterGallery
 
 Beat-scoping
 ~~~~~~~~~~~~
@@ -366,6 +442,7 @@ CAMERA_MOVE = {
     "pull",
     "pan-follow",
     "drift",
+    "pan-up",      # v0.9.4: tilt up from current framing to reveal top of SUBJECT prop
 }
 
 CAMERA_TRANSITION = {
@@ -394,6 +471,7 @@ _MOVE_PROSE: dict[str, str] = {
     "pull":         "Slow pull back from subject.",
     "pan-follow":   "Camera pans to follow subject.",
     "drift":        "Imperceptible slow drift — atmospheric.",
+    "pan-up":       "Camera tilts up from subject to reveal full height of background prop.",
 }
 
 # TRANSITION value → override text for [DRAMA / CUT] last line
@@ -770,6 +848,7 @@ _KNOWN_NOTE_KEYS = {
     "kind":             "kind",     # file-level species/type templates
     "camera":           "camera",   # mid-scene camera override
     "lighting":         "lighting", # mid-scene lighting override (v0.9.2)
+    "character":        "character", # character registry entry (v0.9.3)
 }
 
 # Regex to parse [[ KIND: name | description ]] — pipe separates name from desc
@@ -913,6 +992,13 @@ def _extract_fountain_notes(raw_text: str) -> dict:
             if "mood" not in scene_notes[owner_heading]:
                 scene_notes[owner_heading]["mood"] = value
 
+        elif canonical == "character":
+            # CHARACTER is file-level: collected separately, not in note_events.
+            # Store in scene_notes under a special "__characters__" key so the
+            # caller can retrieve them without touching note_events ordering.
+            scene_notes.setdefault("__characters__", [])
+            scene_notes["__characters__"].append(value)
+
         else:
             # SCENE POPULATION, NEGATIVE, CAMERA, and LIGHTING are mid-scene
             # events. CAMERA and LIGHTING values are pre-parsed here so
@@ -947,6 +1033,140 @@ def _extract_fountain_notes(raw_text: str) -> dict:
                 note_events.append(event)
 
     return {"scene_notes": scene_notes, "note_events": note_events}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CHARACTER REGISTRY  (v0.9.3)
+#
+#  Two entry points:
+#    parse_character_line(raw)      — parse one "key=value …" string
+#    sync_characters_file(recs, p)  — add/update entries in characters.txt
+# ─────────────────────────────────────────────────────────────────────────────
+
+def parse_character_line(raw: str) -> dict | None:
+    """
+    Parse a ``[[ CHARACTER: … ]]`` annotation value (or any ``key=value``
+    whitespace-separated string) into a character record dict.
+
+    Required keys: ``name``, ``type``, ``gender``.
+    Optional keys: ``color``, ``label``, ``height``, ``build``, ``style``.
+
+    Returns ``None`` if ``name`` or ``type`` is missing.
+
+    Examples::
+
+        parse_character_line("name=albert type=human gender=male color=#3366cc label=A")
+        → {"name": "albert", "type": "human", "gender": "male",
+           "color": "#3366cc", "label": "A"}
+
+        parse_character_line("name=governor type=dodecahedron gender=female style=schlegel")
+        → {"name": "governor", "type": "dodecahedron", "gender": "female",
+           "style": "schlegel"}
+    """
+    rec: dict[str, str] = {}
+    for token in raw.strip().split():
+        if "=" in token:
+            k, _, v = token.partition("=")
+            rec[k.strip().lower()] = v.strip()
+    if "name" not in rec or "type" not in rec:
+        print(f"  [CHARACTER] warning: missing 'name' or 'type' in {raw!r} — skipped.",
+              file=sys.stderr)
+        return None
+    if "gender" not in rec:
+        print(f"  [CHARACTER] warning: '{rec['name']}' missing 'gender' — "
+              f"defaulting to 'male'.", file=sys.stderr)
+        rec["gender"] = "male"
+    return rec
+
+
+def sync_characters_file(records: list[dict], path: str = "characters.txt") -> int:
+    """
+    Add or update character entries in *path* from *records*.
+
+    For each record:
+    - If a line with ``name=<record['name']>`` already exists, it is
+      replaced in-place (preserving its position in the file).
+    - If the name is new, the record is appended to the end of the file.
+
+    Lines beginning with ``#`` and blank lines are preserved unchanged.
+
+    Returns the number of records written (added + updated).
+
+    Example::
+
+        sync_characters_file([
+            {"name": "nona", "type": "alien", "gender": "female",
+             "color": "#3dd68c", "label": "N"},
+        ], "characters.txt")
+    """
+    from pathlib import Path
+
+    p = Path(path)
+
+    # Read existing file (or start empty)
+    if p.exists():
+        with open(p, encoding="utf-8") as f:
+            lines = f.readlines()
+    else:
+        lines = [
+            "# PAM Character Registry\n",
+            "# Generated by fountain2pam.py\n",
+            "#\n",
+            "# name=<id>  type=human|alien|dog|dodecahedron  gender=male|female|child\n",
+            "# color=#hex  label=<char>  height=<float>  build=<name>  style=<name>\n",
+            "\n",
+        ]
+
+    def _rec_to_line(rec: dict) -> str:
+        """Serialise a record dict to a registry line."""
+        # Canonical key order for readability
+        ordered_keys = ["name", "type", "gender", "color", "label",
+                        "height", "build", "style"]
+        parts = []
+        for k in ordered_keys:
+            if k in rec:
+                parts.append(f"{k}={rec[k]}")
+        # Any extra keys the caller included
+        for k, v in rec.items():
+            if k not in ordered_keys:
+                parts.append(f"{k}={v}")
+        # Align name, type, gender columns for readability
+        line = "  ".join(parts)
+        return line + "\n"
+
+    # Build a mapping: name → line index in the existing file
+    existing: dict[str, int] = {}
+    for idx, raw in enumerate(lines):
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        for token in stripped.split():
+            if token.startswith("name="):
+                existing[token[5:].strip()] = idx
+                break
+
+    n_written = 0
+    to_append: list[dict] = []
+
+    for rec in records:
+        name = rec["name"]
+        new_line = _rec_to_line(rec)
+        if name in existing:
+            lines[existing[name]] = new_line
+        else:
+            to_append.append(rec)
+        n_written += 1
+
+    if to_append:
+        if lines and not lines[-1].endswith("\n"):
+            lines.append("\n")
+        for rec in to_append:
+            lines.append(_rec_to_line(rec))
+
+    with open(p, "w", encoding="utf-8") as f:
+        f.writelines(lines)
+
+    return n_written
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2812,6 +3032,18 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
     scene_notes    = fountain_notes["scene_notes"]
     note_events    = fountain_notes["note_events"]   # ordered by line_number
 
+    # ── CHARACTER annotations: sync to characters.txt ────────────────────
+    char_annotation_recs: list[dict] = []
+    for raw_char in scene_notes.pop("__characters__", []):
+        rec = parse_character_line(raw_char)
+        if rec:
+            char_annotation_recs.append(rec)
+    if char_annotation_recs:
+        chars_path = Path(fountain_path).parent / "characters.txt"
+        n = sync_characters_file(char_annotation_recs, str(chars_path))
+        print(f"  [CHARACTER] synced {n} record(s) → {chars_path}",
+              file=sys.stderr)
+
     # ── Extract KIND templates (file-level, any position) ────────────────
     kind_templates = _extract_kind_templates(raw_text)
 
@@ -3216,15 +3448,46 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
     _raw_lines   = raw_text.splitlines()
     _raw_cursor  = 0   # index into _raw_lines (0-based)
 
-    def _advance_raw_cursor_to(text_snippet: str):
-        """Move _raw_cursor forward until we find text_snippet in the raw lines."""
+    def _advance_raw_cursor_to(text_snippet: str, exact: bool = False):
+        """
+        Move _raw_cursor forward until we find text_snippet in the raw lines.
+
+        exact=False:
+            prefer exact/startswith matches, then fall back to first-word contains.
+
+        exact=True:
+            require the raw line to match the snippet line itself (after normalisation)
+            or to start with it.  This is important for dialogue cues like "SIDEL",
+            which must not accidentally match action lines like
+            "Sidel shakes his head...".
+        """
         nonlocal _raw_cursor
-        snippet_first = text_snippet.split()[0] if text_snippet.split() else ""
+
+        snippet = (text_snippet or "").strip()
+        if not snippet:
+            return
+
+        def _norm(s: str) -> str:
+            return re.sub(r"\s+", " ", (s or "").strip()).lower()
+
+        target = _norm(snippet)
+        target_first = target.split()[0] if target.split() else ""
+
+        # 1) exact / startswith pass
         for i in range(_raw_cursor, len(_raw_lines)):
-            if snippet_first and snippet_first.lower() in _raw_lines[i].lower():
+            line = _norm(_raw_lines[i])
+            if line == target or line.startswith(target):
                 _raw_cursor = i
                 return
-        # If not found, don't move cursor — safe fallback
+
+        # 2) non-exact fallback: first-word containment
+        if not exact and target_first:
+            for i in range(_raw_cursor, len(_raw_lines)):
+                line = _norm(_raw_lines[i])
+                if target_first in line:
+                    _raw_cursor = i
+                    return
+        # If not found, leave cursor unchanged.
 
     def _fire_pending_notes(up_to_line: int):
         """Call update_notes() for any queued events at or before up_to_line."""
@@ -3445,7 +3708,7 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
         # ── Dialogue ─────────────────────────────────────────────────────
         elif isinstance(elem, Dialog):
             cname = str(elem.character).strip()
-            _advance_raw_cursor_to(cname)
+            _advance_raw_cursor_to(cname, exact=True)
             _fire_pending_notes(_raw_cursor + 1)
             key = char_key.get(cname, cname.lower())
             last_who = key
@@ -3485,7 +3748,7 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
             for dlg in (elem.left, elem.right):
                 if dlg:
                     cname = str(dlg.character).strip()
-                    _advance_raw_cursor_to(cname)
+                    _advance_raw_cursor_to(cname, exact=True)
                     _fire_pending_notes(_raw_cursor + 1)
                     key = char_key.get(cname, cname.lower())
                     last_who = key
