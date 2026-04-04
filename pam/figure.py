@@ -51,6 +51,68 @@ DEFAULT_STYLE = dict(
 )
 
 
+def _style_from_color(hex_color: str) -> dict:
+    """
+    Derive a full PAM style palette from a single hex colour string.
+
+    The input colour becomes the edge/stroke colour.  Darker variants are
+    computed for fill and head colours; a lighter tint becomes the
+    highlight.  All arithmetic is done in the 0–255 integer domain and
+    clamped, so any valid HTML hex is safe to pass in.
+
+    Parameters
+    ----------
+    hex_color : str
+        Base colour, e.g. ``"#cc3333"`` or ``"#4db87a"``.
+
+    Returns
+    -------
+    dict
+        A partial style dict suitable for merging with ``DEFAULT_STYLE``
+        or passing as the ``style`` argument to ``HumanGraph``.
+    """
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+    def _hex(rv, gv, bv):
+        return "#{:02x}{:02x}{:02x}".format(
+            max(0, min(255, rv)),
+            max(0, min(255, gv)),
+            max(0, min(255, bv)),
+        )
+
+    # Dark fill — 20 % of the original brightness
+    node_color = _hex(r // 5, g // 5, b // 5)
+    # Very dark fill for head interior
+    head_color = _hex(r // 8, g // 8, b // 8)
+    # Lighter tint for highlight (+60 toward 255)
+    highlight   = _hex(r + 60, g + 60, b + 60)
+
+    return dict(
+        edge_color      = hex_color,
+        node_color      = node_color,
+        node_stroke     = hex_color,
+        head_color      = head_color,
+        head_stroke     = hex_color,
+        highlight_color = highlight,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  GENDER PRESETS
+# ─────────────────────────────────────────────────────────────────────────────
+
+GENDER_DEFAULTS = {
+    #          build          height   torso_y
+    "male":   {"build": "broad",        "height": 1.0,  "torso_y": 0.40},
+    "female": {"build": "narrow",       "height": 1.0,  "torso_y": 1.00},
+    "child":  {"build": "narrow",       "height": 0.65, "torso_y": 0.70},
+    # Alien-specific gender presets — used when AlienGraph passes gender
+    "alien_male":   {"build": "alien",        "height": 1.0, "torso_y": None},
+    "alien_female": {"build": "alien_female", "height": 1.0, "torso_y": None},
+}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  HUMAN GRAPH CLASS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -61,24 +123,148 @@ class HumanGraph:
 
     Parameters
     ----------
-    pose : dict
-        Initial pose (e.g. ``STANDING_FRONT``).
-    offset : array-like
-        World position ``[x, y, 0]``.
+    pose : dict, optional
+        Initial pose (e.g. ``STANDING_FRONT``).  Defaults to the
+        build's ``standing_front``.
+    offset : array-like, optional
+        World position ``[x, y, 0]``.  Defaults to ``[0, 0, 0]``.
     build : str or dict, optional
-        Body-type preset name (``"default"``, ``"narrow"``, ``"broad"``)
-        or a custom build dict with ``"proportions"`` and ``"style"``
-        keys.  Sets proportions for all generated poses and default
-        colours.
+        Body-type preset name (``"default"``, ``"narrow"``, ``"broad"``,
+        ``"alien"``) or a custom build dict with ``"proportions"`` and
+        ``"style"`` keys.  Sets proportions for all generated poses and
+        default colours.
     style : dict, optional
-        Override any key in the build's default style (or
-        ``DEFAULT_STYLE`` if no build is given).
+        Fine-grained overrides for any key in the build's default style
+        (or ``DEFAULT_STYLE`` if no build is given).  Applied last, so
+        it wins over both ``build`` and ``color``.
+    height : float, optional
+        Uniform vertical scale factor applied on top of the build's
+        proportions.  ``1.0`` (default) leaves the build unchanged.
+        Values above ``1.0`` make the character taller; below ``1.0``
+        shorter.  The anchor joint (``"lankle"``) stays fixed so the
+        character appears to stand on the same floor line.
+
+        Examples::
+
+            # Tall character — 20 % taller than the default build
+            vera = HumanGraph(height=1.2, offset=[-2, 0, 0])
+
+            # Short character — 85 % of default height
+            pip  = HumanGraph(height=0.85, offset=[1, 0, 0])
+
+    color : str, optional
+        A single HTML hex colour (e.g. ``"#cc3333"``) that sets the
+        entire palette automatically.  The supplied colour becomes the
+        edge/stroke colour; darker variants are derived for fills, and
+        a lighter tint becomes the highlight colour.  Combine with
+        ``style`` to fine-tune individual keys after the palette is
+        applied.
+
+        Examples::
+
+            # Red character
+            vera = HumanGraph(color="#cc3333", offset=[-2, 0, 0])
+
+            # Tall *and* red
+            vera = HumanGraph(height=1.2, color="#cc3333", offset=[-2, 0, 0])
+
+            # Green, narrow build, custom head label
+            sidel = HumanGraph(
+                build="narrow",
+                color="#4db87a",
+                style={"head_label": "S"},
+                offset=[0, 0, 0],
+            )
+
+    torso_color : str, optional
+        A second HTML hex colour applied only to the torso zone — the
+        torso joint(s), torso bar (alien), and the edges connecting the
+        torso to the shoulders, hips, and neck.  The rest of the figure
+        (head, arms, legs) keeps the palette derived from ``color``.
+
+        This is the primary way to suggest a uniform or shirt:
+
+        Examples::
+
+            # Blue uniform torso, white extremities
+            guard = HumanGraph(color="#ffffff", torso_color="#1a3aaa",
+                               offset=[0, 0, 0])
+
+            # Alien female with green skin, red uniform torso
+            nona = AlienGraph(gender="female", color="#4db87a",
+                              torso_color="#cc2222", offset=[-2, 0, 0])
+
+        If ``torso_color`` is ``None`` (the default), the figure renders
+        in a single color zone as in v0.9.3 and earlier — fully backward
+        compatible.
+
+    scale_sx, scale_sy : float, optional
+        Persistent per-axis scale factors (see ``set_scale``).  Prefer
+        ``height`` for simple vertical scaling.
+    scale_anchor : str, optional
+        Joint that stays fixed when scaling (default ``"lankle"``).
+
+    gender : str, optional
+        Convenience preset that sets ``build`` and ``height`` in one shot.
+        Explicit ``build`` or ``height`` kwargs always override the preset.
+
+        ============  ==============================================
+        ``"male"``    ``build="broad"``  (wide shoulders, low torso)
+        ``"female"``  ``build="narrow"`` (narrow, high torso)
+        ``"child"``   ``build="narrow"``, ``height=0.65``
+        ============  ==============================================
+
+        Example::
+
+            nona  = HumanGraph(gender="female", color="#cc3399", offset=[-2, 0, 0])
+            guard = HumanGraph(gender="male",   color="#3366cc", offset=[ 2, 0, 0])
+            kid   = HumanGraph(gender="child",  color="#44bb88", offset=[ 0, 0, 0])
+
+    Quick-start examples
+    --------------------
+    ::
+
+        # Default blue character
+        alice = HumanGraph(offset=[-3, 0, 0])
+
+        # Shorter red character
+        pip = HumanGraph(height=0.85, color="#cc3333", offset=[0, 0, 0])
+
+        # Tall teal character with narrow build
+        vera = HumanGraph(
+            build="narrow", height=1.15, color="#2a9d8f",
+            style={"head_label": "V"},
+            offset=[3, 0, 0],
+        )
+
+        # All three on stage together
+        alice.fade_in(self)
+        pip.fade_in(self)
+        vera.fade_in(self)
     """
 
     # ── construction ─────────────────────────────────────────────────────────
 
     def __init__(self, pose=None, offset=None, build=None, style=None,
+                 height=1.0, color=None, torso_color=None, gender=None,
                  scale_sx=1.0, scale_sy=1.0, scale_anchor="lankle"):
+        # ── apply gender preset (lowest priority — explicit kwargs win) ──
+        if gender is not None:
+            key = gender.lower()
+            if key not in GENDER_DEFAULTS:
+                raise ValueError(
+                    f"Unknown gender '{gender}'. "
+                    f"Use: {sorted(GENDER_DEFAULTS.keys())}"
+                )
+            gd = GENDER_DEFAULTS[key]
+            if build is None:
+                build = gd["build"]
+            if height == 1.0:
+                height = gd["height"]
+            _gender_torso_y = gd.get("torso_y")   # may be None
+        else:
+            _gender_torso_y = None
+
         # ── resolve build ────────────────────────────────────────────────
         if build is None:
             bdata = get_build("default")
@@ -90,8 +276,15 @@ class HumanGraph:
         proportions = bdata["proportions"]
         build_style = bdata["style"]
 
-        # Merge: build defaults ← caller overrides
-        self.style = {**DEFAULT_STYLE, **build_style, **(style or {})}
+        # ── color shorthand → auto-palette (applied before style overrides)
+        color_style = _style_from_color(color) if color else {}
+
+        # Merge priority (right wins): DEFAULT_STYLE ← build ← color ← style
+        self.style = {**DEFAULT_STYLE, **build_style, **color_style, **(style or {})}
+
+        # ── height shorthand → fold into scale_sy ───────────────────────
+        if height != 1.0:
+            scale_sy = scale_sy * height
 
         # Apply head/node radius from proportions (style can still override)
         if "head_radius" not in (style or {}):
@@ -100,13 +293,17 @@ class HumanGraph:
             self.style["node_radius"] = proportions.get("node_radius", 0.14)
 
         # ── generate per-instance pose set ───────────────────────────────
-        bp = build_poses(proportions)
+        bp = build_poses(proportions, torso_y_override=_gender_torso_y)
         self._bp = bp                     # keep full set for choreography
 
         # Default initial pose uses this build's standing_front
         self.pose = pose if pose is not None else bp["standing_front"]
         self.offset = np.array(offset if offset is not None else [0, 0, 0],
                                dtype=float)
+        # ── two-zone color: torso vs extremities ─────────────────────────
+        # Store the resolved torso color (None = single-color, use self.style)
+        self._torso_color = torso_color
+
         self._scale_sx = scale_sx
         self._scale_sy = scale_sy
         self._scale_anchor = scale_anchor
@@ -114,12 +311,61 @@ class HumanGraph:
         self.lines: dict[tuple[str, str], Line] = {}
         self._build()
 
+    # Joints that belong to the torso zone.  Covers both humanoid ("torso")
+    # and alien split-torso ("torso_left", "torso_right").
+    _TORSO_JOINTS = {"torso", "torso_left", "torso_right"}
+
+    # Joints adjacent to the torso: edges that span torso↔adjacent are
+    # included in the torso color zone (the visual "shirt/uniform" area).
+    _TORSO_ADJACENT = {"lshoulder", "rshoulder", "lhip", "rhip", "neck"}
+
+    def _apply_torso_color(self, torso_color: str):
+        """
+        Recolor the torso zone (joints + edges) to *torso_color*.
+
+        Called at the end of ``_build()`` when ``torso_color`` is set, and
+        also callable directly to change the torso color after construction
+        without rebuilding.
+
+        The torso zone covers:
+        - Dots: ``torso``, ``torso_left``, ``torso_right``
+        - Edges: any edge where at least one endpoint is a torso joint AND
+          the other endpoint is also a torso joint or a torso-adjacent joint
+          (shoulders, hips, neck).  This captures the torso bar and the
+          torso-to-shoulder / torso-to-hip struts — the visual uniform area.
+        """
+        tc = _style_from_color(torso_color)
+        t_edge   = tc["edge_color"]
+        t_node   = tc["node_color"]
+        t_stroke = tc["node_stroke"]
+
+        # Recolor torso dots
+        for name, dot in self.dots.items():
+            if name in self._TORSO_JOINTS:
+                dot.set_color(t_stroke)
+                dot.set_fill(color=t_node, opacity=1)
+
+        # Recolor torso edges: at least one endpoint is a torso joint, and
+        # the other is torso or torso-adjacent (shoulder / hip / neck).
+        for (a, b), line in self.lines.items():
+            a_torso = a in self._TORSO_JOINTS
+            b_torso = b in self._TORSO_JOINTS
+            a_adj   = a in self._TORSO_ADJACENT
+            b_adj   = b in self._TORSO_ADJACENT
+            if (a_torso or b_torso) and (a_torso or a_adj) and (b_torso or b_adj):
+                line.set_color(t_edge)
+
     def _build(self):
         """Create manim Mobjects for every joint and edge.
-        Uses the scaled pose so mobjects start at the correct positions."""
+        Uses the scaled pose so mobjects start at the correct positions.
+        Joints and edges are taken from the build-specific lists if present
+        (e.g. ALIEN_JOINTS / ALIEN_EDGES for the alien build), otherwise
+        the standard JOINTS / EDGES lists are used."""
         s = self.style
         sp = self._apply_scale(self.pose)
-        for name in JOINTS:
+        _joints = self._bp.get("joints", JOINTS)
+        _edges  = self._bp.get("edges",  EDGES)
+        for name in _joints:
             p = sp[name] + self.offset
             if name == "head":
                 circ = Circle(
@@ -140,12 +386,21 @@ class HumanGraph:
                 d.move_to(p)
                 self.dots[name] = d
 
-        for a, b in EDGES:
-            self.lines[(a, b)] = Line(
-                sp[a] + self.offset,
-                sp[b] + self.offset,
+        for a, b in _edges:
+            pa, pb = sp[a] + self.offset, sp[b] + self.offset
+            coincident = np.linalg.norm(pa - pb) < 0.01
+            ln = Line(
+                pa,
+                pb if not coincident else pa + np.array([0.001, 0, 0]),
                 color=s["edge_color"], stroke_width=s["edge_width"],
             )
+            if coincident:
+                ln.set_opacity(0)
+            self.lines[(a, b)] = ln
+
+        # ── two-zone color: recolor torso parts if torso_color is set ────
+        if self._torso_color:
+            self._apply_torso_color(self._torso_color)
 
     # ── mobject access ───────────────────────────────────────────────────────
 
@@ -198,8 +453,9 @@ class HumanGraph:
     @staticmethod
     def _safe_line_anim(line, pa, pb):
         if np.linalg.norm(pa - pb) > 0.01:
-            return line.animate.put_start_and_end_on(pa, pb)
-        return None
+            return [line.animate.put_start_and_end_on(pa, pb).set_opacity(1)]
+        else:
+            return [line.animate.set_opacity(0)]
 
     def _pose_anims(self, target, off):
         """Return a list of `.animate` calls to reach target + off.
@@ -209,9 +465,7 @@ class HumanGraph:
         for n in self.dots:
             anims.append(self.dots[n].animate.move_to(t[n] + off))
         for (a, b), line in self.lines.items():
-            anim = self._safe_line_anim(line, t[a] + off, t[b] + off)
-            if anim:
-                anims.append(anim)
+            anims += self._safe_line_anim(line, t[a] + off, t[b] + off)
         return anims
 
     # ── core animation methods ───────────────────────────────────────────────
@@ -266,6 +520,9 @@ class HumanGraph:
             pa, pb = t[a] + new_off, t[b] + new_off
             if np.linalg.norm(pa - pb) > 0.01:
                 line.put_start_and_end_on(pa, pb)
+                line.set_opacity(1)
+            else:
+                line.set_opacity(0)
         self.pose = target_pose       # store unscaled
         self.offset = new_off
 
@@ -296,9 +553,7 @@ class HumanGraph:
         for n in self.dots:
             anims.append(self.dots[n].animate.move_to(edge_on[n]))
         for (a, b), line in self.lines.items():
-            anim = self._safe_line_anim(line, edge_on[a], edge_on[b])
-            if anim:
-                anims.append(anim)
+            anims += self._safe_line_anim(line, edge_on[a], edge_on[b])
         scene.play(*anims, run_time=rt_squash,
                    rate_func=there_and_back_with_pause)
 
@@ -495,7 +750,7 @@ class HumanGraph:
 
     def say(self, text: str, scene: Scene,
             hold=1.2, font_size=20, rt_in=0.4, rt_out=0.3,
-            side="right", max_bubble_w=5.0, post_wait=0.0,
+            side="right", max_bubble_w=4.5, post_wait=0.0,
             extra_anims=None):
         """Pop a speech bubble above the head, hold, then dismiss.
 
@@ -527,7 +782,7 @@ class HumanGraph:
             wrapped, font=s["head_font"], font_size=font_size,
             color=s["highlight_color"], weight=BOLD,
         )
-        bw = min(txt.width + pad * 2, max_bubble_w)
+        bw = txt.width + pad * 2
         bh = txt.height + pad * 1.2
 
         # screen safe margins (Manim default frame is 14.2 wide, 8 tall)
@@ -574,8 +829,20 @@ class AlienGraph(HumanGraph):
     A short, wide-torso humanoid skeleton for alien characters (e.g. Venusians).
 
     Inherits all of HumanGraph's pose/animation methods unchanged.  The
-    difference is purely proportional: the "alien" build sets 0.8× height,
-    shoulder_w ≈ hip_w (barrel torso), and a green colour palette.
+    difference is purely structural and proportional: the ``"alien"`` build
+    replaces the single ``torso`` vertex with two vertices ``torso_left`` and
+    ``torso_right`` connected by a horizontal edge.  Each side connects to
+    its own shoulder and hip:
+
+    ::
+
+        lshoulder ── torso_left ── torso_right ── rshoulder
+                         |                  |
+                       lhip               rhip
+
+    This gives the wide-waisted Venusian silhouette without any special
+    subclass machinery — the split is handled entirely in ``poses.py``
+    (``ALIEN_JOINTS``, ``ALIEN_EDGES``, ``alien_front_pose_split``).
 
     Parameters
     ----------
@@ -596,10 +863,18 @@ class AlienGraph(HumanGraph):
     """
 
     def __init__(self, pose=None, offset=None, build="alien", style=None,
-                 scale_sx=1.0, scale_sy=1.0, scale_anchor="lankle"):
+                 scale_sx=1.0, scale_sy=1.0, scale_anchor="lankle",
+                 gender=None, torso_color=None):
+        # Map alien gender to the appropriate build if not overridden
+        if gender is not None and build == "alien":
+            g = gender.lower()
+            if g == "female":
+                build = "alien_female"
+            # male / child stay on the default "alien" build
         super().__init__(
             pose=pose, offset=offset, build=build, style=style,
             scale_sx=scale_sx, scale_sy=scale_sy, scale_anchor=scale_anchor,
+            torso_color=torso_color,
         )
 
 
@@ -802,7 +1077,7 @@ class DogGraph:
 
     def say(self, text: str, scene: Scene,
             hold=1.2, font_size=18, rt_in=0.4, rt_out=0.3,
-            side="right", max_bubble_w=5.0, post_wait=0.0,
+            side="right", max_bubble_w=4.5, post_wait=0.0,
             extra_anims=None):
         """Speech bubble above the dog's head."""
         s = self.style
@@ -817,7 +1092,7 @@ class DogGraph:
 
         txt = Text(wrapped, font="Courier New", font_size=font_size,
                    color=s["highlight_color"], weight=BOLD)
-        bw = min(txt.width + pad * 2, max_bubble_w)
+        bw = txt.width + pad * 2
         bh = txt.height + pad * 1.2
 
         x_margin = 0.3
@@ -859,8 +1134,22 @@ class DogGraph:
 
 class GovernorGraph:
     """
-    The Governor of Venus: a slowly rotating dodecahedron that pulses
-    when speaking, changes colour by state, and emits speech bubbles.
+    The Governor of Venus: a dodecahedron shape that pulses when speaking,
+    changes colour by state, and emits speech bubbles.
+
+    Two display styles are available via the ``style`` parameter:
+
+    ``"schlegel"`` (default)
+        A static 2-D Schlegel diagram of the dodecahedron — the canonical
+        graph-theory projection.  Twelve vertices connected by 30 edges,
+        drawn as concentric pentagons with spokes, giving an immediately
+        recognisable dodecahedral graph that suits the book's aesthetic.
+        The shape does **not** rotate; colour/scale pulses animate instead.
+
+    ``"spin"``
+        The original PAM style: a 12-sided regular polygon (outer + inner)
+        with a continuous rotation updater.  Choose this for a more
+        abstract, kinetic look.
 
     Unlike HumanGraph / DogGraph this class has no pose system.  It is
     positioned at a fixed world (x, y) and animated through colour/scale
@@ -868,20 +1157,20 @@ class GovernorGraph:
 
     Colour states
     -------------
-    "gold"   — default active state (``color`` parameter)
-    "amber"  — low-power / waiting  (``low_power_color``)
-    "dark"   — powered down / exit  (fully transparent)
+    ``"gold"``   — default active state (``color`` parameter)
+    ``"amber"``  — low-power / waiting  (``low_power_color``)
+    ``"dark"``   — powered down / exit  (fully transparent)
 
     Parameters
     ----------
-    x, y          : world position (centre).  Default (0, 1.5).
-    radius        : polygon radius.  Default 0.42.
-    color         : primary gold colour.  Default ``"#e8c547"``.
+    x, y            : world position (centre).  Default (0, 1.5).
+    radius          : bounding radius of the shape.  Default 0.42.
+    color           : primary gold colour.  Default ``"#e8c547"``.
     low_power_color : amber standby colour.  Default ``"#d47b00"``.
-    accent        : stroke / highlight colour.  Default ``"#ffdd88"``.
-    spin_rate     : radians per second for the continuous rotation updater.
-                    Default 0.35.  Set to 0 to disable.
-    label         : optional centre label text.
+    accent          : stroke / highlight colour.  Default ``"#ffdd88"``.
+    style           : ``"schlegel"`` (default) or ``"spin"``.
+    spin_rate       : radians/s for ``"spin"`` style.  Default 0.35.
+    label           : optional centre label text.
 
     High-level methods
     ------------------
@@ -889,31 +1178,94 @@ class GovernorGraph:
     fade_out(scene)             — power down and disappear
     pulse(scene, color, scale)  — flash once (used for a spoken word)
     say(text, scene)            — speech bubble to the right of the shape
-    set_state(state, scene)     — transition to "gold", "amber", or "dark"
-    start_spin()                — attach the rotation updater
-    stop_spin()                 — remove the rotation updater
+    set_state(state, scene)     — transition to ``"gold"``, ``"amber"``, or ``"dark"``
+    start_spin()                — attach rotation updater (``"spin"`` style only)
+    stop_spin()                 — remove rotation updater
 
     Example
     -------
     ::
 
-        gov = GovernorGraph(x=0, y=1.5)
+        gov = GovernorGraph(x=0, y=1.5)           # Schlegel by default
         gov.fade_in(self)
         gov.say("I'm waiting for your report, Sergeant Sidel.", self)
-        gov.set_state("amber", self)   # dims while Sidel speaks
-        gov.set_state("gold",  self)   # brightens to respond
+        gov.set_state("amber", self)
+        gov.set_state("gold",  self)
         gov.fade_out(self)
+
+        # Old spinning style:
+        gov2 = GovernorGraph(x=0, y=1.5, style="spin")
     """
+
+    # ── Schlegel diagram geometry ─────────────────────────────────────────────
+    # A dodecahedron has 20 vertices and 30 edges.  The Schlegel diagram maps
+    # them to a plane: one outer pentagon, a ring of 5 pentagons, and one
+    # central pentagon, with an inner hub vertex at the centre.
+    #
+    # We use 3 concentric rings (r0 = outer, r1 = mid, r2 = inner) of 5
+    # vertices each, plus one centre vertex = 16 vertices / 25 edges.
+    # This is the standard small Schlegel approximation used in graph-theory
+    # textbooks when full 20-vertex accuracy isn't needed at small scale.
+    #
+    # Full 20-vertex layout uses rings at r_out, r_mid, r_inn radii for the
+    # three pentagons plus the 5 "bridge" vertices between the outer and mid
+    # rings — giving exactly 20 vertices and 30 edges.
+
+    @staticmethod
+    def _schlegel_vertices(cx, cy, r):
+        """Return 20 vertex positions for a Schlegel dodecahedron diagram.
+
+        Layout (standard textbook Schlegel projection):
+          outer[0..4]  — outermost pentagon  (r)
+          bridge[5..9] — bridge vertices between outer and mid (r * 0.68)
+          mid[10..14]  — middle pentagon     (r * 0.46), rotated π/5
+          inner[15..19]— innermost pentagon  (r * 0.22)
+        """
+        import math
+        verts = []
+        for ring_r, n, phase in [
+            (r,        5, math.pi / 2),             # outer pentagon
+            (r * 0.68, 5, math.pi / 2 + math.pi/5), # bridge ring
+            (r * 0.46, 5, math.pi / 2),             # mid pentagon
+            (r * 0.22, 5, math.pi / 2 + math.pi/5), # inner pentagon
+        ]:
+            for k in range(n):
+                a = phase + 2 * math.pi * k / n
+                verts.append(np.array([cx + ring_r * math.cos(a),
+                                       cy + ring_r * math.sin(a), 0.0]))
+        return verts  # 20 vertices
+
+    @staticmethod
+    def _schlegel_edges():
+        """Return 30 edge index pairs for the Schlegel diagram."""
+        # outer pentagon
+        edges = [(i, (i + 1) % 5) for i in range(5)]
+        # outer → bridge spokes
+        edges += [(i, 5 + i) for i in range(5)]
+        # bridge → next bridge (ring)
+        edges += [(5 + i, 5 + (i + 1) % 5) for i in range(5)]
+        # bridge → mid
+        edges += [(5 + i, 10 + i) for i in range(5)]
+        edges += [(5 + i, 10 + (i - 1) % 5) for i in range(5)]
+        # mid pentagon
+        edges += [(10 + i, 10 + (i + 1) % 5) for i in range(5)]
+        # mid → inner
+        edges += [(10 + i, 15 + i) for i in range(5)]
+        # inner pentagon
+        edges += [(15 + i, 15 + (i + 1) % 5) for i in range(5)]
+        return edges  # 30 edges
 
     def __init__(self, x=0.0, y=1.5, radius=0.42,
                  color="#e8c547", low_power_color="#d47b00",
-                 accent="#ffdd88", spin_rate=0.35, label=None):
+                 accent="#ffdd88", style="schlegel",
+                 spin_rate=0.35, label=None):
         self._x = x
         self._y = y
         self._radius = radius
         self._color_gold  = color
         self._color_amber = low_power_color
         self._accent      = accent
+        self._style       = style.lower()
         self._spin_rate   = spin_rate
         self._label_text  = label
         self._state       = "gold"
@@ -921,28 +1273,52 @@ class GovernorGraph:
         self._group: VGroup | None = None
         self._poly: Mobject | None = None
         self._inner: Mobject | None = None
+        self._schlegel_dots: list = []
+        self._schlegel_lines: list = []
         self._label_mob: Mobject | None = None
         self._build()
 
     def _build(self):
-        r = self._radius
         x, y = self._x, self._y
+        r = self._radius
         c  = self._color_gold
         ac = self._accent
+        parts = []
 
-        self._poly = RegularPolygon(
-            n=12, radius=r,
-            color=ac, fill_color=c, fill_opacity=0.88,
-            stroke_width=2.5,
-        ).move_to(np.array([x, y, 0]))
-
-        self._inner = RegularPolygon(
-            n=12, radius=r * 0.55,
-            color=ac, fill_color=c, fill_opacity=0.45,
-            stroke_width=1.0,
-        ).move_to(np.array([x, y, 0]))
-
-        parts = [self._poly, self._inner]
+        if self._style == "schlegel":
+            verts = self._schlegel_vertices(x, y, r)
+            edges = self._schlegel_edges()
+            self._schlegel_lines = []
+            for a, b in edges:
+                ln = Line(verts[a], verts[b],
+                          color=ac, stroke_width=1.4)
+                self._schlegel_lines.append(ln)
+                parts.append(ln)
+            node_r = r * 0.055
+            self._schlegel_dots = []
+            for v in verts:
+                d = Circle(radius=node_r, color=ac,
+                           fill_color=c, fill_opacity=0.9,
+                           stroke_width=1.2).move_to(v)
+                self._schlegel_dots.append(d)
+                parts.append(d)
+            # keep _poly pointing at the first dot so pulse() has something
+            # to scale; we'll scale the whole group instead
+            self._poly = self._schlegel_dots[0]
+            self._inner = self._schlegel_dots[-1]
+        else:
+            # original "spin" style
+            self._poly = RegularPolygon(
+                n=12, radius=r,
+                color=ac, fill_color=c, fill_opacity=0.88,
+                stroke_width=2.5,
+            ).move_to(np.array([x, y, 0]))
+            self._inner = RegularPolygon(
+                n=12, radius=r * 0.55,
+                color=ac, fill_color=c, fill_opacity=0.45,
+                stroke_width=1.0,
+            ).move_to(np.array([x, y, 0]))
+            parts += [self._poly, self._inner]
 
         if self._label_text:
             self._label_mob = Text(
@@ -959,11 +1335,11 @@ class GovernorGraph:
     def group(self) -> VGroup:
         return self._group
 
-    # ── spin updater ─────────────────────────────────────────────────────────
+    # ── spin updater (spin style only) ───────────────────────────────────────
 
     def start_spin(self):
-        """Attach the continuous rotation updater."""
-        if self._spin_rate == 0:
+        """Attach the continuous rotation updater (``"spin"`` style only)."""
+        if self._style != "spin" or self._spin_rate == 0:
             return
         rate = self._spin_rate
 
@@ -974,28 +1350,24 @@ class GovernorGraph:
         self._group.add_updater(_spin)
 
     def stop_spin(self):
-        """Remove the rotation updater (freezes the shape)."""
+        """Remove the rotation updater."""
         if self._spin_updater:
             self._group.remove_updater(self._spin_updater)
             self._spin_updater = None
 
-    # ── scene lifecycle ───────────────────────────────────────────────────────
+    # ── scene lifecycle ──────────────────────────────────────────────────────
 
     def fade_in(self, scene: Scene, rt=1.0):
-        """Materialise the Governor with a glow-in effect, then start spinning."""
+        """Materialise the Governor with a glow-in effect."""
         scene.play(FadeIn(self._group, scale=0.6), run_time=rt)
         self.start_spin()
 
     def fade_out(self, scene: Scene, rt=0.8):
-        """Stop spinning, then fade to dark (powered down)."""
+        """Stop spinning (if applicable), then fade to dark."""
         self.stop_spin()
-        scene.play(
-            self._poly.animate.set_fill(opacity=0).set_stroke(opacity=0),
-            self._inner.animate.set_fill(opacity=0).set_stroke(opacity=0),
-            run_time=rt,
-        )
+        scene.play(FadeOut(self._group, scale=0.6), run_time=rt)
 
-    # ── colour states ─────────────────────────────────────────────────────────
+    # ── colour states ────────────────────────────────────────────────────────
 
     def set_state(self, state: str, scene: Scene, rt=0.4):
         """
@@ -1003,8 +1375,7 @@ class GovernorGraph:
 
         ``"gold"``   — active/speaking (bright gold)
         ``"amber"``  — low-power / listening (dim amber-orange)
-        ``"dark"``   — powered down (fully transparent; use fade_out instead
-                       if you want an animated exit)
+        ``"dark"``   — powered down (fully transparent)
         """
         if state == "gold":
             target_color = self._color_gold
@@ -1019,48 +1390,63 @@ class GovernorGraph:
             raise ValueError(f"Unknown Governor state '{state}'. "
                              f"Use 'gold', 'amber', or 'dark'.")
         self._state = state
-        scene.play(
-            self._poly.animate.set_fill(color=target_color,
-                                        opacity=target_opacity),
-            self._inner.animate.set_fill(color=target_color,
-                                         opacity=target_opacity * 0.5),
-            run_time=rt,
-        )
 
-    # ── pulse (single flash on a spoken word) ─────────────────────────────────
+        if self._style == "schlegel":
+            anims = (
+                [ln.animate.set_stroke(color=target_color,
+                                       opacity=target_opacity)
+                 for ln in self._schlegel_lines]
+                + [d.animate.set_fill(color=target_color,
+                                      opacity=target_opacity)
+                              .set_stroke(color=target_color,
+                                          opacity=target_opacity)
+                   for d in self._schlegel_dots]
+            )
+            scene.play(*anims, run_time=rt)
+        else:
+            scene.play(
+                self._poly.animate.set_fill(color=target_color,
+                                            opacity=target_opacity),
+                self._inner.animate.set_fill(color=target_color,
+                                             opacity=target_opacity * 0.5),
+                run_time=rt,
+            )
+
+    # ── pulse ────────────────────────────────────────────────────────────────
 
     def pulse(self, scene: Scene, color=None, scale=1.18, rt=0.15):
         """
         Flash brighter for one beat (simulates a word being spoken).
 
-        Parameters
-        ----------
-        color  : override flash colour (default = accent highlight)
-        scale  : scale factor at peak of flash (default 1.18)
-        rt     : half-duration of the flash (default 0.15 s)
+        For the Schlegel style the entire group scales; for the spin style
+        only the outer polygon scales (original behaviour).
         """
         c = color or self._accent
-        scene.play(
-            self._poly.animate.scale(scale).set_fill(color=c, opacity=1.0),
-            run_time=rt, 
-        )
-        scene.play(
-            self._poly.animate.scale(1 / scale).set_fill(
-                color=self._color_gold, opacity=0.88),
-            run_time=rt,
-        )
+        if self._style == "schlegel":
+            scene.play(self._group.animate.scale(scale), run_time=rt)
+            scene.play(self._group.animate.scale(1 / scale), run_time=rt)
+        else:
+            scene.play(
+                self._poly.animate.scale(scale).set_fill(color=c, opacity=1.0),
+                run_time=rt,
+            )
+            scene.play(
+                self._poly.animate.scale(1 / scale).set_fill(
+                    color=self._color_gold, opacity=0.88),
+                run_time=rt,
+            )
 
-    # ── speech bubble ─────────────────────────────────────────────────────────
+    # ── speech bubble ────────────────────────────────────────────────────────
 
     def say(self, text: str, scene: Scene,
             hold=1.4, font_size=20, rt_in=0.4, rt_out=0.3,
-            side="right", max_bubble_w=5.0, post_wait=0.0,
+            side="right", max_bubble_w=4.5, post_wait=0.0,
             extra_anims=None):
         """
         Pop a speech bubble beside the dodecahedron, hold, then dismiss.
 
         The Governor has no mouth — the bubble appears beside the shape
-        with no pointer tail (consistent with the screen direction notes).
+        with no pointer tail.
         """
         char_w = 0.113 * (font_size / 20)
         pad = 0.32
@@ -1070,7 +1456,7 @@ class GovernorGraph:
 
         txt = Text(wrapped, font="Courier New", font_size=font_size,
                    color=self._color_gold, weight=BOLD)
-        bw = min(txt.width + pad * 2, max_bubble_w)
+        bw = txt.width + pad * 2
         bh = txt.height + pad * 1.2
 
         x_margin = 0.3
@@ -1090,19 +1476,26 @@ class GovernorGraph:
         ).move_to(np.array([bx, by, 0]))
         txt.move_to(box.get_center())
 
-        # no tail — the Governor has no mouth
         bubble = VGroup(box, txt)
 
-        # pulse once as the bubble appears
-        fade_anims = [
-            FadeIn(bubble, scale=0.88),
-            self._poly.animate.scale(1.12).set_fill(opacity=1.0),
-        ] + (extra_anims or [])
+        if self._style == "schlegel":
+            fade_anims = [FadeIn(bubble, scale=0.88),
+                          self._group.animate.scale(1.08)]
+        else:
+            fade_anims = [FadeIn(bubble, scale=0.88),
+                          self._poly.animate.scale(1.12).set_fill(opacity=1.0)]
+        fade_anims += (extra_anims or [])
+
         scene.play(*fade_anims, run_time=rt_in)
-        scene.play(
-            self._poly.animate.scale(1 / 1.12).set_fill(opacity=0.88),
-            run_time=0.1,
-        )
+
+        if self._style == "schlegel":
+            scene.play(self._group.animate.scale(1 / 1.08), run_time=0.1)
+        else:
+            scene.play(
+                self._poly.animate.scale(1 / 1.12).set_fill(opacity=0.88),
+                run_time=0.1,
+            )
+
         scene.wait(hold)
         scene.play(FadeOut(bubble), run_time=rt_out)
         if post_wait > 0:
