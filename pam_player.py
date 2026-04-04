@@ -1,7 +1,7 @@
 """
 PAM Player — animate humanoid and non-humanoid graphs from a JSON screenplay.
 
-version 0.9.2
+version 0.9.4
 
 Usage
 -----
@@ -9,12 +9,50 @@ Usage
 
     PAM_SCRIPT=my_scene.json manim -pql pam_player.py PAMPlayer
 
+    # Low-quality preview with render-time clock overlay
+    PAM_SCRIPT=my_scene.json PAM_SHOW_CLOCK=1 manim -pql pam_player.py PAMPlayer
+
+    # Via pam-render shell wrapper with --show-clock flag (low quality only)
+    ./pam-render --script my_scene.json --show-clock
+
+Render-time clock
+-----------------
+When ``PAM_SHOW_CLOCK=1`` is set (or ``--show-clock`` is passed to
+``pam-render``), a small timecode overlay is displayed in the upper-right
+corner of the frame, next to the title bar.  The clock shows elapsed
+scene time in ``M:SS.ss`` format — minutes, seconds, and decimal
+hundredths — and ticks live during rendering via a Manim updater.
+
+Example display::
+
+    My Scene Title                           0:03.42
+
+The clock is intended for low-quality (``-ql``) preview renders only.
+It helps you verify timing of dialogue, pauses, and camera moves without
+scrubbing through the video.  Do not use it for final renders.
+
 Screenplay format
 -----------------
 A JSON array of action objects.  See README.md for the full reference.
 
-Key additions in v0.8:
+Key additions in v0.9.3 — prop scene graph
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Props now carry a full scene-graph node (``pam_node``) and a named
+attachment-point dict (``pam_attachments``).  Two new action types
+support the scene graph at runtime:
 
+  • ``"reparent_prop"`` — move a prop from one parent to another (or
+    release it to world coordinates) mid-scene.  This is the mechanism
+    for "Sidel picks up the coffee cup" style interactions.
+
+  • ``"scene_props"`` — declare the opening layout of the stage in one
+    block at the top of the screenplay.  Syntactic sugar: internally
+    each entry becomes a ``"props"`` action fired at scene start.
+    Supports ``parent`` and ``attach`` keys for child props that snap
+    to a parent's attachment point.
+
+Key additions in v0.8 / v0.9.2
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   • ``"figure_type"`` field on ``cast`` characters — accepted values:
     ``"human"`` (default), ``"alien"`` (AlienGraph),
     ``"dog"`` (DogGraph, side-view), ``"dodecahedron"`` (GovernorGraph).
@@ -26,7 +64,10 @@ Key additions in v0.8:
     simultaneously (one morph per character, fired in a single
     ``scene.play()`` call).
 
-Example (builds + parallel)::
+  • Camera mode (PAM_CAMERA_MODE=1) — automatic camera repositioning
+    driven by CAMERA annotations in the Fountain+ source file.
+
+Example — builds + parallel::
 
     [
       {"action": "cast", "characters": {
@@ -48,6 +89,64 @@ Example (builds + parallel)::
       {"action": "fade_out", "who": "all"}
     ]
 
+Example — scene_props with child props (v0.9.3)::
+
+    [
+      {"action": "scene_props", "items": {
+        "sidels-desk":     {"type": "desk",  "x": -1.5,
+                            "color": "#334455"},
+        "sidels-chair":    {"type": "chair", "x": -2.0},
+        "sidels-computer": {"type": "desk",  "x": -1.5,
+                            "parent": "sidels-desk",
+                            "attach": "surface",
+                            "attrs": {"scale": 0.45, "inclination": 8}},
+        "exit-door":       {"type": "door",  "x": 5.5}
+      }},
+      {"action": "cast", "characters": {
+        "sidel": {"build": "narrow", "offset": [-2,0,0],
+                  "style": {"head_label": "S"}}
+      }},
+      {"action": "fade_in", "who": "sidel"},
+      {"action": "walk_to_prop", "who": "sidel", "prop": "sidels-chair"},
+      {"action": "sit_down", "who": "sidel"},
+      ...
+    ]
+
+Example — reparent_prop: Sidel picks up a coffee cup (v0.9.3)::
+
+    [
+      {"action": "scene_props", "items": {
+        "sidels-desk": {"type": "desk", "x": 0.0},
+        "coffee-cup":  {"type": "dodecahedron", "radius": 0.12,
+                        "parent": "sidels-desk", "attach": "surface"}
+      }},
+      ...
+      {"action": "pick_up",  "who": "sidel", "prop": "coffee-cup"},
+      {"action": "walk_to",  "who": "sidel", "x": 2.0},
+      {"action": "reparent_prop",
+       "prop":   "coffee-cup",
+       "parent": null,
+       "x": 2.0, "y": -1.8},
+      {"action": "put_down", "who": "sidel", "prop": "coffee-cup",
+       "on": "sidels-desk"}
+    ]
+
+reparent_prop action keys
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+    ``"prop"``    — name of the prop to reparent (required)
+    ``"parent"``  — new parent prop name, or ``null`` to release to world
+    ``"attach"``  — attachment point on the new parent (default ``"surface"``)
+    ``"x"``       — explicit world x when releasing (parent=null)
+    ``"y"``       — explicit world y when releasing (parent=null)
+    ``"rt"``      — animation run time for the reposition (default 0.3 s)
+
+scene_props action keys
+~~~~~~~~~~~~~~~~~~~~~~~~
+Identical to ``"props"`` but intended as a top-of-screenplay header.
+Supports all ``build_prop`` kwargs including ``parent``, ``attach``,
+and ``attrs``.  Props with a ``parent`` key are built after their
+parent so position resolution always succeeds.
+
 Parallel limitations
 ~~~~~~~~~~~~~~~~~~~~
 ``parallel`` works with *single-step* actions that resolve to one
@@ -65,7 +164,7 @@ import numpy as np
 from pam import HumanGraph, AlienGraph, DogGraph, GovernorGraph
 from pam.poses import POSES, STANDING_FRONT, STANDING_SIDE, scale_pose
 from pam.poses import DOG_JOINTS, DOG_STANDING
-from pam.props import build_prop
+from pam.props import build_prop, resolve_position
 
 
 BG_COLOR    = "#0a0e1a"
@@ -126,13 +225,13 @@ def _resolve_pose(name: str | None, default=None, fig=None):
 # centre_y is where the camera vertically centres — mid-body for dialogue shots.
 _FRAMING_CAMERA: dict[str, tuple] = {
     "wide":         (14.2, -0.5),   # full stage
-    "medium":       (8.0,  -0.2),   # waist-up
-    "medium-close": (5.5,   0.3),   # chest-up
-    "close":        (3.5,   0.9),   # face and shoulders
-    "ots-left":     (7.0,   0.0),   # OTS — slightly wider than medium
-    "ots-right":    (7.0,   0.0),
-    "oneshot":      (5.0,   0.3),   # single character
-    "insert":       (3.0,   1.5),   # extreme close — prop/detail level
+    "medium":       (10.0,  -0.2),   # waist-up
+    "medium-close": (8.0,   0.3),   # chest-up
+    "close":        (7.0,   0.9),   # face and shoulders
+    "ots-left":     (8.5,   0.0),   # OTS — slightly wider than medium
+    "ots-right":    (8.5,   0.0),
+    "oneshot":      (9.0,   0.3),   # single character
+    "insert":       (7.0,   1.5),   # extreme close — prop/detail level
 }
 
 # MOVE → whether to animate the camera transition and how long
@@ -144,6 +243,7 @@ _MOVE_RT: dict[str, float] = {
     "pull":       0.8,
     "pan-follow": 0.5,
     "drift":      1.5,
+    "pan-up":     2.5,    # v0.9.4: tilt up — slow reveal
 }
 
 
@@ -173,12 +273,19 @@ def _apply_camera(meta: dict, scene: "MovingCameraScene",
     target_w, target_y = _FRAMING_CAMERA.get(framing, (14.2, -0.5))
     rt = _MOVE_RT.get(move, 0.0)
 
-    # Centre x: use actual character position if known, else stage centre
-    if subject in ("ensemble", "none", ""):
+    # Centre x: wide shots always centre the stage regardless of subject.
+    # For other framings, nudge toward the subject but clamp to a modest
+    # offset so the camera doesn't fly to the edge of the stage.
+    if framing == "wide" or subject in ("ensemble", "none", ""):
         target_x = 0.0
     else:
-        # Look up the subject's actual x position from the live cast/prop data
-        target_x = char_x_positions.get(subject, 0.0)
+        raw_x = char_x_positions.get(subject, 0.0)
+        # Clamp nudge: move at most 2.0 units from centre so the
+        # camera stays readable even if a character is at the stage edge.
+        #target_x = float(np.clip(raw_x, -2.0, 2.0))  ## old
+        half_w = target_w / 2
+        stage_half = 7.1
+        target_x = float(np.clip(raw_x, -stage_half + half_w, stage_half - half_w))
 
     # Governor hovers above the table — raise y for insert/close shots on it
     if subject in ("governor", "dodecahedron") and framing in ("insert", "close"):
@@ -195,6 +302,7 @@ def _apply_camera(meta: dict, scene: "MovingCameraScene",
         # Instant reposition — no animation, no scene time consumed
         frame.set_width(target_w)
         frame.move_to(np.array([target_x, target_y, 0]))
+    print(f"  CAM {framing:14s} w={target_w:.1f} x={target_x:.1f} y={target_y:.1f} move={move}")
 
 
 def _camera_anim(meta: dict, scene: "MovingCameraScene",
@@ -218,25 +326,306 @@ def _camera_anim(meta: dict, scene: "MovingCameraScene",
     move    = (meta.get("move")    or "static").lower()
     subject = (meta.get("subject") or "ensemble").lower()
 
-    zoom, target_y = _FRAMING_CAMERA.get(framing, (1.0, _WIDE_Y))
-    target_w = _WIDE_W * zoom
+    target_w, target_y = _FRAMING_CAMERA.get(framing, (14.2, -0.5))
     rt = _MOVE_RT.get(move, 0.0)
 
     if rt == 0.0:
         return None   # static — handled elsewhere
 
-    if subject in ("ensemble", "none", ""):
+    if framing == "wide" or subject in ("ensemble", "none", ""):
         target_x = 0.0
     else:
-        target_x = char_x_positions.get(subject, 0.0)
+        raw_x = char_x_positions.get(subject, 0.0)
         half_w = target_w / 2
+        target_x = float(np.clip(raw_x, -2.0, 2.0))
         target_x = float(np.clip(target_x, -7.1 + half_w, 7.1 - half_w))
 
-    if subject in ("governor", "dodecahedron") and framing == "insert":
+    if subject in ("governor", "dodecahedron") and framing in ("insert", "close"):
         target_y = 1.5
 
     return frame.animate.set_width(target_w).move_to(
         np.array([target_x, target_y, 0]))
+
+
+def _execute_pan_up(meta: dict, scene: "MovingCameraScene",
+                    props: "PropRegistry",
+                    char_x_positions: dict) -> None:
+    """
+    Tilt the camera up from its current framing to reveal the top of a
+    tall background prop (typically a building).
+
+    The frame width and x-centre are set instantly from the FRAMING sub-key
+    (same logic as ``_apply_camera``), then the frame centre-y animates
+    upward until the prop's top edge is in frame.
+
+    Parameters
+    ----------
+    meta            : shot_meta dict — ``subject`` should name a prop in the
+                      registry that has a ``pam_height`` attribute.
+    scene           : PAMPlayer (MovingCameraScene) instance.
+    props           : live PropRegistry.
+    char_x_positions: x-position snapshot (used for framing x-centre).
+
+    Geometry
+    --------
+    Given::
+
+        H   = prop height  (prop.pam_height, stored at build time)
+        gy  = prop base y  (prop.pam_y — floor level)
+        fh  = frame height (scene.camera.frame.height)
+
+    End frame centre-y::
+
+        end_cy = gy + H - fh / 2   (frame top aligned with prop top)
+
+    If the prop is already shorter than the frame, the camera does not move.
+    """
+    frame = getattr(getattr(scene, "camera", None), "frame", None)
+    if frame is None:
+        return
+
+    subject = (meta.get("subject") or "").lower()
+    framing = (meta.get("framing") or "wide").lower()
+    rt      = _MOVE_RT.get("pan-up", 2.5)
+
+    # Step 1 — apply framing width + x-centre instantly (tilt is the move)
+    target_w, _ = _FRAMING_CAMERA.get(framing, (14.2, -0.5))
+    if framing == "wide" or subject in ("ensemble", "none", ""):
+        target_x = 0.0
+    else:
+        raw_x    = char_x_positions.get(subject, 0.0)
+        half_w   = target_w / 2
+        target_x = float(np.clip(raw_x, -7.1 + half_w, 7.1 - half_w))
+
+    frame.set_width(target_w)
+    frame.move_to(np.array([target_x, frame.get_center()[1], 0]))
+
+    # Step 2 — look up the target prop
+    prop = props.get_raw(subject)
+    if prop is None:
+        # Subject not in prop registry — gentle upward drift as fallback
+        print(f"  CAM pan-up: subject '{subject}' not in prop registry "
+              f"— using default upward drift.")
+        fh    = frame.height
+        end_y = frame.get_center()[1] + fh * 0.8
+        scene.play(
+            frame.animate.move_to(np.array([target_x, end_y, 0])),
+            run_time=rt, rate_func=smooth,
+        )
+        print(f"  CAM pan-up (drift) x={target_x:.1f} end_y={end_y:.2f}")
+        return
+
+    # Step 3 — tilt geometry
+    H      = float(getattr(prop, "pam_height",
+                            prop.pam_surface_y - prop.pam_y))
+    gy     = float(prop.pam_y)
+    fh     = frame.height
+    end_cy = gy + H - fh / 2   # frame top aligned with prop top
+    travel = end_cy - frame.get_center()[1]
+
+    if travel <= 0.05:
+        print(f"  CAM pan-up: '{subject}' already fits in frame, no tilt.")
+        return
+
+    scene.play(
+        frame.animate.move_to(np.array([target_x, end_cy, 0])),
+        run_time=rt, rate_func=smooth,
+    )
+    print(f"  CAM pan-up '{subject}' H={H:.2f} travel={travel:.2f} "
+          f"end_cy={end_cy:.2f} rt={rt:.1f}s")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  PROP REGISTRY  (v0.9.3)
+#
+#  Thin wrapper around the props dict that keeps the scene graph consistent.
+#  pam_player.py constructs one instance per construct() call and passes it
+#  to every prop action handler.
+# ─────────────────────────────────────────────────────────────────────────────
+
+class PropRegistry:
+    """
+    Mutable store of live prop VGroups that owns all scene-graph operations.
+
+    The player accesses props through this object rather than the raw dict
+    so that parent-chain resolution and reparenting stay in one place.
+
+    Attributes
+    ----------
+    _store : dict[str, VGroup]
+        Maps prop name → Manim VGroup (with pam_node / pam_attachments).
+
+    Key methods
+    -----------
+    add(name, prop)
+        Register a freshly-built prop.
+    get(name) → VGroup | None
+        Look up a prop by name, printing a warning if missing.
+    reparent(name, new_parent, new_attach, world_x, world_y)
+        Update a prop's parent in pam_node and return its new world position.
+        Pass new_parent=None to release to explicit world coordinates.
+    world_pos(name) → np.ndarray
+        Return the current world [x, y, 0] of a prop, resolving parent chain.
+    x_positions() → dict[str, float]
+        Snapshot of all prop world-x values — fed to camera mode.
+    __contains__, __delitem__, items()
+        Dict-like access so existing code that iterates props still works.
+    """
+
+    def __init__(self):
+        self._store: dict = {}
+
+    # ── dict-like interface ───────────────────────────────────────────────
+
+    def __contains__(self, name):
+        return name in self._store
+
+    def __delitem__(self, name):
+        del self._store[name]
+
+    def items(self):
+        return self._store.items()
+
+    def get_raw(self, name):
+        """Return the VGroup directly (or None).  No warning."""
+        return self._store.get(name)
+
+    # ── add / get ─────────────────────────────────────────────────────────
+
+    def add(self, name: str, prop) -> None:
+        """Register a prop.  Overwrites any existing entry with the same name."""
+        self._store[name] = prop
+
+    def get(self, name: str):
+        """Return the VGroup for *name*, or None with a printed warning."""
+        if name not in self._store:
+            print(f"PAMPlayer PropRegistry: unknown prop '{name}', skipping.")
+            return None
+        return self._store[name]
+
+    # ── scene-graph operations ────────────────────────────────────────────
+
+    def world_pos(self, name: str) -> np.ndarray:
+        """
+        Return the world [x, y, 0] of *name*, resolving its parent chain.
+
+        Uses ``resolve_position`` from props.py with this registry as the
+        lookup dict.  Falls back to the prop's own pam_x / pam_y if the
+        prop has no pam_node (e.g. GovernorGraph / DogGraph entries that
+        pre-date the scene graph).
+        """
+        prop = self._store.get(name)
+        if prop is None:
+            return np.array([0.0, 0.0, 0.0])
+        node = getattr(prop, "pam_node", None)
+        if node is None:
+            return np.array([getattr(prop, "pam_x", 0.0),
+                             getattr(prop, "pam_y", 0.0), 0.0])
+        return resolve_position(node, self._store)
+
+    def reparent(self, name: str,
+                 new_parent: str | None,
+                 new_attach: str | None = "surface",
+                 world_x: float | None = None,
+                 world_y: float | None = None) -> np.ndarray:
+        """
+        Update a prop's parent and return its new world position.
+
+        Parameters
+        ----------
+        name       : prop to reparent.
+        new_parent : name of new parent prop, or None to release to world.
+        new_attach : attachment point on new parent (default ``"surface"``).
+        world_x    : explicit x when releasing to world (new_parent=None).
+        world_y    : explicit y when releasing to world (new_parent=None).
+
+        Returns
+        -------
+        np.ndarray  [x, y, 0] — the prop's new world position, ready to
+        pass to ``prop.animate.move_to()``.
+        """
+        prop = self._store.get(name)
+        if prop is None:
+            print(f"PAMPlayer PropRegistry.reparent: '{name}' not found.")
+            return np.array([0.0, 0.0, 0.0])
+
+        node = getattr(prop, "pam_node", None)
+        if node is None:
+            # Legacy prop without scene-graph node — just update position attrs
+            if world_x is not None:
+                prop.pam_x = world_x
+            if world_y is not None:
+                prop.pam_y = world_y
+            return np.array([getattr(prop, "pam_x", 0.0),
+                             getattr(prop, "pam_y", 0.0), 0.0])
+
+        # Update the node
+        node["parent"] = new_parent
+        node["attach"] = new_attach if new_parent else None
+
+        if new_parent is None:
+            # Releasing to world — use explicit coords if supplied, else keep current
+            if world_x is not None:
+                node["x"] = world_x
+                prop.pam_x = world_x
+            if world_y is not None:
+                node["y"] = world_y
+                prop.pam_y = world_y
+
+        new_pos = resolve_position(node, self._store)
+        # Keep flat attrs in sync
+        prop.pam_x = float(new_pos[0])
+        prop.pam_y = float(new_pos[1])
+        if hasattr(prop, "pam_surface_y"):
+            prop.pam_surface_y = float(new_pos[1])
+        return new_pos
+
+    # ── camera-mode helper ────────────────────────────────────────────────
+
+    def x_positions(self) -> dict:
+        """
+        Return a dict mapping every prop name (and its type alias) to its
+        current world x.  Fed to _apply_camera / _camera_anim so the camera
+        can centre on a named prop.
+        """
+        out = {}
+        for pname, prop in self._store.items():
+            wx = float(self.world_pos(pname)[0])
+            out[pname] = wx
+            ptype = getattr(prop, "pam_type", "")
+            if ptype:
+                out[ptype] = wx
+        return out
+
+
+def _build_prop_items(items: dict, registry: PropRegistry,
+                      scene, rt: float = 0.5) -> None:
+    """
+    Build and register a batch of prop specs, respecting parent order.
+
+    Props that declare a ``parent`` are built *after* their parent so
+    that ``resolve_position`` always finds the parent in the registry.
+    Props without a parent are built first.
+
+    Parameters
+    ----------
+    items    : dict of prop-name → spec-dict (as loaded from JSON).
+    registry : the live PropRegistry for this scene.
+    scene    : the PAMPlayer (MovingCameraScene) instance, used for FadeIn.
+    rt       : FadeIn run time (default 0.5 s).
+    """
+    # Partition: rootless (no parent) first, children second.
+    roots    = {k: v for k, v in items.items() if not v.get("parent")}
+    children = {k: v for k, v in items.items() if v.get("parent")}
+
+    for pname, spec in {**roots, **children}.items():
+        spec  = dict(spec)               # copy — never mutate loaded JSON
+        ptype = spec.pop("type", "desk")
+        # Inject the live registry so child props can resolve parent position
+        prop  = build_prop(pname, type=ptype,
+                           prop_registry=registry._store, **spec)
+        registry.add(pname, prop)
+        scene.play(FadeIn(prop), run_time=rt)
 
 
 class PAMPlayer(MovingCameraScene):
@@ -263,6 +652,22 @@ class PAMPlayer(MovingCameraScene):
         Path to the prompts JSON produced by fountain2pam.py alongside
         the PAM JSON.  Only used when PAM_CAMERA_MODE=1.  Default:
         ``<PAM_SCRIPT stem>_prompts.json`` (auto-derived from PAM_SCRIPT).
+
+    PAM_SHOW_CLOCK
+        Set to ``1`` to display a live render-time clock in the upper-right
+        corner of the frame, adjacent to the title bar.  The clock shows
+        elapsed scene time as ``M:SS.ss`` (minutes, seconds, hundredths).
+        Intended for low-quality preview renders only — do not use for
+        final output.  Default: off.
+
+        Example — enable via environment variable::
+
+            PAM_SCRIPT=scene.json PAM_SHOW_CLOCK=1 manim -pql pam_player.py PAMPlayer
+
+        Example — enable via pam-render (automatically sets PAM_SHOW_CLOCK=1
+        and warns if quality is not ``l``)::
+
+            ./pam-render --script scene.json --show-clock
 
     Camera mode — full pipeline
     ---------------------------
@@ -420,12 +825,54 @@ class PAMPlayer(MovingCameraScene):
                 parts.append(FadeIn(subtitle_mob))
             self.play(*parts, run_time=0.7)
 
+        # ── render-time clock (PAM_SHOW_CLOCK=1) ────────────────────────
+        # Displays elapsed scene time as M:SS.ss in the upper-right corner,
+        # anchored next to the title / subtitle bar.
+        # The clock is purely cosmetic — it has no effect on timing or output.
+        clock_mob = None
+        _show_clock = bool(os.environ.get("PAM_SHOW_CLOCK", ""))
+        if _show_clock:
+            clock_mob = Text(
+                "0:00.00", font="Courier New",
+                font_size=18, color=LABEL_COLOR,
+            )
+            # Anchor: right of subtitle if present, else right of title,
+            # else top-right corner of frame.
+            if subtitle_mob is not None:
+                clock_mob.next_to(subtitle_mob, RIGHT, buff=0.6)
+            elif title_mob is not None:
+                clock_mob.next_to(title_mob, RIGHT, buff=0.6)
+            else:
+                clock_mob.to_corner(UR, buff=0.3)
+
+            def _fmt_clock(t: float) -> str:
+                """Format elapsed seconds as M:SS.ss."""
+                t = max(0.0, t)
+                mins = int(t) // 60
+                secs = int(t) % 60
+                hundredths = int(round((t - int(t)) * 100)) % 100
+                return f"{mins}:{secs:02d}.{hundredths:02d}"
+
+            def _clock_updater(mob, dt):
+                mob.become(
+                    Text(
+                        _fmt_clock(self.renderer.time),
+                        font="Courier New",
+                        font_size=18,
+                        color=LABEL_COLOR,
+                    ).move_to(mob.get_center())
+                )
+
+            clock_mob.add_updater(_clock_updater)
+            self.add(clock_mob)
+            print("PAMPlayer: render-time clock ON")
+
         # ── character registry ───────────────────────────────────────────
         cast: dict[str, dict] = {}
         multi = False
 
         # ── prop registry ────────────────────────────────────────────────
-        props: dict[str, VGroup] = {}   # name → Manim VGroup with pam_* attrs
+        props = PropRegistry()   # name → VGroup with pam_node / pam_attachments
 
         # ── deferred camera state ────────────────────────────────────────
         # Camera moves are stored here at each _subscene_marker and applied
@@ -439,10 +886,7 @@ class PAMPlayer(MovingCameraScene):
             return None
 
         def _get_prop(name: str):
-            if name not in props:
-                print(f"PAMPlayer: unknown prop '{name}', skipping.")
-                return None
-            return props[name]
+            return props.get(name)
 
         def _targets(step: dict) -> list[str]:
             who = step.get("who")
@@ -476,6 +920,8 @@ class PAMPlayer(MovingCameraScene):
                     figure_type  = step.get("figure_type",
                                             spec.get("figure_type", "human"))
                     scale_spec   = step.get("scale", spec.get("scale"))
+                    gender       = step.get("gender", spec.get("gender"))
+                    torso_color  = step.get("torso_color", spec.get("torso_color"))
                 else:
                     pose_name    = step.get("pose")
                     offset       = step.get("offset", [0, 0, 0])
@@ -483,6 +929,8 @@ class PAMPlayer(MovingCameraScene):
                     build        = step.get("build", "default")
                     figure_type  = step.get("figure_type", "human")
                     scale_spec   = step.get("scale")
+                    gender       = step.get("gender")
+                    torso_color  = step.get("torso_color")
                     if name not in cast:
                         cast[name] = {"fig": None, "figure_type": figure_type,
                                       "pose": None, "offset": offset,
@@ -497,6 +945,7 @@ class PAMPlayer(MovingCameraScene):
                     fig = AlienGraph(
                         offset=offset, build=build, style=style,
                         scale_sx=sx, scale_sy=sy, scale_anchor=anchor,
+                        gender=gender, torso_color=torso_color,
                     )
                 elif figure_type == "dog":
                     fig = DogGraph(offset=offset, style=style)
@@ -505,6 +954,7 @@ class PAMPlayer(MovingCameraScene):
                     fig = HumanGraph(
                         offset=offset, build=build, style=style,
                         scale_sx=sx, scale_sy=sy, scale_anchor=anchor,
+                        gender=gender, torso_color=torso_color,
                     )
 
                 # Resolve initial pose
@@ -831,16 +1281,16 @@ class PAMPlayer(MovingCameraScene):
                         fig = cspec.get("fig")
                         if fig is not None:
                             char_x[ckey] = float(fig.offset[0])
-                    for pname, prop in props.items():
-                        char_x[pname] = float(getattr(prop, "pam_x", 0.0))
-                        ptype = getattr(prop, "pam_type", "")
-                        if ptype:
-                            char_x[ptype] = char_x[pname]
+                    char_x.update(props.x_positions())
                     # For static cuts: apply immediately (no scene time used).
                     # For animated moves: defer so the camera moves concurrently
                     # with the next FadeIn(bubble) rather than before it.
                     move = (meta.get("move") or "static").lower()
-                    if _MOVE_RT.get(move, 0.0) == 0.0:
+                    if move == "pan-up":
+                        # Pan-up owns its own scene.play() — execute immediately
+                        _execute_pan_up(meta, self, props, char_x)
+                        _pending_camera.clear()
+                    elif _MOVE_RT.get(move, 0.0) == 0.0:
                         _apply_camera(meta, self, char_x)
                         _pending_camera.clear()
                     else:
@@ -868,15 +1318,50 @@ class PAMPlayer(MovingCameraScene):
                     }
                 continue
 
+            # ── scene_props ──────────────────────────────────────────────
+            # Header-level prop declaration — sugar for a "props" block
+            # fired at time zero.  Identical behaviour but signals intent:
+            # this is the opening layout of the stage, not a mid-scene add.
+            # Supports parent/attach for child props (built after parents).
+            if act == "scene_props":
+                _build_prop_items(step.get("items", {}), props, self,
+                                  rt=step.get("rt", 0.5))
+                continue
+
             # ── props ────────────────────────────────────────────────────
             if act == "props":
-                items = step.get("items", {})
-                for pname, spec in items.items():
-                    spec = dict(spec)          # copy — never mutate the loaded JSON
-                    ptype = spec.pop("type", "desk")
-                    prop = build_prop(pname, type=ptype, **spec)
-                    props[pname] = prop
-                    self.play(FadeIn(prop), run_time=0.5)
+                _build_prop_items(step.get("items", {}), props, self,
+                                  rt=step.get("rt", 0.5))
+                continue
+
+            # ── reparent_prop ────────────────────────────────────────────
+            # Move a prop from one parent to another, or release it to
+            # explicit world coordinates.  The canonical way to animate
+            # "Sidel picks up the coffee cup" mid-scene.
+            #
+            # JSON keys:
+            #   "prop"   — prop name (required)
+            #   "parent" — new parent prop name, or null (release to world)
+            #   "attach" — attachment point on new parent (default "surface")
+            #   "x"      — world x when releasing (parent=null)
+            #   "y"      — world y when releasing (parent=null)
+            #   "rt"     — animation run time (default 0.3 s)
+            if act == "reparent_prop":
+                pname      = step.get("prop")
+                new_parent = step.get("parent")   # may be None / null
+                new_attach = step.get("attach", "surface")
+                world_x    = step.get("x")
+                world_y    = step.get("y")
+                rt         = step.get("rt", 0.3)
+                prop       = _get_prop(pname)
+                if prop:
+                    new_pos = props.reparent(
+                        pname, new_parent, new_attach, world_x, world_y)
+                    if rt > 0:
+                        self.play(prop.animate.move_to(new_pos),
+                                  run_time=rt, rate_func=smooth)
+                    else:
+                        prop.move_to(new_pos)
                 continue
 
             # ── remove_prop ──────────────────────────────────────────────
@@ -912,15 +1397,14 @@ class PAMPlayer(MovingCameraScene):
                         spin_rate=0.35 if spin else 0,
                         label=step.get("label"),
                     )
-                    # Store as a special entry — group is the VGroup
-                    props[pname] = gov.group
                     # Attach pam_* attrs so existing prop handlers still work
-                    props[pname].pam_name      = pname
-                    props[pname].pam_type      = "dodecahedron"
-                    props[pname].pam_x         = x
-                    props[pname].pam_y         = y
-                    props[pname].pam_surface_y = y
-                    props[pname].pam_governor  = gov   # keep the live object
+                    gov.group.pam_name      = pname
+                    gov.group.pam_type      = "dodecahedron"
+                    gov.group.pam_x         = x
+                    gov.group.pam_y         = y
+                    gov.group.pam_surface_y = y
+                    gov.group.pam_governor  = gov
+                    props.add(pname, gov.group)
                     gov.fade_in(self, rt=rt)
                     continue
 
@@ -928,17 +1412,16 @@ class PAMPlayer(MovingCameraScene):
                 if ptype == "dog" or figure_type == "dog":
                     x      = step.get("x", 0.0)
                     y      = step.get("y", -1.95)
-                    # style: action overrides, then cast block, then defaults
                     cast_style = cast.get("dog", {}).get("style", {})
                     style  = {**cast_style, **step.get("style", {})}
                     dog = DogGraph(offset=[x, y, 0], style=style if style else None)
-                    props[pname] = dog.group
-                    props[pname].pam_name      = pname
-                    props[pname].pam_type      = "dog"
-                    props[pname].pam_x         = x
-                    props[pname].pam_y         = y
-                    props[pname].pam_surface_y = y
-                    props[pname].pam_dog       = dog   # keep the live object
+                    dog.group.pam_name      = pname
+                    dog.group.pam_type      = "dog"
+                    dog.group.pam_x         = x
+                    dog.group.pam_y         = y
+                    dog.group.pam_surface_y = y
+                    dog.group.pam_dog       = dog
+                    props.add(pname, dog.group)
                     dog.fade_in(self, rt_edges=rt, rt_dots=rt * 0.7)
                     continue
 
@@ -960,8 +1443,9 @@ class PAMPlayer(MovingCameraScene):
                         else:
                             kwargs.setdefault("y", hy)
 
-                prop = build_prop(pname, type=ptype, **kwargs)
-                props[pname] = prop
+                prop = build_prop(pname, type=ptype,
+                                  prop_registry=props._store, **kwargs)
+                props.add(pname, prop)
                 self.play(FadeIn(prop), run_time=rt)
                 continue
 
@@ -981,6 +1465,13 @@ class PAMPlayer(MovingCameraScene):
                         prop.move_to(np.array([tx, ty, 0]))
                     prop.pam_x = tx
                     prop.pam_y = ty
+                    # Keep scene-graph node in sync if present
+                    node = getattr(prop, "pam_node", None)
+                    if node:
+                        node["x"] = tx
+                        node["y"] = ty
+                        node["parent"] = None   # explicit move overrides parent
+                        node["attach"] = None
                 continue
 
 
@@ -1257,9 +1748,14 @@ class PAMPlayer(MovingCameraScene):
             for name in targets:
                 _dispatch_one(step, name)
 
-        # ── clean up title ───────────────────────────────────────────────
-        if title_mob:
-            parts = [FadeOut(title_mob)]
+        # ── clean up title and clock ─────────────────────────────────────
+        if title_mob or clock_mob:
+            parts = []
+            if title_mob:
+                parts.append(FadeOut(title_mob))
             if subtitle_mob:
                 parts.append(FadeOut(subtitle_mob))
+            if clock_mob:
+                clock_mob.remove_updater(_clock_updater)
+                parts.append(FadeOut(clock_mob))
             self.play(*parts, run_time=0.8)
