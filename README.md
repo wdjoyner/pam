@@ -1,5 +1,5 @@
 # PAM — Pose And Motion
-### Stick-figure animation library for Manim · v0.9.3
+### Stick-figure animation library for Manim · v0.9.4
 
 PAM is a Manim-based toolkit for animating stick-figure characters as
 mathematical graphs.  Poses are plain Python dictionaries mapping joint names
@@ -26,6 +26,7 @@ bubble layout, the character registry system, and this documentation.
 - [The skeleton graph](#the-skeleton-graph)
 - [Body-type builds](#body-type-builds)
 - [Gender presets](#gender-presets)
+- [Two-zone character color](#two-zone-character-color)
 - [Persistent scale](#persistent-scale)
 - [Named poses and keyframe cycles](#named-poses-and-keyframe-cycles)
 - [Writing animations in Python](#writing-animations-in-python)
@@ -66,8 +67,11 @@ On top of this foundation PAM provides:
 - **Gender presets** (`male`, `female`, `child`) that set build, torso height,
   and scale in one step.  Alien characters have their own gender-differentiated
   builds with distinct torso bar height and width.
-- **Props** — chair, desk, hat, door, dodecahedron — placed via a JSON
-  declaration and spawnable mid-scene.
+- **Two-zone character color** — a separate `torso_color` sets the torso,
+  shoulder struts, and hip struts to a different color from the head and limbs,
+  suggesting a uniform or shirt without extra geometry.
+- **Props** — chair, desk, hat, door, dodecahedron, building, flower, sun,
+  moon — placed via a JSON declaration and spawnable mid-scene.
 - **Speech bubbles** that size themselves to the text and stay within screen
   margins.
 - **A character registry** (`characters.txt`) listing every cast member with
@@ -78,10 +82,15 @@ On top of this foundation PAM provides:
   in front and side view (or type-appropriate pair), all standing on a common
   ground line.
 - **A JSON screenplay player** (`pam_player.py`) that drives all of the above
-  from a simple declarative screenplay file.
+  from a simple declarative screenplay file, including camera-mode for
+  automatic framing from Fountain+ annotations.
 - **A Fountain converter** (`fountain2pam.py`) that turns a standard Fountain
   screenplay into a PAM JSON file and per-subscene AI video prompts, with
-  support for Fountain+ metadata notes including the new `CHARACTER` key.
+  support for Fountain+ metadata notes including `CHARACTER`, `CAMERA`,
+  `LIGHTING`, and `TORSO_COLOR`.
+- **A Blender exporter** (`pam2blender.py`) that converts a PAM JSON screenplay
+  to a self-contained Blender Python script — camera keyframes, lights, prop
+  placeholders, character stubs, and timeline markers — with no PAM dependency.
 
 ---
 
@@ -96,9 +105,10 @@ your-project/
     figure.py             ← HumanGraph, AlienGraph, DogGraph,
                             GovernorGraph class definitions
     builds.py             ← body-type presets (proportions + palette)
-    props.py              ← stage prop builders (chair, desk, …)
+    props.py              ← stage prop builders (chair, desk, building, …)
   pam_player.py           ← JSON screenplay player (top-level script)
   fountain2pam.py         ← Fountain → PAM JSON + AI prompt converter
+  pam2blender.py          ← PAM JSON → Blender Python script exporter
   character_gallery.py    ← renders characters.txt as a Manim gallery page
   characters.txt          ← character registry (hand-edited or auto-synced)
   pam-render              ← shell wrapper around pam_player.py
@@ -392,6 +402,86 @@ _ALIEN_FEMALE_PROPORTIONS = dict(   # female alien
 
 ---
 
+## Two-zone character color
+
+`torso_color` gives a character a second color applied only to the torso zone —
+the torso joint(s), the torso bar (alien), and the edges connecting the torso
+to the shoulders, hips, and neck.  The head, arms, and legs keep the palette
+derived from `color`.  This is the primary way to suggest a uniform, shirt, or
+jacket without adding extra geometry.
+
+### Python
+
+```python
+# Human guard: white skin, blue uniform jacket
+guard = HumanGraph(
+    gender      = "male",
+    color       = "#dddddd",       # extremities: pale grey (skin)
+    torso_color = "#1a3aaa",       # torso zone: deep blue (uniform)
+    style       = {"head_label": "G"},
+    offset      = [0, 0, 0],
+)
+
+# Alien female: green skin, red uniform torso
+nona = AlienGraph(
+    gender      = "female",
+    color       = "#4db87a",       # extremities: Venusian green
+    torso_color = "#cc2222",       # torso zone: red uniform
+    style       = {"head_label": "N"},
+    offset      = [-3, 0, 0],
+)
+```
+
+If `torso_color` is `None` (the default), the figure renders in a single color
+zone — fully backward compatible with v0.9.3 and earlier.
+
+The torso zone covers the following joints and edges:
+
+| Zone | Joints | Edges |
+|---|---|---|
+| Torso | `torso` (human) · `torso_left`, `torso_right` (alien) | All edges where at least one endpoint is a torso joint and the other is torso, shoulder, hip, or neck |
+| Extremities | Everything else | Everything else |
+
+`_apply_torso_color(hex)` is also public — call it on an already-built figure
+to change the torso color mid-scene without rebuilding:
+
+```python
+nona._apply_torso_color("#ffaa00")   # switch uniform color during a scene
+```
+
+### Fountain+ annotation
+
+Declare `torso_color` alongside `color` in a `CHARACTER` note:
+
+```fountain
+[[ CHARACTER: name=nona type=alien gender=female color=#4db87a torso_color=#cc2222 label=N ]]
+```
+
+### characters.txt key
+
+```
+name=nona  type=alien  gender=female  color=#4db87a  torso_color=#cc2222  label=N
+```
+
+The `torso_color` key is optional.  Omitting it leaves the character
+single-colored.
+
+### JSON cast declaration
+
+```json
+{"action": "cast", "characters": {
+  "nona": {
+    "figure_type": "alien",
+    "gender":      "female",
+    "color":       "#4db87a",
+    "torso_color": "#cc2222",
+    "offset":      [-3, 0, 0]
+  }
+}}
+```
+
+---
+
 ## Persistent scale
 
 Call `set_scale()` once and every subsequent action — walking, waving,
@@ -474,6 +564,7 @@ fig = HumanGraph(
     style        = {},         # optional style dict
     height       = 1.0,        # uniform vertical scale multiplier
     color        = None,       # single hex color — derives full palette automatically
+    torso_color  = None,       # second hex color for torso zone only (v0.9.4)
     scale_sy     = 1.0,        # persistent y scale
     scale_sx     = 1.0,        # persistent x scale
     scale_anchor = "lankle",   # anchor joint for scaling
@@ -655,6 +746,7 @@ from pam import (
     # props
     build_prop, PROP_TYPES, PROP_DEFAULTS,
     build_chair, build_desk, build_hat, build_door, build_dodecahedron,
+    build_building, build_flower, build_sun, build_moon,   # v0.9.4
 )
 ```
 
@@ -667,25 +759,99 @@ Every prop is a Manim `VGroup` with extra attributes:
 | Attribute | Description |
 |---|---|
 | `.pam_name` | Registry key string |
-| `.pam_type` | Type string (`"chair"`, `"desk"`, etc.) |
+| `.pam_type` | Type string (`"chair"`, `"building"`, etc.) |
 | `.pam_x` | World x-coordinate (center) |
-| `.pam_y` | World y-coordinate |
+| `.pam_y` | World y-coordinate (base) |
 | `.pam_surface_y` | y-coordinate of the usable top surface |
+| `.pam_height` | Height in PAM units — set on `building` for pan-up (v0.9.4) |
+| `.pam_lighting` | Lighting metadata dict — set on `sun` and `moon` for Blender exporter (v0.9.4) |
 
 ```python
 from pam.props import build_prop
 
-desk  = build_prop("sidels_desk", type="desk", x=-3.0, monitor=True)
-chair = build_prop("chair_1",     type="chair", x=-1.0)
-door  = build_prop("exit",        type="door",  x=6.0)
-gov   = build_prop("governor",    type="dodecahedron",
-                   x=0.0, y=1.5, color="#e8c547", animate="spin")
+desk     = build_prop("sidels_desk", type="desk",     x=-3.0, monitor=True)
+chair    = build_prop("chair_1",     type="chair",    x=-1.0)
+door     = build_prop("exit",        type="door",     x=6.0)
+building = build_prop("bldg_1",      type="building", x=4.0,  height=7.0)
+flower   = build_prop("flower_1",    type="flower",   x=-5.0, color="#f080a0")
+sun      = build_prop("sun_1",       type="sun",      x=-3.0, y=2.5)
+moon     = build_prop("moon_1",      type="moon",     x=3.0,  y=2.5, phase="crescent")
 
-self.play(FadeIn(desk))
+self.play(FadeIn(building))
 ```
 
-**Built-in prop types:** `chair`, `desk`, `table`, `console`, `computer`,
-`workstation`, `hat`, `door`, `dodecahedron`, `dog`.
+**Built-in prop types:**
+
+| Type | Aliases | Description |
+|---|---|---|
+| `chair` | — | Side-view chair silhouette |
+| `desk` | `table` · `console` · `computer` · `workstation` · `terminal` | Front-view desk with optional monitor |
+| `hat` | — | Small hat — sits on a character's head |
+| `door` | — | Tall rectangle with knob |
+| `dodecahedron` | — | Stylised 12-sided polygon (GovernorGraph prop) |
+| `building` | — | Tall rectangle with window grid — pan-up target (v0.9.4) |
+| `flower` | — | Stem + leaves + radial petals (v0.9.4) |
+| `sun` | — | Disc + rays + optional horizon line (v0.9.4) |
+| `moon` | — | Crescent or half-moon, two-circle mask (v0.9.4) |
+
+### building parameters (v0.9.4)
+
+| Parameter | Default | Description |
+|---|---|---|
+| `x` | `3.0` | Centre x |
+| `y` | `-2.6` | Base y (floor level) |
+| `height` | `6.0` | Height in PAM units — stored as `.pam_height` for pan-up |
+| `width` | `2.0` | Width in PAM units |
+| `color` | `"#8a8a8a"` | Body stroke/fill (concrete grey) |
+| `window_color` | `"#4a7a99"` | Window fill (muted blue) |
+
+The window grid is computed automatically: `win_w=0.22`, `win_h=0.28`,
+`gutter_x=0.18`, `gutter_y=0.22`.  The grid is centred within the building
+body regardless of column/row count.
+
+### flower parameters (v0.9.4)
+
+| Parameter | Default | Description |
+|---|---|---|
+| `x`, `y` | `0.0, -2.6` | Stem base position |
+| `color` | `"#f0a0b8"` | Petal color (soft pink) |
+| `stem_color` | `"#3a8a3a"` | Stem and leaf color (green) |
+| `center_color` | `"#f0e040"` | Flower centre color (yellow) |
+| `petal_count` | `6` | Number of radial petals |
+
+### sun parameters (v0.9.4)
+
+| Parameter | Default | Description |
+|---|---|---|
+| `x`, `y` | `0.0, 1.5` | Centre of disc |
+| `color` | `"#f5d040"` | Disc and ray color (warm yellow) |
+| `ray_count` | `12` | Number of radiating lines |
+| `radius` | `0.50` | Disc radius |
+| `show_horizon` | `False` | Draw a thin horizon line |
+| `horizon_y` | `0.0` | y of horizon line |
+
+The sun prop stores `.pam_lighting` automatically:
+`{"type": "SUN", "energy": 3.5, "color": (1.0, 0.95, 0.8), "elevation_deg": 45}`.
+`pam2blender.py` reads this to emit a Blender `SUN` light.
+
+### moon parameters (v0.9.4)
+
+| Parameter | Default | Description |
+|---|---|---|
+| `x`, `y` | `0.0, 1.5` | Centre of disc |
+| `color` | `"#d0d8e0"` | Moon body color (pale grey-blue) |
+| `bg_color` | `"#000000"` | Mask color — must match scene background |
+| `phase` | `"crescent"` | `"crescent"` (60 % offset) or `"half"` (100 % offset) |
+| `orientation` | `"right"` | `"right"` = crescent opens right; `"left"` = opens left |
+| `radius` | `0.45` | Disc radius |
+| `show_horizon` | `False` | Draw a thin horizon line |
+
+The crescent is produced by two overlapping circles: a full disc, then a
+slightly smaller disc offset to one side in `bg_color`.  Set `bg_color` to
+match the scene background for a clean cutout.
+
+The moon prop stores `.pam_lighting`:
+`{"type": "SUN", "energy": 0.15, "color": (0.7, 0.8, 1.0), "elevation_deg": 30}`.
 
 **Prop-character routing** — add to `PROP_CHARACTER_TYPES` in
 `fountain2pam.py` to route a character's dialogue to `prop_say` actions
@@ -786,6 +952,7 @@ genders:
 | `type` | yes | `human` \| `alien` \| `dog` \| `dodecahedron` |
 | `gender` | yes | `male` \| `female` \| `child`.  Drives voice casting for all types; also controls visual build for `human` and `alien`. |
 | `color` | no | Edge/stroke hex color.  Omit for build default. |
+| `torso_color` | no | Second hex color for the torso zone only — suggests a uniform or shirt.  Omit for single-color rendering. (v0.9.4) |
 | `label` | no | Single character displayed inside the head node. |
 | `height` | no | Vertical scale multiplier for `human`/`alien` (default 1.0). |
 | `build` | no | Override PAM build: `default` \| `narrow` \| `broad` \| `alien` \| `alien_female`.  Normally inferred from `type` + `gender`. |
@@ -906,21 +1073,26 @@ Fountain screenplay
                 ├──→ prompts.json       (AI video + still prompts, per subscene)
                 └──→ characters.txt     (synced from CHARACTER annotations)
                           │
-      ┌───────────────────┴──────────────────────┐
-      │                                           │
-pam_player.py                          Kling / Flow / Veo
-(Manim render)                        (AI video generation)
-      │                                           │
-blocking MP4                          AI video clips (per subscene)
-      │                                           │
-      └─────────────────┬─────────────────────────┘
-                        │
-               Final Cut Pro X (assembly)
+      ┌───────────────────┼──────────────────────────┐
+      │                   │                           │
+pam_player.py    pam2blender.py             Kling / Flow / Veo
+(Manim render)   (Blender exporter)        (AI video generation)
+      │                   │                           │
+blocking MP4    screenplay_blender.py      AI video clips (per subscene)
+                (run inside Blender)                  │
+                          │                           │
+                    Blender scene                     │
+                (camera + lights +                    │
+                  prop layout)                        │
+                          │                           │
+                          └──────────────┬────────────┘
+                                         │
+                                Final Cut Pro X (assembly)
 ```
 
-The blocking MP4 is used for timing reference and client review.  AI video
-clips are generated per subscene from `prompts.json` and assembled in Final
-Cut Pro X.
+The blocking MP4 is used for timing reference and client review.  The Blender
+script provides a scene layout for higher-fidelity rendering.  AI video clips
+are generated per subscene from `prompts.json` and assembled in Final Cut Pro X.
 
 ---
 
@@ -1009,7 +1181,7 @@ Fade In) — and are parsed before `screenplain` sees the file.
 "Beat-scoped" means the note takes effect where it appears and persists until
 replaced by another note of the same key.
 
-**CAMERA sub-key vocabulary (v0.9.1):**
+**CAMERA sub-key vocabulary (v0.9.1 / v0.9.4):**
 
 ```fountain
 [[ CAMERA: FRAMING=wide | SUBJECT=ensemble | MOVE=drift | TRANSITION=hold ]]
@@ -1019,11 +1191,26 @@ replaced by another note of the same key.
 |---|---|
 | `FRAMING` | `wide` · `medium` · `medium-close` · `close` · `ots-left` · `ots-right` · `oneshot` · `insert` |
 | `SUBJECT` | Character name · prop name · `ensemble` |
-| `MOVE` | `static` · `push` · `pull` · `pan-follow` · `drift` |
+| `MOVE` | `static` · `push` · `pull` · `pan-follow` · `drift` · `pan-up` |
 | `TRANSITION` | `cut` · `hold` · `hold-empty` · `smash` |
 
 Freeform tags (no `=` present) pass through unchanged and are fully backward
 compatible with v0.9.0.
+
+**`pan-up` move (v0.9.4):**
+
+`MOVE=pan-up` tilts the camera upward from the current framing until the top
+of the `SUBJECT` prop is in frame.  `SUBJECT` should name a `building` prop
+(or any prop with a `pam_height` attribute).
+
+```fountain
+[[ CAMERA: FRAMING=wide | SUBJECT=building_1 | MOVE=pan-up | TRANSITION=hold ]]
+```
+
+Geometry: the frame starts at its current centre-y and animates upward until
+`frame_top = prop.pam_y + prop.pam_height`.  If the prop already fits within
+the frame the camera does not move.  Tilt duration is 2.5 seconds.
+`PAM_CAMERA_MODE=1` must be set for the tilt to execute in `pam_player.py`.
 
 **CHARACTER key (v0.9.3):**
 
@@ -1032,7 +1219,16 @@ compatible with v0.9.0.
 ```
 
 Required: `name`, `type`, `gender`.
-Optional: `color`, `label`, `height`, `build`, `style`.
+Optional: `color`, `torso_color`, `label`, `height`, `build`, `style`.
+
+**TORSO_COLOR key (v0.9.4):**
+
+```fountain
+[[ CHARACTER: name=nona type=alien gender=female color=#4db87a torso_color=#cc2222 label=N ]]
+```
+
+Sets the torso zone to a second color — suggests a uniform or shirt.  Omitting
+`torso_color` leaves the character single-colored (backward compatible).
 
 **Quick reference card:**
 
@@ -1048,6 +1244,85 @@ Optional: `color`, `label`, `height`, `build`, `style`.
 | Prop color change | color · animation change · narrative meaning |
 | Population change | `[[ SCENE POPULATION: ]]` + `[[ NEGATIVE: ]]` pair |
 | Camera change | `[[ CAMERA: FRAMING=... \| SUBJECT=... ]]` before the beat |
+
+### pam2blender.py (v0.9.4)
+
+Converts a PAM JSON screenplay to a self-contained Blender Python script.  The
+emitted script imports only `bpy` — no PAM dependency — so it can be handed off
+to any Blender artist or pipeline tool.
+
+**Usage:**
+
+```bash
+python pam2blender.py screenplay.json
+python pam2blender.py screenplay.json -o my_scene_blender.py
+python pam2blender.py screenplay.json --fps 30 --width 1920 --height 1080
+```
+
+Run the emitted script inside Blender's Scripting tab, or:
+
+```bash
+blender --python screenplay_blender.py
+```
+
+**Options:**
+
+| Option | Default | Description |
+|---|---|---|
+| `-o, --output PATH` | `<stem>_blender.py` | Output script path |
+| `--fps INT` | `24` | Frames per second |
+| `--width INT` | `1920` | Render width in pixels |
+| `--height INT` | `1080` | Render height in pixels |
+
+**What the emitted script builds (v0.9.4 — layout only):**
+
+| Section | Description |
+|---|---|
+| Scene setup | Frame range, FPS, render resolution |
+| Camera | One `bpy.data.cameras` object with focal length and position keyframes per subscene marker.  `pan-up` markers add a rotation keyframe for the upward tilt. |
+| Lights | One `bpy.data.lights` object per distinct `LIGHTING` annotation.  `sun` and `moon` props contribute lights automatically via their `.pam_lighting` metadata. |
+| Props | One named `Empty` per prop, positioned at world `(x, y)`.  Custom properties record `pam_type`, `pam_name`, `pam_color`, `pam_height`. |
+| Characters | One named `Empty` per cast member at their starting offset.  Custom properties record `pam_figure_type`, `pam_build`, `pam_color`, `pam_torso_color`, `pam_gender`. |
+| Timeline markers | One marker per `_subscene_marker` entry, labelled with subscene ID and framing/move suffix. |
+
+Character armatures, deformable geometry, and action strips are deferred to v0.9.5.
+
+**PAM → Blender coordinate mapping:**
+
+PAM world units map to Blender metres at `1 PAM unit = 0.36 m` (based on a
+~1.8 m human character at PAM scale 1.0).  PAM `(x, y)` maps to Blender
+`(x × 0.36, 0, y × 0.36)` — PAM's XY stage becomes Blender's XZ ground plane,
+with the camera placed at negative Y looking toward +Y.
+
+**FRAMING → focal length:**
+
+| FRAMING | Focal length |
+|---|---|
+| `wide` | 18 mm |
+| `medium` | 35 mm |
+| `medium-close` | 50 mm |
+| `close` | 85 mm |
+| `ots-left`, `ots-right`, `oneshot` | 50 mm |
+| `insert` | 135 mm |
+
+**LIGHTING → Blender light type:**
+
+| LIGHTING value | Blender type | Energy |
+|---|---|---|
+| `evenly-lit` | AREA | 4.0 |
+| `high-contrast` | SPOT | 8.0 |
+| `deep-shadow` | SPOT | 12.0 |
+| `practical-cool` | POINT | 5.0 |
+| `practical-warm` | POINT | 5.0 |
+| `motivated` | SUN | 3.0 |
+| `single-source` | SPOT | 10.0 |
+| `daylight` | SUN | 3.5 |
+| `golden-hour` | SUN | 4.0 |
+| `candlelight` | POINT | 3.0 |
+| `neon` | AREA | 4.5 |
+| `screen-glow` | AREA | 3.5 |
+| `sun` prop | SUN | 3.5 (warm white) |
+| `moon` prop | SUN | 0.15 (cool blue) |
 
 ### Subscene prompts
 
@@ -1399,7 +1674,77 @@ change the font in `builds.py` to `"Liberation Mono"` or `"DejaVu Sans Mono"`.
 
 ## Major changes by version
 
-### 0.9.3 (current)
+### 0.9.4 (current)
+
+**Two-zone character color (Track D)**
+
+- `HumanGraph` and `AlienGraph` now accept `torso_color=None`.  When set,
+  the torso zone (torso joints, torso bar, and edges to shoulders/hips/neck)
+  is rendered in a second color — the head and limbs keep the `color` palette.
+- `_TORSO_JOINTS = {"torso", "torso_left", "torso_right"}` and
+  `_TORSO_ADJACENT = {"lshoulder", "rshoulder", "lhip", "rhip", "neck"}` —
+  new class-level sets on `HumanGraph` define the two-zone boundary.
+- `_apply_torso_color(hex)` — new public method; also called by `_build()`.
+  Can be called mid-scene to change the uniform color without rebuilding.
+- Full backward compatibility: `torso_color=None` (default) → single-color
+  rendering, identical to v0.9.3.
+- `TORSO_COLOR` Fountain+ key added to `fountain2pam.py`; `torso_color` key
+  added to `characters.txt` spec; `pam_player.py` reads and passes through
+  `torso_color` and `gender` from both `cast` declarations and `fade_in` steps.
+
+**New props: building, flower, sun, moon (Track C)**
+
+- `build_building(name, x, y, height, width, color, window_color)` — tall
+  concrete rectangle with an auto-computed window grid.  Stores `pam_height`
+  for the pan-up camera handler.  Base sits at `y`; top at `y + height`.
+- `build_flower(name, x, y, color, stem_color, center_color, petal_count)` —
+  stem + two mirrored leaves + radial petals + centre circle.
+- `build_sun(name, x, y, color, ray_count, radius, show_horizon)` — disc
+  with radiating lines and optional horizon line.  Stores `.pam_lighting`
+  metadata for `pam2blender.py`: SUN type, 3.5 energy, warm white.
+- `build_moon(name, x, y, color, bg_color, phase, orientation, radius)` —
+  crescent or half-moon via two-circle mask.  Stores `.pam_lighting`: SUN
+  type, 0.15 energy, cool blue.  `bg_color` must match the scene background.
+- All four registered in `PROP_TYPES`.
+
+**Pan-up camera shot (Track B)**
+
+- `pan-up` added to `CAMERA_MOVE` vocabulary in `fountain2pam.py`.
+- `_execute_pan_up(meta, scene, props, char_x_positions)` — new function in
+  `pam_player.py`.  Sets framing width and x instantly, then animates
+  `camera.frame` centre-y upward until the building top is in frame.
+  Reads `prop.pam_height` and `prop.pam_y` directly — no runtime geometry
+  queries.  Falls back to a gentle upward drift if the subject prop is not
+  in the registry.
+- `pan-up: 2.5` added to `_MOVE_RT` — 2.5 second tilt duration.
+- Subscene marker handler updated: `move == "pan-up"` calls `_execute_pan_up`
+  immediately rather than deferring to the pending-camera queue.
+
+**Blender layout exporter (Track A)**
+
+- `pam2blender.py` — new top-level script.  Reads a PAM JSON screenplay and
+  emits a self-contained Blender Python script (`screenplay_blender.py`).
+- `BlenderScriptBuilder` class — pre-pass collects cast, props, markers, and
+  estimated frame count; `build()` emits eight sections: header, scene setup,
+  clear scene, camera, lights, props, characters, timeline markers, footer.
+- Camera: one `bpy.data.cameras` object; focal length and position keyframes
+  per subscene marker; `pan-up` markers emit an additional rotation keyframe
+  (`rx` → 60°) at `frame + 60` (2.5 s × 24 fps).
+- Lights: one `bpy.data.lights` object per distinct LIGHTING annotation, with
+  type and energy from `_LIGHTING_BLENDER` table; `sun`/`moon` props
+  contribute lights automatically via `.pam_lighting`.
+- Props: named Empties at PAM world position × 0.36 m scale; custom
+  properties carry `pam_type`, `pam_name`, `pam_color`, `pam_height`.
+- Characters: named Empties with `pam_figure_type`, `pam_build`, `pam_color`,
+  `pam_torso_color`, `pam_gender` custom properties.
+- Timeline markers: one per `_subscene_marker`, labelled with subscene ID +
+  framing/move suffix for NLA editor navigation.
+- Scope note: character armatures, deformable geometry, and action strips are
+  deferred to v0.9.5.
+
+---
+
+### 0.9.3
 
 **Character registry and gallery**
 
@@ -1540,5 +1885,5 @@ generation, Kling video clips, and Final Cut Pro X assembly.
 
 ---
 
-*PAM v0.9.3 · fountain2pam v0.9.3*
+*PAM v0.9.4 · fountain2pam v0.9.4 · pam2blender v0.9.4*
 *Co-authored by David Joyner and Claude Sonnet 4.6 (Anthropic)*
