@@ -64,6 +64,39 @@ _NARROW_PROPORTIONS = dict(
     node_radius=0.12,
 )
 
+_ALIEN_PROPORTIONS = dict(
+    # ~0.8× human height, wide torso (shoulder_w ≈ hip_w * 1.1, no belly gap)
+    head_y=2.50, neck_y=1.85,
+    shoulder_w=1.10, shoulder_y=1.35,
+    torso_y=0.30,                        # male: bar sits low
+    torso_bar_scale=1.10,                # male: bar wide (wider than hips)
+    elbow_w=1.60, elbow_y=0.55,
+    wrist_w=1.80, wrist_y=-0.05,
+    hip_w=1.00,   hip_y=-0.20,           # wide hips ≈ shoulder width
+    knee_w=1.05,  knee_y=-1.20,
+    ankle_w=1.08, ankle_y=-2.10,
+    side_shoulder_hw=0.18,
+    head_radius=0.30,
+    node_radius=0.14,
+)
+
+_ALIEN_FEMALE_PROPORTIONS = dict(
+    # Slightly narrower shoulders/arms than the default alien,
+    # larger head radius — otherwise identical alien geometry.
+    head_y=2.50, neck_y=1.85,
+    shoulder_w=0.95, shoulder_y=1.35,    # narrower than 1.10
+    torso_y=0.80,                        # female: bar sits high
+    torso_bar_scale=0.85,                # female: bar narrower than hips
+    elbow_w=1.40, elbow_y=0.55,          # narrower arms
+    wrist_w=1.60, wrist_y=-0.05,
+    hip_w=1.00,   hip_y=-0.20,           # same wide hips
+    knee_w=1.05,  knee_y=-1.20,
+    ankle_w=1.08, ankle_y=-2.10,
+    side_shoulder_hw=0.16,
+    head_radius=0.34,                    # larger head
+    node_radius=0.13,
+)
+
 _BROAD_PROPORTIONS = dict(
     head_y=3.00, neck_y=2.30,
     shoulder_w=0.95, shoulder_y=1.70,
@@ -81,6 +114,19 @@ _BROAD_PROPORTIONS = dict(
 # ─────────────────────────────────────────────────────────────────────────────
 #  DEFAULT STYLE PALETTES
 # ─────────────────────────────────────────────────────────────────────────────
+
+_ALIEN_STYLE = dict(
+    edge_color      = "#4db87a",   # Venusian green
+    node_color      = "#1a3a28",
+    node_stroke     = "#7ddba0",
+    head_color      = "#0e2418",
+    head_stroke     = "#a0e8b8",
+    head_label      = "v₀",
+    head_font       = "Courier New",
+    head_font_sz    = 14,
+    edge_width      = 2.5,
+    highlight_color = "#a0e8b8",
+)
 
 _DEFAULT_STYLE = dict(
     edge_color      = "#3a7bd5",
@@ -137,6 +183,14 @@ BUILDS = {
     "broad": {
         "proportions": _BROAD_PROPORTIONS,
         "style":       _BROAD_STYLE,
+    },
+    "alien": {
+        "proportions": _ALIEN_PROPORTIONS,
+        "style":       _ALIEN_STYLE,
+    },
+    "alien_female": {
+        "proportions": _ALIEN_FEMALE_PROPORTIONS,
+        "style":       _ALIEN_STYLE,
     },
 }
 
