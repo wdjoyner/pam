@@ -55,6 +55,44 @@ EDGES = [
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  ALIEN JOINT / EDGE LISTS
+#  The alien skeleton replaces the single ``torso`` vertex with two vertices
+#  ``torso_left`` and ``torso_right`` connected by a horizontal edge.
+#  Each side inherits the old torso's connections to its own shoulder and hip:
+#
+#      lshoulder ── torso_left ── torso_right ── rshoulder
+#                       |                |
+#                     lhip            rhip
+#
+#  All other joints and edges are identical to the standard skeleton.
+# ─────────────────────────────────────────────────────────────────────────────
+
+ALIEN_JOINTS = [
+    "head", "neck",
+    "lshoulder", "rshoulder",
+    "torso_left", "torso_right",       # replaces single "torso"
+    "lelbow", "relbow",
+    "lwrist", "rwrist",
+    "lhip", "rhip",
+    "lknee", "rknee",
+    "lankle", "rankle",
+]
+
+ALIEN_EDGES = [
+    ("head",       "neck"),
+    ("neck",       "lshoulder"),  ("neck",        "rshoulder"),
+    ("lshoulder",  "torso_left"), ("rshoulder",   "torso_right"),
+    ("torso_left", "torso_right"),                                # the new bar
+    ("lshoulder",  "lelbow"),     ("rshoulder",   "relbow"),
+    ("lelbow",     "lwrist"),     ("relbow",       "rwrist"),
+    ("torso_left", "lhip"),       ("torso_right",  "rhip"),
+    ("lhip",       "rhip"),
+    ("lhip",       "lknee"),      ("rhip",         "rknee"),
+    ("lknee",      "lankle"),     ("rknee",        "rankle"),
+]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  POSE HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -130,6 +168,91 @@ def alien_front_pose(
         "lankle":    _v(-ankle_w,    ankle_y),
         "rankle":    _v( ankle_w,    ankle_y),
     }
+
+
+def alien_front_pose_split(
+    head_y=2.50, neck_y=1.85,
+    shoulder_w=1.10, shoulder_y=1.35,
+    torso_y=0.50,
+    torso_bar_scale=1.10,
+    elbow_w=1.60, elbow_y=0.55,
+    wrist_w=1.80, wrist_y=-0.05,
+    hip_w=1.00,   hip_y=-0.20,
+    knee_w=1.05,  knee_y=-1.20,
+    ankle_w=1.08, ankle_y=-2.10,
+):
+    """
+    Front-facing pose for the split-torso alien skeleton (ALIEN_JOINTS).
+
+    ``torso_left`` and ``torso_right`` are placed at ±(hip_w * torso_bar_scale)
+    on the x-axis and at ``torso_y`` on the y-axis.
+
+    Tuning guide:
+      torso_y         — height of the bar (higher = more feminine, lower = more masculine)
+      torso_bar_scale — width of the bar relative to hip_w
+                        (> 1.0 = wider than hips, < 1.0 = narrower than hips)
+    """
+    torso_x = hip_w * torso_bar_scale
+    return {
+        "head":        _v( 0.00,        head_y),
+        "neck":        _v( 0.00,        neck_y),
+        "lshoulder":   _v(-shoulder_w,  shoulder_y),
+        "rshoulder":   _v( shoulder_w,  shoulder_y),
+        "torso_left":  _v(-torso_x,     torso_y),
+        "torso_right": _v( torso_x,     torso_y),
+        "lelbow":      _v(-elbow_w,     elbow_y),
+        "relbow":      _v( elbow_w,     elbow_y),
+        "lwrist":      _v(-wrist_w,     wrist_y),
+        "rwrist":      _v( wrist_w,     wrist_y),
+        "lhip":        _v(-hip_w,       hip_y),
+        "rhip":        _v( hip_w,       hip_y),
+        "lknee":       _v(-knee_w,      knee_y),
+        "rknee":       _v( knee_w,      knee_y),
+        "lankle":      _v(-ankle_w,     ankle_y),
+        "rankle":      _v( ankle_w,     ankle_y),
+    }
+
+
+def alien_side_pose(
+    torso_y=0.50, hip_y=-0.20,
+    head_x=0.00, neck_x=0.00,
+    lhip_x=0.0,  lknee_x=0.0,  lankle_x=0.0,  lknee_y=-1.20, lankle_y=-2.10,
+    rhip_x=0.0,  rknee_x=0.0,  rankle_x=0.0,  rknee_y=-1.20, rankle_y=-2.10,
+    lelbow_x=-0.20, lelbow_y=0.55, lwrist_x=-0.25, lwrist_y=-0.05,
+    relbow_x= 0.20, relbow_y=0.55, rwrist_x= 0.25, rwrist_y=-0.05,
+    side_shoulder_hw=0.18,
+):
+    """
+    Side-view pose for the split-torso alien skeleton (ALIEN_JOINTS).
+
+    In side view both torso vertices are placed at the same position so the
+    torso_left–torso_right edge has zero length and is invisible.  This
+    preserves the turned-sideways illusion: the wide bar only appears in
+    front view where it reads as the Venusian wide waist.
+
+    ``torso_y`` is passed explicitly from the build's proportions so that
+    gender overrides (high for female, low for male) are preserved even in
+    side-view keyframes.
+    """
+    return {
+        "head":        _v(head_x,      2.50),
+        "neck":        _v(neck_x,      1.85),
+        "lshoulder":   _v(-side_shoulder_hw, 1.35),
+        "rshoulder":   _v( side_shoulder_hw, 1.35),
+        "torso_left":  _v(0.0,         torso_y),   # coincident in side view
+        "torso_right": _v(0.0,         torso_y),   # — bar disappears
+        "lelbow":      _v(lelbow_x,    lelbow_y),
+        "relbow":      _v(relbow_x,    relbow_y),
+        "lwrist":      _v(lwrist_x,    lwrist_y),
+        "rwrist":      _v(rwrist_x,    rwrist_y),
+        "lhip":        _v(lhip_x,      hip_y),
+        "rhip":        _v(rhip_x,      hip_y),
+        "lknee":       _v(lknee_x,     lknee_y),
+        "rknee":       _v(rknee_x,     rknee_y),
+        "lankle":      _v(lankle_x,    lankle_y),
+        "rankle":      _v(rankle_x,    rankle_y),
+    }
+
 
 
 def side_pose(
@@ -674,15 +797,19 @@ CYCLES = {
 #  BUILD-AWARE POSE GENERATION
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_poses(proportions: dict) -> dict:
+def build_poses(proportions: dict, torso_y_override: float | None = None) -> dict:
     """
     Generate a complete set of poses scaled to a build's proportions.
 
     Parameters
     ----------
     proportions : dict
-        A proportions dict from ``builds.py`` (keys like ``shoulder_w``,
-        ``hip_w``, ``elbow_w``, etc.).
+        A proportions dict from ``builds.py``.
+    torso_y_override : float or None
+        If given, replaces the ``torso_y`` value from *proportions* for all
+        generated front-view poses.  Used by gender presets to place the
+        torso vertex high (female) or low (male) regardless of the build's
+        default.  ``None`` leaves the build's own ``torso_y`` unchanged.
 
     Returns
     -------
@@ -703,14 +830,19 @@ def build_poses(proportions: dict) -> dict:
 
     p = proportions
 
+    # ── apply torso_y gender override ─────────────────────────────────────
+    # Make a shallow copy so we don't mutate the shared build dict.
+    if torso_y_override is not None:
+        p = dict(p, torso_y=torso_y_override)
+
     # ── detect alien build (wide hips ≈ shoulder width) ──────────────────
-    # If hip_w is within 15% of shoulder_w we use alien_front_pose so the
-    # torso vertex sits at the geometric centre rather than the belly-button.
+    # If hip_w is within 15% of shoulder_w we use the split-torso alien poses.
     _use_alien_torso = (p["hip_w"] >= p["shoulder_w"] * 0.85)
 
     def _make_front(**kw):
         if _use_alien_torso:
-            return alien_front_pose(**kw)
+            return alien_front_pose_split(**kw)
+        kw.pop("torso_bar_scale", None)   # front_pose doesn't accept this
         return front_pose(**kw)
 
     # ── front-view poses (rebuilt from proportions) ───────────────────────
@@ -718,6 +850,7 @@ def build_poses(proportions: dict) -> dict:
         head_y=p["head_y"], neck_y=p["neck_y"],
         shoulder_w=p["shoulder_w"], shoulder_y=p["shoulder_y"],
         torso_y=p["torso_y"],
+        torso_bar_scale=p.get("torso_bar_scale", 1.1),
         elbow_w=p["elbow_w"], elbow_y=p["elbow_y"],
         wrist_w=p["wrist_w"], wrist_y=p["wrist_y"],
         hip_w=p["hip_w"], hip_y=p["hip_y"],
@@ -728,6 +861,7 @@ def build_poses(proportions: dict) -> dict:
     sitting_mid = _make_front(
         head_y=2.50, neck_y=1.80,
         shoulder_w=p["shoulder_w"], shoulder_y=1.20, torso_y=0.20,
+        torso_bar_scale=p.get("torso_bar_scale", 1.1),
         elbow_w=p["elbow_w"] * 0.92, elbow_y=0.20,
         wrist_w=p["wrist_w"] * 0.67, wrist_y=-0.20,
         hip_w=p["hip_w"], hip_y=-0.30,
@@ -738,6 +872,7 @@ def build_poses(proportions: dict) -> dict:
     sitting_down = _make_front(
         head_y=2.10, neck_y=1.40,
         shoulder_w=p["shoulder_w"], shoulder_y=0.80, torso_y=-0.20,
+        torso_bar_scale=p.get("torso_bar_scale", 1.1),
         elbow_w=p["elbow_w"] * 0.85, elbow_y=-0.20,
         wrist_w=p["wrist_w"] * 0.53, wrist_y=-0.60,
         hip_w=p["hip_w"], hip_y=-0.70,
@@ -763,11 +898,35 @@ def build_poses(proportions: dict) -> dict:
     dp = _DEFAULT_PROPORTIONS
     sx = p["shoulder_w"] / dp["shoulder_w"]    # proportional x factor
 
-    def _adapt_side(default_pose):
-        """Scale x-components of a side-view pose to the build's width."""
-        return scale_pose(default_pose, sx=sx, sy=1.0, anchor="torso")
+    if _use_alien_torso:
+        # Alien side pose uses the split-torso helper directly.
+        standing_side = alien_side_pose(
+            torso_y=p["torso_y"],
+            hip_y=p["hip_y"],
+            lhip_x=0.0, lknee_x=-0.05, lankle_x=-0.07,
+            rhip_x=0.0, rknee_x= 0.05, rankle_x= 0.07,
+            lknee_y=p["knee_y"], lankle_y=p["ankle_y"],
+            rknee_y=p["knee_y"], rankle_y=p["ankle_y"],
+            side_shoulder_hw=p.get("side_shoulder_hw", 0.18),
+        )
 
-    standing_side = _adapt_side(STANDING_SIDE)
+        def _adapt_side(default_pose):
+            """Scale a standard side pose to alien proportions, then inject
+            torso_left / torso_right in place of the single torso key."""
+            scaled = scale_pose(default_pose, sx=sx, sy=1.0, anchor="torso")
+            # Derive torso_left/right from the scaled torso position
+            tw = p.get("side_shoulder_hw", 0.18) * 0.4
+            torso_y_val = p["torso_y"]    # use the (possibly overridden) value
+            out = {k: v for k, v in scaled.items() if k != "torso"}
+            out["torso_left"]  = _v(0.0, torso_y_val)   # coincident in side view
+            out["torso_right"] = _v(0.0, torso_y_val)   # — bar disappears
+            return out
+    else:
+        def _adapt_side(default_pose):
+            """Scale x-components of a side-view pose to the build's width."""
+            return scale_pose(default_pose, sx=sx, sy=1.0, anchor="torso")
+
+        standing_side = _adapt_side(STANDING_SIDE)
 
     walk_cycle = [_adapt_side(kf) for kf in WALK_CYCLE]
     run_cycle  = [_adapt_side(kf) for kf in RUN_CYCLE]
@@ -804,6 +963,8 @@ def build_poses(proportions: dict) -> dict:
         poses_reg[name] = kf
 
     return {
+        "joints":         ALIEN_JOINTS if _use_alien_torso else JOINTS,
+        "edges":          ALIEN_EDGES  if _use_alien_torso else EDGES,
         "standing_front": standing_front,
         "standing_side":  standing_side,
         "sitting_mid":    sitting_mid,
