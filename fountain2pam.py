@@ -1,15 +1,15 @@
 """
 fountain2pam.py
 ~~~~~~~~~~~~~~~
-Convert a Fountain screenplay to a PAM screenplay JSON **and** a set
-of per-subscene AI prompts (for Veo 3, Kling, Flow, Runway, etc.).
+Convert a Fountain screenplay to a PAM screenplay JSON and a set of
+per-subscene visual prompts for Blender layout and still-image generation.
 
 Outputs
 -------
 From one Fountain file, the converter produces up to three files:
 
   ``screenplay.json``   — PAM actions (animate with pam_player.py)
-  ``prompts.json``      — per-subscene visual prompts for AI video + stills
+  ``prompts.json``      — per-subscene visual prompts for Blender / stills
   ``(stdout)``          — human-readable summary + review flags
 
 Usage
@@ -34,8 +34,13 @@ Pipeline
          │
          └──→ fountain2pam.py
                    │
-                   ├──→ screenplay.json   (PAM — edit, then render)
-                   └──→ prompts.json      (AI video + still prompts, per subscene)
+                   ├──→ screenplay.json   (PAM — edit with pam_player.py)
+                   └──→ prompts.json      (per-subscene prompts for Blender / stills)
+
+The ``prompts.json`` file contains structured shot descriptions intended
+for Blender scene layout.  Fields such as ``video_prompt`` and
+``still_prompts`` remain in the output for backward compatibility with
+any existing tooling that reads them.
 
 Requirements
 ------------
@@ -44,7 +49,7 @@ Requirements
 
 Version
 -------
-  0.9.2
+  0.9.5
 
 Fountain+ Notes
 ---------------
@@ -83,7 +88,8 @@ Supported keys
 
 ``NEGATIVE``  (beat-scoped)
     Verbatim text for the ``negative_prompt`` field on every subscene JSON.
-    Tells the video AI what *not* to generate.  Persists until overridden.
+    Describes what should be absent from the shot — used by Blender layout
+    notes and still-image prompts.  Persists until overridden.
 
     Example::
 
@@ -148,7 +154,8 @@ Supported keys
     ``push``       Slow dolly toward subject
     ``pull``       Slow dolly away from subject
     ``pan-follow`` Camera pans to track a moving character
-    ``pan-up``     Camera tilts up to reveal full height of SUBJECT prop (v0.9.4)
+    ``pan-up``     Camera tilts up to reveal full height of SUBJECT prop
+    ``pan-down``   Camera tilts down — e.g. from a sign to a character
     ``drift``      Very slow imperceptible creep — atmospheric
     ============== =======================================================
 
@@ -294,7 +301,7 @@ Prompts only (no PAM JSON)::
 
     python fountain2pam.py tntd.fountain --prompts-only
 
-Per-speaker clip mode (default — best for Kling)::
+Per-speaker clip mode (default — one speaker per subscene)::
 
     python fountain2pam.py tntd.fountain --clip-mode per-speaker
 
@@ -307,16 +314,93 @@ Render character gallery after sync::
     python fountain2pam.py tntd.fountain
     manim -pqh --save_last_frame character_gallery.py CharacterGallery
 
+``ZONE``  (sub-location slug, new in v0.9.6)
+    Fountain dot-syntax sub-location lines (e.g. ``.Secretary's pod``,
+    ``.Executive suite``) are treated as zone transitions within the
+    current scene rather than full scene breaks.  They emit a
+    ``zone_shift`` action into the PAM JSON so pam_player.py can shift
+    Manim's camera to a named sub-region without starting a new scene.
+
+    Format — a line beginning with ``.`` immediately followed by the
+    zone name (standard Fountain syntax for scene sub-headings)::
+
+        INT. GOVERNOR'S OFFICE - DAY
+
+        .Secretary's pod
+        Nona approaches the desk.
+
+        .Executive suite
+        The Governor's dodecahedron hovers behind the partition.
+
+    The zone name is normalised to a snake_case key (``secretary_s_pod``,
+    ``executive_suite``) stored in the ``zone`` field of the action.
+    The human-readable label is preserved in the ``label`` field.
+
+``CAPTION``  (beat-scoped, new in v0.9.6)
+    On-screen caption or subtitle, rendered by pam_player.py as a Manim
+    ``Text`` object with fade-in/out.  Parsed directly into the PAM JSON
+    actions list as a ``caption`` action.
+
+    Format — structured sub-keys::
+
+        [[ CAPTION: TEXT=In the not-too-distant future... | POSITION=bottom | DURATION=3.5 | STYLE=italic ]]
+
+    Or shorthand (TEXT= may be omitted when there are no other sub-keys)::
+
+        [[ CAPTION: In the not-too-distant future... ]]
+
+    Sub-keys:
+
+    ``TEXT``      — caption string (required)
+    ``POSITION``  — ``bottom`` (default) | ``top`` | ``lower-third``
+    ``DURATION``  — float seconds the caption remains on screen (default ``3.0``)
+    ``STYLE``     — ``normal`` (default) | ``italic`` | ``bold``
+
+``SOUND``  (beat-scoped, new in v0.9.6)
+    Diegetic sound-cue label.  Parsed into a ``sound_cue`` PAM action that
+    pam_player.py flashes briefly on screen.  Use for sound effects whose
+    presence should be visible in the animation (``RING!``, ``KNOCK!``,
+    ``DING!``).
+
+    Format::
+
+        [[ SOUND: RING! ]]
+        [[ SOUND: KNOCK KNOCK ]]
+
+    Emits::
+
+        {"action": "sound_cue", "label": "RING!", "display": true}
+
+``PHONE``  (beat-scoped, new in v0.9.6)
+    Marks the start of an intercut telephone conversation.  Sets
+    ``style=os-bubble`` on subsequent ``say`` actions, triggering a
+    dashed/jagged speech bubble variant in pam_player.py.  Cleared by
+    the next ``PHONE: off`` note or a new scene heading.
+
+    Format::
+
+        [[ PHONE: on ]]
+        ... intercut dialogue ...
+        [[ PHONE: off ]]
+
+``PRODUCTION NOTE``  (file-level, new in v0.9.6)
+    Non-rendering annotation for performance, dubbing, or production notes.
+    Stored in prompts metadata only.  Never emitted as a PAM action and
+    never included in visual prompts.
+
+    Format::
+
+        [[ PRODUCTION NOTE: Sidel's accent is mid-Atlantic, not Venusian. ]]
+
 Beat-scoping
 ~~~~~~~~~~~~
 ``MOOD`` is scene-level: set it once, directly below the scene heading.
 It applies to every subscene in that scene.
 
-``SCENE POPULATION``, ``NEGATIVE``, ``CAMERA``, and ``LIGHTING`` are
-beat-scoped: each note takes effect at the point where it appears in
-the file and persists until another note of the same key replaces it.
-You only need to write a new note when something changes — framing
-strategy, cast, negative constraints, or lighting setup.
+``SCENE POPULATION``, ``NEGATIVE``, ``CAMERA``, ``LIGHTING``, ``CAPTION``,
+``SOUND``, and ``PHONE`` are beat-scoped: each note takes effect at the point
+where it appears in the file and persists until another note of the same key
+replaces it.  You only need to write a new note when something changes.
 
 This means a single ``[[ CAMERA: ]]`` annotation early in a scene covers
 all subsequent clips until you write a new one.  You do not need to
@@ -442,7 +526,8 @@ CAMERA_MOVE = {
     "pull",
     "pan-follow",
     "drift",
-    "pan-up",      # v0.9.4: tilt up from current framing to reveal top of SUBJECT prop
+    "pan-up",      # tilt up from current framing to reveal top of SUBJECT prop
+    "pan-down",    # v0.9.6: tilt down — e.g. from a sign/title to a character
 }
 
 CAMERA_TRANSITION = {
@@ -472,6 +557,7 @@ _MOVE_PROSE: dict[str, str] = {
     "pan-follow":   "Camera pans to follow subject.",
     "drift":        "Imperceptible slow drift — atmospheric.",
     "pan-up":       "Camera tilts up from subject to reveal full height of background prop.",
+    "pan-down":     "Camera tilts down — from signage or title card to character level.",
 }
 
 # TRANSITION value → override text for [DRAMA / CUT] last line
@@ -676,6 +762,120 @@ def parse_camera_tag(raw: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  NEW FOUNTAIN+ KEY PARSERS  (v0.9.6)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_CAPTION_POSITIONS = {"bottom", "top", "lower-third"}
+_CAPTION_STYLES    = {"normal", "italic", "bold"}
+
+def parse_caption_tag(raw: str) -> dict:
+    """
+    Parse a ``[[ CAPTION: ... ]]`` note into a PAM ``caption`` action dict.
+
+    Two formats are accepted:
+
+    **Structured** (contains ``=``)::
+
+        "TEXT=In the not-too-distant future... | POSITION=bottom | DURATION=3.5 | STYLE=italic"
+
+    **Shorthand** — plain text treated as the caption string::
+
+        "In the not-too-distant future..."
+
+    Returns a PAM action dict::
+
+        {
+            "action":   "caption",
+            "text":     "In the not-too-distant future...",
+            "position": "bottom",
+            "duration": 3.5,
+            "style":    "italic",
+        }
+    """
+    raw = raw.strip()
+    result = {
+        "action":   "caption",
+        "text":     raw,
+        "position": "bottom",
+        "duration": 3.0,
+        "style":    "normal",
+    }
+
+    if "=" not in raw:
+        # Shorthand: the whole value is the caption text
+        return result
+
+    text_found = False
+    for part in raw.split("|"):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        key, _, val = part.partition("=")
+        key = key.strip().lower()
+        val = val.strip()
+
+        if key == "text":
+            result["text"] = val
+            text_found = True
+        elif key == "position":
+            if val.lower() not in _CAPTION_POSITIONS:
+                print(f"  [CAPTION] warning: unknown POSITION {val!r} "
+                      f"(valid: {sorted(_CAPTION_POSITIONS)})", file=sys.stderr)
+            result["position"] = val.lower()
+        elif key == "duration":
+            try:
+                result["duration"] = float(val)
+            except ValueError:
+                print(f"  [CAPTION] warning: DURATION {val!r} is not a number — "
+                      f"using 3.0", file=sys.stderr)
+        elif key == "style":
+            if val.lower() not in _CAPTION_STYLES:
+                print(f"  [CAPTION] warning: unknown STYLE {val!r} "
+                      f"(valid: {sorted(_CAPTION_STYLES)})", file=sys.stderr)
+            result["style"] = val.lower()
+        else:
+            print(f"  [CAPTION] warning: unrecognised sub-key {key!r} — ignored",
+                  file=sys.stderr)
+
+    if not text_found:
+        # No TEXT= key found; treat the whole raw string as text (fallback)
+        result["text"] = raw
+    return result
+
+
+def parse_sound_tag(raw: str) -> dict:
+    """
+    Parse a ``[[ SOUND: label ]]`` note into a PAM ``sound_cue`` action dict.
+
+    The label is the sound effect text to display on screen (e.g. ``RING!``,
+    ``KNOCK KNOCK``, ``DING!``).  pam_player.py flashes this label briefly.
+
+    Returns::
+
+        {"action": "sound_cue", "label": "RING!", "display": True}
+    """
+    label = raw.strip()
+    return {"action": "sound_cue", "label": label, "display": True}
+
+
+def parse_phone_tag(raw: str) -> dict | None:
+    """
+    Parse a ``[[ PHONE: on|off ]]`` note.
+
+    Returns ``{"phone_mode": True}`` for ``on``, ``{"phone_mode": False}``
+    for ``off``.  Returns ``None`` for unrecognised values (with a warning).
+    """
+    val = raw.strip().lower()
+    if val in ("on", "true", "yes", "1"):
+        return {"phone_mode": True}
+    if val in ("off", "false", "no", "0"):
+        return {"phone_mode": False}
+    print(f"  [PHONE] warning: expected 'on' or 'off', got {raw!r} — ignored",
+          file=sys.stderr)
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  TIERED IMPLIED PROP INFERENCE
 #
 #  Screenplays frequently describe actions that *imply* a prop without naming
@@ -840,15 +1040,25 @@ _NOTE_RE    = re.compile(r'\[\[(.+?)\]\]', re.DOTALL)
 _SLUG_RE    = re.compile(r'^(INT\.?|EXT\.?)\s+.+', re.IGNORECASE)
 _NOTE_KEY_RE = re.compile(r'^\s*([\w ]+?)\s*:\s*(.*)', re.DOTALL)
 
+# Dot-syntax sub-location slugs (v0.9.6):
+# Lines like ".Secretary's pod" or ".Executive suite" are treated as
+# zone transitions within the current scene rather than full scene breaks.
+# They emit a zone_shift action and update the camera zone in the prompt builder.
+_DOT_SLUG_RE = re.compile(r'^\.(\S.+)$', re.MULTILINE)
+
 # Keys we recognise; value is the canonical name stored in the notes dict
 _KNOWN_NOTE_KEYS = {
     "mood":             "mood",
     "scene population": "population",
     "negative":         "negative",
-    "kind":             "kind",     # file-level species/type templates
-    "camera":           "camera",   # mid-scene camera override
-    "lighting":         "lighting", # mid-scene lighting override (v0.9.2)
-    "character":        "character", # character registry entry (v0.9.3)
+    "kind":             "kind",             # file-level species/type templates
+    "camera":           "camera",           # mid-scene camera override
+    "lighting":         "lighting",         # mid-scene lighting override (v0.9.2)
+    "character":        "character",        # character registry entry (v0.9.3)
+    "caption":          "caption",          # on-screen caption / subtitle (v0.9.6)
+    "sound":            "sound",            # diegetic sound cue label (v0.9.6)
+    "phone":            "phone",            # intercut telephone mode flag (v0.9.6)
+    "production note":  "production_note",  # metadata-only annotation (v0.9.6)
 }
 
 # Regex to parse [[ KIND: name | description ]] — pipe separates name from desc
@@ -973,9 +1183,6 @@ def _extract_fountain_notes(raw_text: str) -> dict:
             if pos < note_start:
                 owner_heading = heading
                 break
-        if owner_heading is None:
-            continue   # before first scene heading — ignore
-
         km = _NOTE_KEY_RE.match(content)
         if not km:
             continue
@@ -984,6 +1191,12 @@ def _extract_fountain_notes(raw_text: str) -> dict:
         canonical = _KNOWN_NOTE_KEYS.get(raw_key)
         if canonical is None:
             continue   # unknown key
+
+        # CHARACTER, KIND, PRODUCTION NOTE are file-level — allow before
+        # the first scene heading (cast is often declared at top of file).
+        _FILE_LEVEL = {"character", "kind", "production note"}
+        if owner_heading is None and canonical not in _FILE_LEVEL:
+            continue   # non-file-level note before first scene heading
 
         line_no = _offset_to_line(note_start)
 
@@ -1000,23 +1213,41 @@ def _extract_fountain_notes(raw_text: str) -> dict:
             scene_notes["__characters__"].append(value)
 
         else:
-            # SCENE POPULATION, NEGATIVE, CAMERA, and LIGHTING are mid-scene
-            # events. CAMERA and LIGHTING values are pre-parsed here so
-            # ScenePromptBuilder never needs to call parse_*() itself.
+            # SCENE POPULATION, NEGATIVE, CAMERA, LIGHTING, CAPTION, SOUND,
+            # PHONE, and PRODUCTION NOTE are mid-scene events.
+            # CAMERA and LIGHTING are pre-parsed here; CAPTION, SOUND, PHONE
+            # are parsed to their action dicts; PRODUCTION NOTE is kept raw.
             camera_val: dict | str = ""
             lighting_val: list     = []
+            caption_val: dict | None = None
+            sound_val:   dict | None = None
+            phone_val:   dict | None = None
+            prod_note_val: str       = ""
+
             if canonical == "camera":
                 camera_val = parse_camera_tag(value)
             elif canonical == "lighting":
                 lighting_val = parse_lighting_value(value)
+            elif canonical == "caption":
+                caption_val = parse_caption_tag(value)
+            elif canonical == "sound":
+                sound_val = parse_sound_tag(value)
+            elif canonical == "phone":
+                phone_val = parse_phone_tag(value)
+            elif canonical == "production_note":
+                prod_note_val = value   # stored in metadata only
 
             event = {
-                "line_number": line_no,
-                "heading":     owner_heading,
-                "population":  value        if canonical == "population" else "",
-                "negative":    value        if canonical == "negative"   else "",
-                "camera":      camera_val   if canonical == "camera"     else "",
-                "lighting":    lighting_val if canonical == "lighting"   else [],
+                "line_number":    line_no,
+                "heading":        owner_heading,
+                "population":     value          if canonical == "population"    else "",
+                "negative":       value          if canonical == "negative"      else "",
+                "camera":         camera_val     if canonical == "camera"        else "",
+                "lighting":       lighting_val   if canonical == "lighting"      else [],
+                "caption":        caption_val    if canonical == "caption"       else None,
+                "sound":          sound_val      if canonical == "sound"         else None,
+                "phone":          phone_val      if canonical == "phone"         else None,
+                "production_note": prod_note_val if canonical == "production_note" else "",
             }
             # Merge consecutive events at the same line into one dict
             if note_events and note_events[-1]["line_number"] == line_no \
@@ -1029,6 +1260,14 @@ def _extract_fountain_notes(raw_text: str) -> dict:
                     note_events[-1]["camera"] = event["camera"]
                 if event["lighting"]:
                     note_events[-1]["lighting"] = event["lighting"]
+                if event["caption"] is not None:
+                    note_events[-1]["caption"] = event["caption"]
+                if event["sound"] is not None:
+                    note_events[-1]["sound"] = event["sound"]
+                if event["phone"] is not None:
+                    note_events[-1]["phone"] = event["phone"]
+                if event["production_note"]:
+                    note_events[-1]["production_note"] = event["production_note"]
             else:
                 note_events.append(event)
 
@@ -1049,7 +1288,11 @@ def parse_character_line(raw: str) -> dict | None:
     whitespace-separated string) into a character record dict.
 
     Required keys: ``name``, ``type``, ``gender``.
-    Optional keys: ``color``, ``label``, ``height``, ``build``, ``style``.
+    Optional keys: ``color``, ``torso_color``, ``label``, ``height``,
+                   ``build``, ``style``, ``scale``.
+
+    ``scale`` may be a bare float (e.g. ``scale=0.48``) stored as
+    ``{"sy": v, "sx": v, "anchor": "lankle"}`` for direct use in cast_spec.
 
     Returns ``None`` if ``name`` or ``type`` is missing.
 
@@ -1076,6 +1319,12 @@ def parse_character_line(raw: str) -> dict | None:
         print(f"  [CHARACTER] warning: '{rec['name']}' missing 'gender' — "
               f"defaulting to 'male'.", file=sys.stderr)
         rec["gender"] = "male"
+    if "scale" in rec:
+        try:
+            sv = float(rec["scale"])
+            rec["scale"] = {"sy": sv, "sx": sv, "anchor": "lankle"}
+        except ValueError:
+            pass
     return rec
 
 
@@ -1193,6 +1442,23 @@ _PALETTES = [
      "node_stroke": "#8899aa", "head_color": "#0f1820",
      "head_stroke": "#aabbcc", "highlight_color": "#ccddee"},
 ]
+
+def _palette_from_color(hex_color: str) -> dict:
+    """Derive a PAM style palette from a single hex color (standalone, no pam dependency)."""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    def _hex(rv, gv, bv):
+        return "#{:02x}{:02x}{:02x}".format(
+            max(0, min(255, rv)), max(0, min(255, gv)), max(0, min(255, bv)))
+    return {
+        "edge_color":      hex_color,
+        "node_color":      _hex(r // 5,       g // 5,       b // 5),
+        "node_stroke":     _hex(r + 40,       g + 40,       b + 40),
+        "head_color":      _hex(r // 8,       g // 8,       b // 8),
+        "head_stroke":     _hex(r + 60,       g + 60,       b + 60),
+        "highlight_color": _hex(min(255,r+80), min(255,g+80), min(255,b+80)),
+    }
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1668,12 +1934,25 @@ def _interpret_clause(text, characters, prop_names, last_who=None):
                      {"action": loco, who_or_prop_b: b_key, "x": x_b},
                  ]}]
 
+    # ── carry_prop: detect "carrying X" / "holding X" alongside locomotion ──
+    # If present, annotate the locomotion action with carrying=<prop_id> so
+    # pam_player keeps the prop attached to the character during movement.
+    _carrying_m = re.search(
+        r'\b(?:carrying|holding|clutching|lugging)\s+(?:the\s+|a\s+|her\s+|his\s+)?'
+        r'([\w]+(?:\s+\w+){0,2})', tl)
+    _carried_prop = None
+    if _carrying_m:
+        _carried_prop = _fuzzy_prop_match(_carrying_m.group(1), prop_names)
+
     m = re.search(r'walks?\s+to\s+(?:the\s+|a\s+)?(\w+(?:\s+\w+)?)', tl)
     if m and who:
         t = _fuzzy_prop_match(m.group(1), prop_names)
         if t:
+            loco_a = {"action": "walk_to_prop", "who": who, "prop": t}
+            if _carried_prop:
+                loco_a["carrying"] = _carried_prop
             actions += [{"action": "turn", "who": who, "pose": "standing_side"},
-                        {"action": "walk_to_prop", "who": who, "prop": t},
+                        loco_a,
                         {"action": "turn", "who": who, "pose": "standing_front"}]
             return actions
 
@@ -1681,8 +1960,11 @@ def _interpret_clause(text, characters, prop_names, last_who=None):
     if m and who:
         t = _fuzzy_prop_match(m.group(1), prop_names)
         if t:
+            loco_b = {"action": "run_to_prop", "who": who, "prop": t}
+            if _carried_prop:
+                loco_b["carrying"] = _carried_prop
             actions += [{"action": "turn", "who": who, "pose": "standing_side"},
-                        {"action": "run_to_prop", "who": who, "prop": t},
+                        loco_b,
                         {"action": "turn", "who": who, "pose": "standing_front"}]
             return actions
 
@@ -1742,18 +2024,19 @@ def _interpret_clause(text, characters, prop_names, last_who=None):
             return [{"action": "pick_up", "who": who, "prop": obj}]
 
     if re.search(r'\bsits?\s+(down|in|on|at)\b', tl) and who:
-        # Walk to the character's assigned named chair before sitting
-        # Named chairs follow pattern "chair_{who_key}"
+        # Walk to the character's assigned seat before sitting.
+        # Seats are keyed as "seat_{who_key}" in the props block (e.g. "seat_lucy").
+        # The word "seat" reflects positional assignment, not ownership.
         who_key = who.lower().split()[0]
-        named_chair = f"chair_{who_key}"
-        # Fall back to any chair if named one not found
+        named_seat = f"seat_{who_key}"
+        # Fall back to any seat/chair prop if the assigned one isn't found
         chair_target = next(
-            (pn for pn in sorted(prop_names)
-             if pn == named_chair),
+            (pn for pn in sorted(prop_names) if pn == named_seat),
             next(
                 (pn for pn in sorted(prop_names)
-                 if "chair" in pn and who_key not in pn.replace("chair_","")),
-                next((pn for pn in sorted(prop_names) if "chair" in pn), None)
+                 if pn.startswith("seat_") and who_key not in pn[5:]),
+                next((pn for pn in sorted(prop_names)
+                      if pn.startswith("seat_") or "chair" in pn), None)
             )
         )
         walk = []
@@ -1771,9 +2054,30 @@ def _interpret_clause(text, characters, prop_names, last_who=None):
     if re.search(r'\bwaves?\b', tl) and who:
         return [{"action": "wave", "who": who, "cycles": 1}]
 
-    if re.search(r'\b(leaves?|exits?|walks?\s+out|departs?)\b', tl) and who:
+    if re.search(r'\b(leaves?|exits?|walks?\s+out|departs?|rushes?\s+out|storms?\s+out)\b', tl) and who:
+        # "exits through the doors" / "rushes out" → exit_through_doors macro:
+        #   walk_to(door_position) + pause + disappear off-screen.
+        # Falls back to exit_through(door) if a door prop exists, else fade_out.
+        through_doors = bool(re.search(
+            r'\b(through\s+(?:the\s+)?doors?|blast\s+doors?|elevator)\b', tl))
+        is_rush = bool(re.search(r'\b(rushes?|storms?|bursts?)\b', tl))
+        loco = "run_to" if is_rush else "walk_to"
+        if through_doors:
+            return [
+                {"_hint": (
+                    f"exit_through_doors: set x to the door's world position "
+                    f"(positive = right edge, negative = left edge)."
+                )},
+                {"action": "turn", "who": who, "pose": "standing_side"},
+                {"action": loco, "who": who, "x": 6.0,
+                 "_comment": "# REVIEW: set x to door x position"},
+                {"action": "fade_out", "who": who},
+            ]
         if "door" in prop_names:
-            return [{"action": "exit_through", "who": who, "prop": "door"}]
+            return [
+                {"action": "turn", "who": who, "pose": "standing_side"},
+                {"action": "exit_through", "who": who, "prop": "door"},
+            ]
         return [{"action": "fade_out", "who": who}]
 
     if re.search(r'\b(vanishes?|disappears?)\b', tl):
@@ -1782,6 +2086,11 @@ def _interpret_clause(text, characters, prop_names, last_who=None):
                 return [{"action": "remove_prop", "prop": pn}]
         if who:
             return [{"action": "fade_out", "who": who}]
+
+    if re.search(r'\blooks?\s+up\b', tl) and who:
+        # "looks up" → head-tilt pose; pam_player maps "look_up" to an upward
+        # head-node shift with optional raised arm.
+        return [{"action": "turn", "who": who, "pose": "look_up"}]
 
     if re.search(r'\b(stares?|looks?\s+at|gazes?|fixes)\b', tl):
         return [{"action": "wait", "t": 0.8}]
@@ -1792,13 +2101,143 @@ def _interpret_clause(text, characters, prop_names, last_who=None):
     if re.search(r'\b(starts?\s+working|works?\s+on|working\s+on)\b', tl):
         return [{"action": "wait", "t": 1.0}]
 
+    # ── grab / decisive pick_up ───────────────────────────────────────────
+    # "grabs the folder" — more urgent than pick_up; annotated with style=grab.
+    m = re.search(
+        r'\b(grabs?|snatches?|seizes?)\s+(?:the\s+|a\s+|her\s+|his\s+)?'
+        r'([\w]+(?:\s+\w+){0,2})', tl)
+    if m and who:
+        obj = _fuzzy_prop_match(m.group(2), prop_names)
+        if obj:
+            return [{"action": "pick_up", "who": who, "prop": obj, "style": "grab"}]
+
+    # ── place_on: set carried prop onto a surface ─────────────────────────
+    # "places the vase on the desk" / "sets the flowers on the table"
+    m = re.search(
+        r'\b(?:places?|sets?|puts?|lays?)\s+(?:the\s+|a\s+|her\s+|his\s+)?'
+        r'([\w]+(?:\s+\w+){0,2})\s+(?:on|onto|on\s+top\s+of)\s+'
+        r'(?:the\s+|a\s+)?([\w]+(?:\s+\w+)?)', tl)
+    if m and who:
+        obj  = _fuzzy_prop_match(m.group(1), prop_names)
+        surf = _fuzzy_prop_match(m.group(2), prop_names)
+        if obj and surf:
+            return [{"action": "place_on", "who": who, "prop": obj, "target": surf}]
+
+    # ── move_aside: push a prop laterally without picking it up ───────────
+    # "moves the lamp aside" / "pushes the lamp to the left"
+    m = re.search(
+        r'\b(?:moves?\s+(?:the\s+)?|pushes?\s+(?:the\s+)?|slides?\s+(?:the\s+)?)'
+        r'([\w]+(?:\s+\w+){0,2})\s+(?:aside|out\s+of\s+the\s+way|to\s+the\s+(left|right))', tl)
+    if m and who:
+        obj = _fuzzy_prop_match(m.group(1), prop_names)
+        direction = m.group(2) or "left"   # default left if unspecified
+        if obj:
+            return [{"action": "move_aside", "who": who,
+                     "prop": obj, "direction": direction}]
+
+    # ── reach_for ─────────────────────────────────────────────────────────
+    # "reaches for the button panel" / "reaches toward the desk"
+    m = re.search(
+        r'\b(?:reaches?\s+(?:for|toward|towards?)|leans?\s+(?:toward|towards?))\s+'
+        r'(?:the\s+|a\s+)?([\w]+(?:\s+\w+){0,2})', tl)
+    if m and who:
+        obj = _fuzzy_prop_match(m.group(1), prop_names)
+        if obj:
+            return [{"action": "reach_for", "who": who, "target": obj}]
+
+    # ── punch_button: sharp reach + tap + retract ─────────────────────────
+    # "punches the button" / "jabs the panel" / "hits the button"
+    m = re.search(
+        r'\b(?:punches?|jabs?|hits?|presses?|taps?)\s+(?:the\s+|a\s+)?'
+        r'(?:button|panel|key|switch|elevator\s+button)[s]?', tl)
+    if m and who:
+        # Try to find a button_panel or similar prop; fall back to generic
+        btn_prop = next(
+            (pn for pn in prop_names
+             if any(k in pn for k in ("button", "panel", "switch", "elevator"))),
+            None)
+        a = {"action": "punch_button", "who": who}
+        if btn_prop:
+            a["target"] = btn_prop
+        return [a]
+
+    # ── stick_to: attach a small prop to a surface ────────────────────────
+    # "sticks the bug to the lamp" / "affixes the tag to the door"
+    m = re.search(
+        r'\b(?:sticks?|affixes?|attaches?|plants?|presses?)\s+'
+        r'(?:the\s+|a\s+)?([\w]+(?:\s+\w+){0,2})\s+(?:to|onto|on)\s+'
+        r'(?:the\s+|a\s+)?([\w]+(?:\s+\w+)?)', tl)
+    if m and who:
+        obj  = _fuzzy_prop_match(m.group(1), prop_names)
+        surf = _fuzzy_prop_match(m.group(2), prop_names)
+        if obj and surf:
+            return [{"action": "stick_to", "who": who, "prop": obj, "target": surf}]
+
+    # ── snap_photo: point smartphone + flash ─────────────────────────────
+    # "snaps a photo of the vase" / "photographs the dodecahedron"
+    m = re.search(
+        r'\b(?:snaps?\s+(?:a\s+)?photo|photographs?|takes?\s+(?:a\s+)?picture)\s+'
+        r'(?:of\s+)?(?:the\s+|a\s+)?([\w]+(?:\s+\w+){0,2})', tl)
+    if m and who:
+        subj = _fuzzy_prop_match(m.group(1), prop_names) or m.group(1).strip()
+        return [{"action": "snap_photo", "who": who, "target": subj}]
+
+    # ── hang_up: return phone to cradle ───────────────────────────────────
+    m = re.search(r'\b(?:hangs?\s+up|replaces?\s+(?:the\s+)?(?:receiver|handset)|puts?\s+(?:the\s+)?phone\s+down)\b', tl)
+    if m and who:
+        phone_prop = next(
+            (pn for pn in prop_names if any(k in pn for k in ("phone", "receiver"))),
+            None)
+        a = {"action": "hang_up", "who": who}
+        if phone_prop:
+            a["prop"] = phone_prop
+        return [a]
+
+    # ── smirk / roll_eyes: reaction expressions ───────────────────────────
+    if re.search(r'\bsmirks?\b', tl) and who:
+        return [{"action": "react", "who": who, "expression": "smirk"}]
+
+    if re.search(r'\b(?:rolls?\s+(?:her\s+|his\s+|their\s+)?eyes?|eye\s*roll)\b', tl) and who:
+        return [{"action": "react", "who": who, "expression": "eye_roll"}]
+
+    # ── jump_up: eager stand with upward body translation ─────────────────
+    if re.search(r'\b(?:jumps?\s+up|leaps?\s+up|springs?\s+up|bolts?\s+up)\b', tl) and who:
+        return [{"action": "jump_up", "who": who}]
+
+    # ── dodge: lateral sidestep away from another character's path ────────
+    m = re.search(r'\b(?:dodges?|sidesteps?|steps?\s+(?:aside|out\s+of\s+the\s+way))\b', tl)
+    if m and who:
+        return [{"action": "walk_to", "who": who, "x": None,
+                 "style": "dodge",
+                 "_comment": "# REVIEW: set x for dodge sidestep destination"}]
+
+    # ── search_drawers: rummaging macro ───────────────────────────────────
+    m = re.search(r'\b(?:searches?|rummages?|rifles?\s+through|digs?\s+through)\s+'
+                  r'(?:the\s+)?(?:drawers?|desk|bag|briefcase)', tl)
+    if m and who:
+        desk_prop = next(
+            (pn for pn in prop_names if any(k in pn for k in ("desk", "drawer", "briefcase"))),
+            None)
+        a = {"action": "search_drawers", "who": who}
+        if desk_prop:
+            a["target"] = desk_prop
+        return [a]
+
+    # ── pat: short repeated tap toward a prop or body area ────────────────
+    m = re.search(r'\b(?:pats?|taps?\s+(?:gently|softly)?)\s+(?:the\s+|a\s+|her\s+|his\s+)?'
+                  r'([\w]+(?:\s+\w+){0,2})', tl)
+    if m and who:
+        obj = _fuzzy_prop_match(m.group(1), prop_names)
+        if obj:
+            return [{"action": "pat", "who": who, "target": obj}]
+
     return [{"_comment": f"# REVIEW: {text}"}]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  STAGE DIRECTION EXPANDER
 #  Translates compact stage-direction phrases into explicit visual descriptions
-#  that video AI generators understand without theatre training.
+#  suitable for Blender scene notes and still-image prompts.
 # ─────────────────────────────────────────────────────────────────────────────
 
 _STAGE_EXPANSIONS = {
@@ -1884,6 +2323,23 @@ _BEAT_DURATION_MAP = {
     "scale":        0.8,
     "parallel":     1.0,
     "on_screen_text": 2.5,
+    "exit_through_doors": 2.5,   # v0.9.6: walk to door + fade
+    "zone_shift":   0.0,          # v0.9.6: instantaneous — no animation cost
+    "caption":      0.3,          # v0.9.6: fade-in only; hold tracked separately
+    "sound_cue":    0.5,          # v0.9.6: label flash
+    "look_up":      0.4,          # v0.9.6: head-tilt pose
+    "reach_for":    0.7,          # v0.9.6: arm extension toward target
+    "punch_button": 0.5,          # v0.9.6: sharp tap + retract
+    "place_on":     0.8,          # v0.9.6: set prop onto surface
+    "move_aside":   0.8,          # v0.9.6: lateral push without picking up
+    "stick_to":     0.6,          # v0.9.6: attach prop to surface
+    "snap_photo":   0.8,          # v0.9.6: point + flash
+    "hang_up":      0.5,          # v0.9.6: return phone to cradle
+    "react":        0.6,          # v0.9.6: smirk / eye_roll expression glyph
+    "jump_up":      0.8,          # v0.9.6: eager upward body translation
+    "dodge":        0.7,          # v0.9.6: lateral sidestep
+    "search_drawers": 2.0,        # v0.9.6: rummaging macro
+    "pat":          1.0,          # v0.9.6: repeated gentle tap
 }
 
 
@@ -1945,8 +2401,14 @@ def _drama_score(beat: dict, prev_beats: list) -> int:
         score += 2
     if action == "prop_color":
         score += 1   # Governor flashing = dramatic
-    if action in ("fade_out", "exit_through", "remove_prop"):
+    if action in ("fade_out", "exit_through", "remove_prop", "exit_through_doors"):
         score += 1
+
+    # v0.9.6 additions
+    if action == "react":
+        score += 1   # smirk / eye-roll = comic punctuation
+    if action == "jump_up":
+        score += 2   # eager leap = cliffhanger energy
 
     return score
 
@@ -2025,6 +2487,54 @@ def _summarise_beats(beats: list,
             lines.append(f"[{pname} flashes {b.get('color', '')}]")
         elif action == "on_screen_text":
             lines.append(f"[On screen: {text}]")
+        elif action == "pick_up":
+            style = b.get("style", "")
+            verb = "grabs" if style == "grab" else "picks up"
+            pname = pdnames.get(prop, prop) if prop else b.get("target", "?")
+            lines.append(f"{name} {verb} {pname}.")
+        elif action == "place_on":
+            tgt = b.get("target", "?")
+            lines.append(f"{name} places {prop} on {tgt}.")
+        elif action == "move_aside":
+            lines.append(f"{name} moves {prop} aside.")
+        elif action == "reach_for":
+            tgt = b.get("target", prop or "?")
+            lines.append(f"{name} reaches for {tgt}.")
+        elif action == "punch_button":
+            tgt = b.get("target", "button panel")
+            lines.append(f"{name} punches {tgt}.")
+        elif action == "stick_to":
+            tgt = b.get("target", "?")
+            lines.append(f"{name} sticks {prop} to {tgt}.")
+        elif action == "snap_photo":
+            tgt = b.get("target", "?")
+            lines.append(f"{name} photographs {tgt}.")
+        elif action == "hang_up":
+            lines.append(f"{name} hangs up the phone.")
+        elif action == "react":
+            expr = b.get("expression", "reacts")
+            lines.append(f"{name} {expr.replace('_', ' ')}s.")
+        elif action == "jump_up":
+            lines.append(f"{name} jumps up.")
+        elif action == "dodge":
+            lines.append(f"{name} dodges aside.")
+        elif action == "search_drawers":
+            tgt = b.get("target", "desk")
+            lines.append(f"{name} searches {tgt}.")
+        elif action == "pat":
+            tgt = b.get("target", "?")
+            lines.append(f"{name} pats {tgt}.")
+        elif action == "look_up":
+            lines.append(f"{name} looks up.")
+        elif action == "sound_cue":
+            lines.append(f"[Sound: {b.get('label', '?')}]")
+        elif action == "caption":
+            caption_text = b.get('text', '')
+            lines.append(f'[Caption: "{caption_text}"]')
+        elif action == "zone_shift":
+            lines.append(f"[Zone: {b.get('label', b.get('zone', '?'))}]")
+        elif action == "exit_through_doors":
+            lines.append(f"{name} exits through the doors.")
         elif desc:
             lines.append(desc)
     return lines
@@ -2045,7 +2555,7 @@ class ScenePromptBuilder:
     """
     Accumulates PAM actions for one Fountain scene and generates
     drama-aware 5–10 second subscenes, each with:
-      - video_prompt   (for Veo / Sora / Runway)
+      - video_prompt   (structured shot description for Blender layout)
       - still_prompts  (first_frame, last_frame, per-character references)
     """
 
@@ -3016,7 +3526,7 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                      title_override: str = None,
                      clip_mode: str = "per-speaker",
                      shot_count: bool = False):
-    """Convert a Fountain file to PAM actions + AI video prompts.
+    """Convert a Fountain file to PAM actions + Blender/stills prompts.
 
     Returns
     -------
@@ -3043,6 +3553,12 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
         n = sync_characters_file(char_annotation_recs, str(chars_path))
         print(f"  [CHARACTER] synced {n} record(s) → {chars_path}",
               file=sys.stderr)
+
+    # Name-keyed lookup so cast_spec can pull annotation overrides.
+    _char_annot: dict[str, dict] = {}
+    for rec in char_annotation_recs:
+        key = rec["name"].lower().split()[0]
+        _char_annot[key] = rec
 
     # ── Extract KIND templates (file-level, any position) ────────────────
     kind_templates = _extract_kind_templates(raw_text)
@@ -3101,6 +3617,15 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                     if cname not in seen_chars:
                         characters.append(cname)
                         seen_chars.add(cname)
+
+    # Seed from CHARACTER annotations for characters with no dialogue.
+    for key, rec in _char_annot.items():
+        cname_upper = rec["name"].upper()
+        if cname_upper not in seen_chars:
+            characters.append(cname_upper)
+            seen_chars.add(cname_upper)
+            print(f"  [CHARACTER] '{cname_upper}' added from annotation "
+                  f"(no dialogue cue found in script).", file=sys.stderr)
 
     # ── First pass (b): discover props and character descriptions ────────
     prop_nouns = set()
@@ -3247,24 +3772,41 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
         char_key[cname] = key
         char_key[cname.split()[0]] = key
 
-        # Determine PAM build — check cue token first, then [Kind] tag
+        annot = _char_annot.get(key, {})
+        # Build: annotation overrides cue-token and Kind-tag
         build = "default"
-        for token, bname in CHARACTER_BUILD_MAP.items():
-            if token in cname.upper():
-                build = bname
-                break
-        if build == "default":
-            kind_name = char_kinds.get(cname, "").lower()
-            build = _KIND_BUILD_MAP.get(kind_name, "default")
+        if annot.get("build"):
+            build = annot["build"]
+        else:
+            for token, bname in CHARACTER_BUILD_MAP.items():
+                if token in cname.upper():
+                    build = bname
+                    break
+            if build == "default":
+                kind_name = char_kinds.get(cname, "").lower()
+                build = _KIND_BUILD_MAP.get(kind_name, "default")
 
-        cast_spec[key] = {
-            "figure_type": "alien" if build == "alien" else "human",
+        # Color: annotation overrides round-robin palette
+        if annot.get("color"):
+            palette = _palette_from_color(annot["color"])
+
+        char_scale = annot.get("scale") or {"sy": scale, "sx": scale, "anchor": "lankle"}
+        gender = annot.get("gender", "")
+
+        entry = {
+            "figure_type": "alien" if build in ("alien", "alien_female") else "human",
             "build":  build,
+            "gender": gender,
             "pose":   "standing_front",
-            "scale":  {"sy": scale, "sx": scale, "anchor": "lankle"},
+            "scale":  char_scale,
             "offset": [char_positions[cname], 0, 0],
-            "style":  {"head_label": cname.title(), **palette},
+            "style":  {"head_label": annot.get("label") or cname.title(), **palette},
         }
+        if annot.get("color"):
+            entry["color"] = annot["color"]
+        if annot.get("torso_color"):
+            entry["torso_color"] = annot["torso_color"]
+        cast_spec[key] = entry
 
     for cname, ptype in prop_char_map.items():
         key = ptype
@@ -3398,7 +3940,7 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
 
                 for ci, cname in enumerate(hg_characters):
                     ck = ck_list[ci]
-                    chair_key_name = f"chair_{ck}"
+                    seat_key_name = f"seat_{ck}"
                     chair_color = _PALETTES_CHAIR[ci % len(_PALETTES_CHAIR)]
                     if n == 1:
                         cx = 0.0
@@ -3406,7 +3948,7 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                         cx = -0.6 if ci == 0 else 0.8
                     else:
                         cx = round(-0.8 + (1.6 / (n - 1)) * ci, 1)
-                    items[chair_key_name] = {
+                    items[seat_key_name] = {
                         "type": "chair",
                         "x": cx,
                         "color": chair_color,
@@ -3431,12 +3973,12 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
     prop_char_spawned = set()
     prop_names = {pn.replace(" ", "_") for pn in prop_nouns} | prop_nouns
 
-    # Add named chair keys so sit_down can find them (e.g. "chair_lucy")
-    # Chair names follow the pattern chair_{char_key} for each humanoid.
+    # Add named seat keys so sit_down can find them (e.g. "seat_lucy").
+    # Seats are keyed seat_{char_key} — positional assignment, not ownership.
     if "chair" in prop_nouns:
         for cname in hg_characters:
             ck = char_key.get(cname, cname.lower().split()[0])
-            prop_names.add(f"chair_{ck}")
+            prop_names.add(f"seat_{ck}")
 
     last_who = None
 
@@ -3489,12 +4031,23 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                     return
         # If not found, leave cursor unchanged.
 
+    # phone_mode: True while a [[ PHONE: on ]] is active; cleared by [[ PHONE: off ]]
+    # or a new scene heading.  When active, say actions get os_bubble=True.
+    _phone_mode: list[bool] = [False]   # list so closure can mutate it
+
     def _fire_pending_notes(up_to_line: int):
-        """Call update_notes() for any queued events at or before up_to_line."""
+        """
+        Process all queued note events at or before *up_to_line*.
+
+        - CAMERA / LIGHTING / SCENE POPULATION / NEGATIVE → update_notes()
+        - CAPTION  → emit a caption action into the PAM JSON
+        - SOUND    → emit a sound_cue action into the PAM JSON
+        - PHONE    → toggle _phone_mode state
+        - PRODUCTION NOTE → stored in prompts metadata; not emitted to PAM JSON
+        """
         while _note_queue and _note_queue[0]["line_number"] <= up_to_line:
             ev = _note_queue.pop(0)
-            # LIGHTING can arrive either as a standalone [[ LIGHTING: ]] note
-            # (ev["lighting"]) or embedded in a CAMERA tag as LIGHTING=value.
+            # ── CAMERA / LIGHTING / POPULATION / NEGATIVE ─────────────────
             lighting = ev.get("lighting") or None
             cam = ev.get("camera", "")
             if (not lighting and isinstance(cam, dict)
@@ -3506,6 +4059,21 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                 camera=cam,
                 lighting=lighting,
             )
+            # ── CAPTION ───────────────────────────────────────────────────
+            caption = ev.get("caption")
+            if caption is not None:
+                actions.append(caption)
+                current_scene.add_pam_action(caption)
+            # ── SOUND ─────────────────────────────────────────────────────
+            sound = ev.get("sound")
+            if sound is not None:
+                actions.append(sound)
+                current_scene.add_pam_action(sound)
+            # ── PHONE ─────────────────────────────────────────────────────
+            phone = ev.get("phone")
+            if phone is not None:
+                _phone_mode[0] = phone.get("phone_mode", False)
+            # ── PRODUCTION NOTE: metadata only — no PAM action emitted ────
 
     # ── Prompt builder ───────────────────────────────────────────────────
     # _on_subscene_close: called each time a subscene closes.
@@ -3691,6 +4259,7 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
             for pn in prop_nouns:
                 current_scene.add_prop(pn)
             actions.append({"_comment": f"# SCENE: {heading}"})
+            _phone_mode[0] = False   # phone mode resets at every scene heading
 
         # ── Transition ───────────────────────────────────────────────────
         elif isinstance(elem, Transition):
@@ -3734,6 +4303,8 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                         for chunk, hold in _say_chunks(text):
                             a = {"action": "prop_say", "prop": key,
                                  "text": chunk, "hold": hold}
+                            if _phone_mode[0]:
+                                a["os_bubble"] = True
                             _emit(a)
                     else:
                         cx = char_positions.get(cname, 0)
@@ -3741,6 +4312,8 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                         for chunk, hold in _say_chunks(text):
                             a = {"action": "say", "who": key, "text": chunk,
                                  "side": side, "hold": hold}
+                            if _phone_mode[0]:
+                                a["os_bubble"] = True
                             _emit(a)
 
         # ── Dual dialogue ────────────────────────────────────────────────
@@ -3761,21 +4334,45 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                             if is_prop_char:
                                 _ensure_prop_char_spawned(key)
                                 for chunk, hold in _say_chunks(text):
-                                    _emit({"action": "prop_say", "prop": key,
-                                           "text": chunk, "hold": hold})
+                                    a = {"action": "prop_say", "prop": key,
+                                         "text": chunk, "hold": hold}
+                                    if _phone_mode[0]:
+                                        a["os_bubble"] = True
+                                    _emit(a)
                             else:
                                 cx = char_positions.get(cname, 0)
                                 side = "left" if cx > 2.0 else "right"
                                 for chunk, hold in _say_chunks(text):
-                                    _emit({"action": "say", "who": key,
-                                           "text": chunk, "side": side,
-                                           "hold": hold})
+                                    a = {"action": "say", "who": key,
+                                         "text": chunk, "side": side,
+                                         "hold": hold}
+                                    if _phone_mode[0]:
+                                        a["os_bubble"] = True
+                                    _emit(a)
 
         # ── Action line ──────────────────────────────────────────────────
         elif isinstance(elem, Action):
             text = _action_text(elem)
             _advance_raw_cursor_to(text[:40])
             _fire_pending_notes(_raw_cursor + 1)
+
+            # ── Dot-syntax sub-location slug (v0.9.6) ────────────────────
+            # Fountain lines like ".Secretary's pod" are parsed by screenplain
+            # as Action elements (not Slug elements).  We detect the leading
+            # dot here and emit a zone_shift action instead of interpreting
+            # the text as a stage direction.
+            _dot_m = _DOT_SLUG_RE.match(text.strip())
+            if _dot_m:
+                zone_name = _dot_m.group(1).strip()
+                zone_key  = re.sub(r'[^a-z0-9]+', '_', zone_name.lower()).strip('_')
+                _emit({
+                    "action": "zone_shift",
+                    "zone":   zone_key,
+                    "label":  zone_name,
+                    "_comment": f"# zone: {zone_name}",
+                })
+                current_scene.add_setting(f"[Zone: {zone_name}]")
+                continue
 
             if getattr(elem, 'centered', False):
                 lines = [str(l) for l in elem.lines]
@@ -4089,6 +4686,178 @@ def export_shots_csv(prompts: dict, output_path: str) -> int:
 
 
 
+def sync_characters_json(cast_spec: dict, path: str) -> int:
+    """
+    Merge the current scene's cast_spec into a persistent characters.json file.
+
+    For each character in cast_spec:
+    - If already present in characters.json, scene-specific fields (offset,
+      scale, pose) are NOT written back — only canonical fields (figure_type,
+      build, gender, color, torso_color, style) are updated.
+    - If new, the full entry is written.
+
+    On read, stored canonical fields are used to fill in any cast_spec entry
+    that is missing them, so scenes need not repeat character definitions.
+
+    Returns the number of records written (added + updated).
+
+    Example characters.json entry::
+
+        {
+          "chava": {
+            "figure_type": "human",
+            "build": "narrow",
+            "gender": "female",
+            "color": "#e8943a",
+            "torso_color": "#7a4010",
+            "style": {"head_label": "Chava"},
+            "default_scale": {"sy": 0.48, "sx": 0.48, "anchor": "lankle"}
+          }
+        }
+    """
+    from pathlib import Path
+    import json
+
+    p = Path(path)
+
+    # Canonical fields stored in characters.json (not scene-specific)
+    _CANONICAL = {"figure_type", "build", "gender", "color",
+                  "torso_color", "style"}
+
+    # Read existing file or start empty
+    if p.exists():
+        with open(p, encoding="utf-8") as f:
+            stored: dict = json.load(f)
+    else:
+        stored = {}
+
+    n_written = 0
+    for key, entry in cast_spec.items():
+        # Skip non-humanoid prop characters
+        if entry.get("figure_type") in ("dog", "dodecahedron"):
+            continue
+
+        canonical = {k: v for k, v in entry.items() if k in _CANONICAL}
+
+        # Promote current scale to default_scale if not already stored
+        if "default_scale" not in stored.get(key, {}) and "scale" in entry:
+            canonical["default_scale"] = entry["scale"]
+
+        if key in stored:
+            stored[key].update(canonical)
+        else:
+            stored[key] = canonical
+
+        n_written += 1
+
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(stored, f, indent=2)
+
+    return n_written
+
+
+def load_characters_json(path: str, cast_spec: dict) -> None:
+    """
+    Fill in missing canonical fields in cast_spec from characters.json.
+
+    Scene-specific keys (offset, scale, pose) are never overwritten —
+    the scene always wins.  Only missing canonical fields are backfilled.
+    """
+    from pathlib import Path
+    import json
+
+    p = Path(path)
+    if not p.exists():
+        return
+
+    with open(p, encoding="utf-8") as f:
+        stored: dict = json.load(f)
+
+    _SCENE_SPECIFIC = {"offset", "scale", "pose"}
+
+    for key, entry in cast_spec.items():
+        if key not in stored:
+            continue
+        for field, value in stored[key].items():
+            if field == "default_scale":
+                # Only use stored default_scale if the scene didn't set one
+                if "scale" not in entry:
+                    entry["scale"] = value
+            elif field not in _SCENE_SPECIFIC and field not in entry:
+                entry[field] = value
+
+
+def _validate(actions: list, cast_spec: dict) -> list[str]:
+    """
+    Validate a PAM actions list and return a list of warning strings.
+
+    Checks performed
+    ----------------
+    1. Character appears in ``say`` / ``fade_in`` / ``react`` but not in cast.
+    2. Prop referenced in an action but never declared in a ``props`` block.
+    3. ``parent`` key references a name not in cast or props.
+    4. ``remove_prop`` / ``fade_out`` targets a prop that was never spawned
+       or declared.
+    """
+    warnings: list[str] = []
+
+    # Collect declared cast keys
+    cast_keys = set(cast_spec.keys())
+
+    # Collect all declared prop names (from props blocks and spawn_prop)
+    declared_props: set[str] = set()
+    for a in actions:
+        if a.get("action") == "props":
+            declared_props.update(a.get("items", {}).keys())
+        if a.get("action") == "spawn_prop" and "prop" in a:
+            declared_props.add(a["prop"])
+
+    # All known names (cast + props + special "all")
+    all_known = cast_keys | declared_props | {"all", "elevator"}
+
+    # Check 1: characters referenced but not in cast
+    char_actions = {"say", "fade_in", "fade_out", "react", "wave",
+                    "turn", "walk_to", "run_to", "carry", "sit_down",
+                    "stand_up", "pick_up", "put_down"}
+    for a in actions:
+        act = a.get("action", "")
+        who = a.get("who", "")
+        if act in char_actions and who and who != "all":
+            if who not in cast_keys and who not in declared_props:
+                warnings.append(
+                    f"  ⚠  '{who}' used in '{act}' but not found in cast.")
+
+    # Check 2: props referenced but never declared
+    prop_actions = {"remove_prop", "move_prop", "prop_color",
+                    "prop_say", "pick_up", "put_down", "stick_to",
+                    "elevator_open", "elevator_close"}
+    for a in actions:
+        act = a.get("action", "")
+        prop = a.get("prop") or a.get("who", "")
+        if act in prop_actions and prop and prop != "all":
+            if prop not in declared_props and prop not in cast_keys:
+                warnings.append(
+                    f"  ⚠  prop '{prop}' used in '{act}' but never declared.")
+
+    # Check 3: parent references unknown name
+    for a in actions:
+        parent = a.get("parent", "")
+        if parent and parent not in all_known:
+            warnings.append(
+                f"  ⚠  'parent={parent}' in prop '{a.get('prop','')}' "
+                f"not found in cast or props.")
+
+    # Check 4: remove_prop targets undeclared prop
+    for a in actions:
+        if a.get("action") == "remove_prop":
+            prop = a.get("prop", "")
+            if prop and prop not in declared_props:
+                warnings.append(
+                    f"  ⚠  remove_prop '{prop}' was never declared or spawned.")
+
+    return warnings
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Convert a Fountain screenplay to PAM JSON + AI prompts."
@@ -4120,10 +4889,10 @@ def main():
         choices=["per-speaker", "timed"],
         default="per-speaker",
         help=(
-            "Subscene splitting strategy for AI video prompts. "
+            "Subscene splitting strategy for visual prompts. "
             "'per-speaker' (default): one clip per speaker turn — "
-            "recommended for Kling and other generators that struggle "
-            "with multiple character transitions in a single clip. "
+            "keeps each subscene to a single character's contribution, "
+            "which simplifies Blender layout and still-image generation. "
             "'timed': original 5-10 second drama-aware window."
         ),
     )
@@ -4153,17 +4922,42 @@ def main():
         ),
     )
 
+    parser.add_argument(
+        "--characters",
+        metavar="PATH",
+        help=(
+            "Path to characters.json registry "
+            "(default: characters.json in same directory as the fountain file). "
+            "Canonical character definitions are read from this file before "
+            "conversion and written back after."
+        ),
+    )
+
+    parser.add_argument(
+        "--no-validate",
+        action="store_true",
+        help="Skip post-conversion validation checks.",
+    )
+
     args = parser.parse_args()
 
     # --csv implies --shot-count
     shot_count = args.shot_count or bool(args.csv)
 
-    stem        = Path(args.fountain).stem
-    prompts_out = args.prompts or f"{stem}_prompts.json"
+    stem           = Path(args.fountain).stem
+    prompts_out    = args.prompts or f"{stem}_prompts.json"
+    chars_json_out = args.characters or str(
+        Path(args.fountain).parent / "characters.json"
+    )
 
     actions, prompts = convert_fountain(
         args.fountain, scale=args.scale, title_override=args.title,
         clip_mode=args.clip_mode, shot_count=shot_count)
+
+    # ── load characters.json → backfill missing cast fields ──────────────
+    cast_block = next((a for a in actions if a.get("action") == "cast"), {})
+    cast_spec  = cast_block.get("characters", {})
+    load_characters_json(chars_json_out, cast_spec)
 
     # ── prompts-only mode ─────────────────────────────────────────────────
     if args.prompts_only:
@@ -4182,6 +4976,10 @@ def main():
     pam_out = args.output or f"{stem}.json"
     write_screenplay(actions, pam_out, keep_comments=not args.no_comments)
     write_prompts(prompts, prompts_out)
+
+    # ── sync characters.json ──────────────────────────────────────────────
+    n_chars = sync_characters_json(cast_spec, chars_json_out)
+    print(f"Characters: {chars_json_out}  ({n_chars} record(s) synced)")
 
     n_actions   = sum(1 for a in actions if "action" in a)
     n_comments  = sum(1 for a in actions if "_comment" in a)
@@ -4218,135 +5016,175 @@ def main():
         n_rows = export_shots_csv(prompts, args.csv)
         print(f"Shot list CSV: {args.csv}  ({n_rows} rows)")
 
+    # ── validation ────────────────────────────────────────────────────────
+    if not args.no_validate:
+        val_warnings = _validate(actions, cast_spec)
+        if val_warnings:
+            print()
+            print("─" * 60)
+            print("VALIDATION WARNINGS")
+            print("─" * 60)
+            for w in val_warnings:
+                print(w)
+            print("─" * 60)
+        else:
+            print("Validation: OK — no issues found.")
+
     _patch_hints(actions, prompts)
 
 
 def _patch_hints(actions: list, prompts: dict) -> None:
-    """
-    Print actionable hints for manual patches needed in the PAM JSON.
+    """Print patch guide to console and append as _comment entries in actions."""
+    hints, json_comments = [], []
 
-    Called after conversion.  Detects common patterns that fountain2pam
-    cannot resolve automatically and tells the user exactly what to fix.
-    """
-    hints = []
+    def _note(console_line, json_line=None):
+        hints.append(console_line)
+        json_comments.append(json_line or console_line)
+
     characters = prompts.get("characters", {})
+    cast = next((a for a in actions if a.get("action") == "cast"), {})
 
-    # ── 1. Prop-characters that spawn after first dialogue ───────────────────
-    # If a prop-char's first spawn_prop comes AFTER its first prop_say,
-    # the character appears mid-scene instead of at the start.
+    # 1. Prop-characters spawning after first dialogue
     for key, info in characters.items():
         ft = info.get("figure_type", "human")
         if ft not in ("dog", "dodecahedron"):
             continue
-        first_spawn = next(
-            (i for i, a in enumerate(actions)
-             if a.get("action") == "spawn_prop" and a.get("prop") == key),
-            None)
-        first_say = next(
-            (i for i, a in enumerate(actions)
-             if a.get("action") == "prop_say" and a.get("prop") == key),
-            None)
-        first_humanoid_fade = next(
-            (i for i, a in enumerate(actions)
-             if a.get("action") == "fade_in"),
-            None)
+        first_spawn = next((i for i, a in enumerate(actions)
+            if a.get("action") == "spawn_prop" and a.get("prop") == key), None)
+        first_say   = next((i for i, a in enumerate(actions)
+            if a.get("action") == "prop_say" and a.get("prop") == key), None)
+        first_fade  = next((i for i, a in enumerate(actions)
+            if a.get("action") == "fade_in"), None)
         if first_spawn is None:
-            hints.append(
-                f"  ⚠  '{key}' ({ft}) has no spawn_prop action.\n"
-                f"     Add:  {{\"action\": \"spawn_prop\", \"prop\": \"{key}\", "
-                f"\"figure_type\": \"{ft}\", \"x\": <X>, \"y\": -1.95}}\n"
-                f"     Place it immediately after the first fade_in "
-                f"(action index {first_humanoid_fade})."
-            )
+            _note(f"  ⚠  '{key}' ({ft}) has no spawn_prop — add one after fade_in.",
+                  f"# PATCH: '{key}' ({ft}) has no spawn_prop — add one after fade_in.")
         elif first_say is not None and first_spawn > first_say:
-            hints.append(
-                f"  ⚠  '{key}' ({ft}) spawns at index {first_spawn} "
-                f"but first speaks at index {first_say}.\n"
-                f"     Move the spawn_prop to just after the first fade_in "
-                f"(action index {first_humanoid_fade})."
-            )
-        elif first_humanoid_fade is not None and first_spawn > first_humanoid_fade + 4:
-            hints.append(
-                f"  ⚠  '{key}' ({ft}) spawns at index {first_spawn}, "
-                f"well after scene start (index {first_humanoid_fade}).\n"
-                f"     If {key} should appear from the first frame, move "
-                f"spawn_prop to index {first_humanoid_fade + 1}."
-            )
+            _note(f"  ⚠  '{key}' spawn_prop (idx {first_spawn}) after first prop_say"
+                  f" (idx {first_say}) — move earlier.",
+                  f"# PATCH: '{key}' spawn_prop (idx {first_spawn}) after first "
+                  f"prop_say (idx {first_say}) — move earlier.")
+        elif first_fade is not None and first_spawn > first_fade + 4:
+            _note(f"  ⚠  '{key}' spawns late (idx {first_spawn}) — consider moving"
+                  f" to idx {first_fade + 1}.",
+                  f"# PATCH: '{key}' spawn_prop late (idx {first_spawn}) — "
+                  f"consider moving to idx {first_fade + 1}.")
 
-    # ── 2. Dog spawn x=0.0 (default, likely wrong) ──────────────────────────
+    # 2. Dog spawn x=0
     for i, a in enumerate(actions):
-        if (a.get("action") == "spawn_prop"
-                and a.get("figure_type") == "dog"
+        if (a.get("action") == "spawn_prop" and a.get("figure_type") == "dog"
                 and a.get("x", 0.0) == 0.0):
-            # find the humanoid who the dog accompanies
-            companion = next(
-                (k for k, v in characters.items()
-                 if v.get("figure_type") == "human"), None)
-            companion_offset = None
-            cast = next((a for a in actions if a.get("action") == "cast"), {})
-            if companion:
-                companion_offset = (cast.get("characters", {})
-                                    .get(companion, {})
-                                    .get("offset", [None])[0])
-            hint = (f"  ⚠  Dog spawn at index {i} has x=0.0 (screen centre).\n"
-                    f"     Set x to just behind the companion character's "
-                    f"starting position.")
-            if companion_offset is not None:
-                hint += f"\n     Suggested: x={companion_offset - 0.5:.1f}  "
-                hint += f"(companion '{companion}' starts at x={companion_offset})"
-            hints.append(hint)
+            companion = next((k for k, v in characters.items()
+                if v.get("figure_type") == "human"), None)
+            companion_x = (cast.get("characters", {}).get(companion, {})
+                           .get("offset", [None])[0]) if companion else None
+            s = f" Suggested x={companion_x - 0.5:.1f}" if companion_x is not None else ""
+            _note(f"  ⚠  Dog spawn at idx {i} has x=0.0.{s}",
+                  f"# PATCH: dog spawn_prop at idx {i} has x=0.0.{s}")
 
-    # ── 3. # REVIEW movement lines that need x targets ───────────────────────
-    loco_keywords = [
-        "walk toward", "walk to", "run to", "runs to",
-        "trot", "jog", "alongside",
-    ]
-    loco_reviews = [
-        a["_comment"] for a in actions
-        if "_comment" in a
-        and "REVIEW" in a["_comment"]
-        and any(kw in a["_comment"].lower() for kw in loco_keywords)
-    ]
-    if loco_reviews:
-        hints.append(
-            f"  ⚠  {len(loco_reviews)} movement line(s) need manual x targets:\n"
-            + "\n".join(f"     {r[10:]}" for r in loco_reviews)
-            + "\n     Replace each # REVIEW comment with walk_to / run_to / trot_to "
-              "actions.\n"
-              "     For simultaneous movement, wrap in: "
-              "{\"action\": \"parallel\", \"do\": [...]}"
-        )
+    # 3. Movement lines needing x targets
+    loco_kw = ["walk toward", "walk to", "run to", "runs to", "trot", "jog"]
+    loco = [a["_comment"] for a in actions
+            if "_comment" in a and "REVIEW" in a["_comment"]
+            and any(k in a["_comment"].lower() for k in loco_kw)]
+    if loco:
+        _note(f"  ⚠  {len(loco)} movement line(s) need manual x targets — "
+              f"replace # REVIEW comments with walk_to / run_to / trot_to.",
+              f"# PATCH: {len(loco)} movement line(s) need x targets — "
+              f"replace # REVIEW comments with walk_to / run_to / trot_to.")
 
-    # ── 4. Palette warning — round-robin may assign wrong colours ────────────
-    cast = next((a for a in actions if a.get("action") == "cast"), {})
+    # 4. Palette mismatch heuristics
     for key, spec in cast.get("characters", {}).items():
         if spec.get("figure_type") == "human":
             edge = spec.get("style", {}).get("edge_color", "")
-            # Warn if a character whose name suggests a colour has a mismatch
-            # (heuristic: "lucy" → rose-red family, "lenny" → blue family)
             if key == "lucy" and not edge.startswith("#d4"):
-                hints.append(
-                    f"  ⚑  '{key}' has edge_color {edge!r}.\n"
-                    f"     Rose-red palette: edge_color \"#d46a6a\", "
-                    f"head_stroke \"#f4aaaa\"."
-                )
+                _note(f"  ⚑  'lucy' color {edge!r} — consider rose-red #d46a6a.",
+                      f"# PATCH: 'lucy' edge_color {edge} — consider #d46a6a.")
             if key == "lenny" and not edge.startswith("#3a"):
-                hints.append(
-                    f"  ⚑  '{key}' has edge_color {edge!r}.\n"
-                    f"     Blue palette: edge_color \"#3a7bd5\", "
-                    f"head_stroke \"#7ec8ff\"."
-                )
+                _note(f"  ⚑  'lenny' color {edge!r} — consider blue #3a7bd5.",
+                      f"# PATCH: 'lenny' edge_color {edge} — consider #3a7bd5.")
 
+    # 5. Default scale
+    for key, spec in cast.get("characters", {}).items():
+        sc = spec.get("scale", {})
+        sy = sc.get("sy", 1.0) if isinstance(sc, dict) else 1.0
+        if sy == 0.7:
+            _note(f"  ℹ  '{key}' uses CLI default scale 0.7 — add scale=<float> "
+                  f"to CHARACTER annotation for a per-character override.",
+                  f"# PATCH (optional): '{key}' scale=0.7 is CLI default — "
+                  f"add scale=N to CHARACTER annotation or edit cast block.")
+
+    # 6. pan-up missing tilt parameters
+    pan_ups = [a for a in actions
+               if "_subscene_marker" in a
+               and a.get("_shot_meta", {}).get("move") == "pan-up"]
+    if pan_ups:
+        _note(f"  ⚠  {len(pan_ups)} pan-up marker(s) need extended tilt parameters.\n"
+              f"     Add to each pan-up _shot_meta: char_subject, shear=0.6,\n"
+              f"     y_squeeze=0.12, rt=2.5, rt_return=1.8, hold=0.8.",
+              f"# PATCH: {len(pan_ups)} pan-up marker(s) — add char_subject, "
+              f"shear=0.6, y_squeeze=0.12, rt=2.5, rt_return=1.8, hold=0.8.")
+        _note(f"  ℹ  Fountain+ TODO: pan-up tilt parameters not yet supported in "
+              f"fountain2pam — patch _shot_meta manually after each conversion.",
+              f"# FOUNTAIN+ TODO: add pan-up tilt parameter support to fountain2pam.")
+
+    # 7. scene_objects missing
+    has_so = any(a.get("action") == "scene_objects" for a in actions)
+    has_bldg = any("_building" in str(a.get("_shot_meta", {}).get("subject", ""))
+                   for a in actions if "_subscene_marker" in a)
+    if not has_so and has_bldg:
+        _note(f"  ⚠  Camera markers reference building subjects but no scene_objects\n"
+              f"     block was generated. Add one before the first fade_in.",
+              f"# PATCH: add scene_objects block for buildings referenced in pan-up markers.")
+        _note(f"  ℹ  Fountain+ TODO: scene_objects not yet supported in fountain2pam.",
+              f"# FOUNTAIN+ TODO: add SCENE OBJECTS annotation support to fountain2pam.")
+
+    # 8. Costume accessories
+    review_text = " ".join(a.get("_comment","") for a in actions
+                           if "_comment" in a).lower()
+    has_cap = any(a.get("type") == "delivery_cap"
+                  for a in actions if a.get("action") == "spawn_prop")
+    if any(w in review_text for w in ("uniform","cap","name tag","nameplate")) and not has_cap:
+        _note(f"  ⚠  Action text mentions costume accessories but no delivery_cap /\n"
+              f"     name_tag spawn_prop was generated. Add after fade_in.",
+              f"# PATCH: add spawn_prop for delivery_cap and name_tag after fade_in.")
+        _note(f"  ℹ  Fountain+ TODO: costume accessories not yet generated by fountain2pam.",
+              f"# FOUNTAIN+ TODO: add costume/accessory spawn generation to fountain2pam.")
+
+    # 9. Spurious wide shot before pan-up
+    markers = [a for a in actions if "_subscene_marker" in a]
+    for i, m in enumerate(markers[1:], 1):
+        meta = m.get("_shot_meta", {})
+        if (meta.get("framing") == "wide" and meta.get("move") == "static"
+                and i < len(markers) - 1):
+            nxt = markers[i+1].get("_shot_meta", {}) if i+1 < len(markers) else {}
+            if nxt.get("move") == "pan-up":
+                sid = m["_subscene_marker"]
+                _note(f"  ⚠  '{sid}' is wide/static before a pan-up — causes "
+                      f"spurious wide shot.\n     Remove its _shot_meta entirely.",
+                      f"# PATCH: remove _shot_meta from '{sid}' — "
+                      f"wide/static before pan-up causes spurious wide shot.")
+
+    # Console output
     if hints:
         print()
         print("─" * 60)
-        print("PATCH HINTS  (manual edits needed in PAM JSON)")
+        print("PATCH GUIDE  (manual edits needed in PAM JSON)")
         print("─" * 60)
         for h in hints:
             print(h)
         print("─" * 60)
+        print("(Hints also written as _comment entries at bottom of JSON.)")
     else:
         print("No patch hints — output looks complete.")
+
+    # Append to actions
+    if json_comments:
+        actions.append({"_comment": "═══ POST-CONVERSION PATCH GUIDE ═══"})
+        actions.append({"_comment":
+            "# PATCH = fix in JSON before running pam_player. "
+            "# FOUNTAIN+ TODO = improve .fountain file for next conversion."})
+        for jc in json_comments:
+            actions.append({"_comment": jc})
 
 
 if __name__ == "__main__":
