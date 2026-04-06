@@ -1,6 +1,8 @@
 """
 PAM — Pose And Motion library for the humanoid skeleton graph.
 
+version 0.9.6
+
 figure.py
 ~~~~~~~~~
 The `HumanGraph` class: a self-contained manim figure that owns its
@@ -380,7 +382,8 @@ class HumanGraph:
                 self.dots[name] = VGroup(circ, lbl)
             else:
                 d = Circle(
-                    radius=s["node_radius"], color=s["node_stroke"],
+                    radius=s["node_radius"] * self._scale_sy,
+                    color=s["node_stroke"],
                     fill_color=s["node_color"], fill_opacity=1, stroke_width=2,
                 )
                 d.move_to(p)
@@ -680,22 +683,35 @@ class HumanGraph:
 
     # ── choreography: wave ───────────────────────────────────────────────────
 
-    def wave(self, scene: Scene, cycles=2, rt_lift=0.4, rt_wag=0.24):
+    def wave(self, scene: Scene, cycles=2, rt_lift=0.4, rt_wag=0.24,
+             hand: str = "right"):
         """
-        Wave the right arm (front-facing).
+        Wave an arm (front-facing).
 
-        Highlights the arm edges, raises the arm, wags left-right
-        for *cycles* full oscillations, then lowers and unhighlights.
+        Parameters
+        ----------
+        cycles  : number of full wag oscillations.
+        rt_lift : run time for raising / lowering the arm.
+        rt_wag  : run time for each wag keyframe.
+        hand    : ``"right"`` (default) or ``"left"``.
         """
-        wave_joints = ["rshoulder", "relbow", "rwrist"]
+        if hand == "left":
+            wave_joints = ["lshoulder", "lelbow", "lwrist"]
+            up_pose     = self._bp["lwave_up"]
+            cycle_poses = self._bp["lwave_cycle"]
+        else:
+            wave_joints = ["rshoulder", "relbow", "rwrist"]
+            up_pose     = self._bp["wave_up"]
+            cycle_poses = self._bp["wave_cycle"]
+
         keys = self.highlight_edges(wave_joints, scene)
 
         # raise arm
-        self.morph_to(self._bp["wave_up"], scene, rt=rt_lift, rate=smooth)
+        self.morph_to(up_pose, scene, rt=rt_lift, rate=smooth)
 
         # wag
         for _ in range(cycles):
-            for kf in self._bp["wave_cycle"]:
+            for kf in cycle_poses:
                 self.morph_to(kf, scene, rt=rt_wag, rate=smooth)
 
         # lower arm back to standing front
@@ -705,24 +721,30 @@ class HumanGraph:
     # ── choreography: carry ──────────────────────────────────────────────────
 
     def carry(self, obj: Mobject, x_target: float, scene: Scene,
-              rt_per_kf=0.28, rate=smooth):
+              rt_per_kf=0.28, rate=smooth,
+              companions: list | None = None):
         """
         Pick up *obj*, walk it to *x_target*, and set it down.
 
         The object is moved to the midpoint of the two wrists each
-        frame.  The figure must start and end in a side-view pose.
+        keyframe.  The figure must start and end in a side-view pose.
 
         Parameters
         ----------
         obj : Mobject
-            A small manim Mobject (Dot, Circle, Square, …) already
-            added to the scene.
+            A small manim Mobject already added to the scene.
         x_target : float
             World x-coordinate to walk to.
+        companions : list[Mobject] | None
+            Additional props (e.g. hat, name tag) that should follow the
+            figure during the walk.  Each companion is snapped to the
+            figure's head position after every keyframe step.
         """
         # arms to carry position
         self.morph_to(self._bp["carry_hold"], scene, rt=0.3, rate=smooth)
         self._snap_obj_to_wrists(obj)
+        if companions:
+            self._snap_companions(companions)
 
         dx_total = x_target - self.offset[0]
         cycle = self._bp["carry_walk_cycle"]
@@ -735,9 +757,13 @@ class HumanGraph:
             self.morph_to(kf, scene, rt=rt_per_kf, rate=rate,
                           dx=dx_per_kf)
             self._snap_obj_to_wrists(obj)
+            if companions:
+                self._snap_companions(companions)
 
         # settle and release
         self.morph_to(self._bp["standing_side"], scene, rt=0.3, rate=smooth)
+        if companions:
+            self._snap_companions(companions)
 
     def _snap_obj_to_wrists(self, obj: Mobject):
         """Move *obj* to the midpoint of the two wrist positions (scaled)."""
@@ -746,12 +772,27 @@ class HumanGraph:
         rw = sp["rwrist"] + self.offset
         obj.move_to((lw + rw) / 2)
 
+    def _snap_companions(self, companions: list):
+        """Move each companion prop to track the figure's head position."""
+        sp      = self._apply_scale(self.pose)
+        head    = sp["head"] + self.offset
+        head_r  = self.style.get("head_radius", 0.28) * self._scale_sy
+        for comp in companions:
+            if comp is None:
+                continue
+            # Position above head (e.g. cap) or at head centre (e.g. tag)
+            # Use the companion's current y-offset-from-head to stay consistent
+            cur_cy = float(comp.get_center()[1])
+            cur_hy = float(head[1])
+            dy     = cur_cy - cur_hy   # preserve vertical offset from head
+            comp.move_to(np.array([float(head[0]), cur_hy + dy, 0]))
+
     # ── speech bubble utility ────────────────────────────────────────────────
 
     def say(self, text: str, scene: Scene,
             hold=1.2, font_size=20, rt_in=0.4, rt_out=0.3,
             side="right", max_bubble_w=4.5, post_wait=0.0,
-            extra_anims=None):
+            extra_anims=None, bubble_style=None):
         """Pop a speech bubble above the head, hold, then dismiss.
 
         Parameters
@@ -759,15 +800,24 @@ class HumanGraph:
         side : str
             ``"right"`` (default) or ``"left"``.
         max_bubble_w : float
-            Maximum bubble width in world units.  Default ``5.0``.
+            Maximum bubble width in world units.  Default ``4.5``.
         post_wait : float
             Extra pause after the bubble fades out.  Default ``0.0``.
             Set via ``PADDING_WAIT`` in pam_player.py.
+        bubble_style : str or None
+            ``None`` / ``"normal"`` — standard rounded-rectangle bubble.
+            ``"os"`` or ``"phone"`` — dashed-border bubble indicating
+            off-screen or telephone dialogue.  The box uses a dashed
+            stroke and a slightly cooler fill to signal auditory-only
+            presence.  The tail is replaced by a small zigzag to
+            reinforce the O.S. convention.
         """
         sp = self._apply_scale(self.pose)
         hx = (sp["head"] + self.offset)[0]
         hy = (sp["head"] + self.offset)[1]
         s = self.style
+
+        is_os = bubble_style in ("os", "phone")
 
         # ── pre-wrap text to fit max_bubble_w ────────────────────────────
         # Courier New at font_size 20 ≈ 0.113 world units per character.
@@ -778,9 +828,11 @@ class HumanGraph:
         chars_per_line = max(10, int(usable_w / char_w))
         wrapped = textwrap.fill(text, width=chars_per_line)
 
+        # O.S. bubbles use a cooler text colour to distinguish them
+        txt_color = "#a8d8f0" if is_os else s["highlight_color"]
         txt = Text(
             wrapped, font=s["head_font"], font_size=font_size,
-            color=s["highlight_color"], weight=BOLD,
+            color=txt_color, weight=BOLD,
         )
         bw = txt.width + pad * 2
         bh = txt.height + pad * 1.2
@@ -796,22 +848,48 @@ class HumanGraph:
         else:
             bx = np.clip(hx + bw / 2 + 0.3, x_min, x_max)
 
-        box = RoundedRectangle(
-            width=bw, height=bh,
-            corner_radius=0.15,
-            color=s["head_stroke"], fill_color=s["head_color"],
-            fill_opacity=0.95, stroke_width=2,
-        ).move_to(np.array([bx, by, 0]))
-        txt.move_to(box.get_center())
+        if is_os:
+            # ── O.S. / phone bubble: dashed border, cooler fill ──────────
+            # Manim's DashedVMobject wraps any VMobject with a dash pattern.
+            box_solid = RoundedRectangle(
+                width=bw, height=bh,
+                corner_radius=0.15,
+                color="#6ab0d4", fill_color="#0d1e2e",
+                fill_opacity=0.93, stroke_width=2.2,
+            ).move_to(np.array([bx, by, 0]))
+            box = DashedVMobject(box_solid, num_dashes=28, dashed_ratio=0.55)
+            box.move_to(np.array([bx, by, 0]))
+            txt.move_to(np.array([bx, by, 0]))
 
-        tail_x = np.clip(hx, bx - bw / 2 + 0.3, bx + bw / 2 - 0.3)
-        tail = Polygon(
-            np.array([tail_x - 0.12, by - bh / 2, 0]),
-            np.array([tail_x + 0.12, by - bh / 2, 0]),
-            np.array([tail_x,        by - bh / 2 - 0.28, 0]),
-            color=s["head_stroke"], fill_color=s["head_color"],
-            fill_opacity=0.95, stroke_width=1.5,
-        )
+            # Zigzag tail: three short jags instead of a smooth triangle
+            tail_x = np.clip(hx, bx - bw / 2 + 0.3, bx + bw / 2 - 0.3)
+            ty0 = by - bh / 2
+            tail = VMobject(color="#6ab0d4", stroke_width=1.8)
+            tail.set_points_as_corners([
+                np.array([tail_x - 0.10, ty0,        0]),
+                np.array([tail_x + 0.04, ty0 - 0.10, 0]),
+                np.array([tail_x - 0.04, ty0 - 0.18, 0]),
+                np.array([tail_x + 0.08, ty0 - 0.28, 0]),
+            ])
+        else:
+            # ── standard bubble ───────────────────────────────────────────
+            box = RoundedRectangle(
+                width=bw, height=bh,
+                corner_radius=0.15,
+                color=s["head_stroke"], fill_color=s["head_color"],
+                fill_opacity=0.95, stroke_width=2,
+            ).move_to(np.array([bx, by, 0]))
+            txt.move_to(box.get_center())
+
+            tail_x = np.clip(hx, bx - bw / 2 + 0.3, bx + bw / 2 - 0.3)
+            tail = Polygon(
+                np.array([tail_x - 0.12, by - bh / 2, 0]),
+                np.array([tail_x + 0.12, by - bh / 2, 0]),
+                np.array([tail_x,        by - bh / 2 - 0.28, 0]),
+                color=s["head_stroke"], fill_color=s["head_color"],
+                fill_opacity=0.95, stroke_width=1.5,
+            )
+
         bubble = VGroup(box, tail, txt)
         fade_anims = [FadeIn(bubble, scale=0.85)] + (extra_anims or [])
         scene.play(*fade_anims, run_time=rt_in)
@@ -1078,8 +1156,12 @@ class DogGraph:
     def say(self, text: str, scene: Scene,
             hold=1.2, font_size=18, rt_in=0.4, rt_out=0.3,
             side="right", max_bubble_w=4.5, post_wait=0.0,
-            extra_anims=None):
-        """Speech bubble above the dog's head."""
+            extra_anims=None, bubble_style=None):
+        """Speech bubble above the dog's head.
+
+        ``bubble_style`` is accepted for signature parity with
+        HumanGraph.say() but is not rendered differently for DogGraph.
+        """
         s = self.style
         head_pos = self.pose["head"] + self.offset
         hx, hy = head_pos[0], head_pos[1]
@@ -1441,12 +1523,13 @@ class GovernorGraph:
     def say(self, text: str, scene: Scene,
             hold=1.4, font_size=20, rt_in=0.4, rt_out=0.3,
             side="right", max_bubble_w=4.5, post_wait=0.0,
-            extra_anims=None):
+            extra_anims=None, bubble_style=None):
         """
         Pop a speech bubble beside the dodecahedron, hold, then dismiss.
 
         The Governor has no mouth — the bubble appears beside the shape
-        with no pointer tail.
+        with no pointer tail.  ``bubble_style`` is accepted for signature
+        parity with HumanGraph.say() but is not rendered differently here.
         """
         char_w = 0.113 * (font_size / 20)
         pad = 0.32
