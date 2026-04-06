@@ -1,7 +1,7 @@
 """
 PAM Player — animate humanoid and non-humanoid graphs from a JSON screenplay.
 
-version 0.9.4
+version 0.9.6
 
 Usage
 -----
@@ -11,6 +11,9 @@ Usage
 
     # Low-quality preview with render-time clock overlay
     PAM_SCRIPT=my_scene.json PAM_SHOW_CLOCK=1 manim -pql pam_player.py PAMPlayer
+
+    # Disable camera mode (on by default since v0.9.6)
+    PAM_CAMERA_MODE=0 PAM_SCRIPT=my_scene.json manim -pql pam_player.py PAMPlayer
 
     # Via pam-render shell wrapper with --show-clock flag (low quality only)
     ./pam-render --script my_scene.json --show-clock
@@ -34,6 +37,33 @@ scrubbing through the video.  Do not use it for final renders.
 Screenplay format
 -----------------
 A JSON array of action objects.  See README.md for the full reference.
+
+Key additions in v0.9.6 — spatial / caption / sound
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  • ``"caption"`` action — render a Manim Text card with fade-in/hold/fade-out.
+    Parsed from Fountain+ ``CAPTION:`` keys by fountain2pam.py.  Sub-keys:
+    ``text``, ``position`` (``"bottom"`` / ``"top"`` / ``"lower-third"``),
+    ``duration`` (float, seconds), ``style`` (``"normal"`` / ``"italic"`` /
+    ``"bold"``).
+
+  • ``"sound_cue"`` action — flash a diegetic label (e.g. ``RING!``,
+    ``KNOCK!``) briefly on screen.  Parsed from Fountain+ ``SOUND:`` keys.
+    Sub-keys: ``label`` (str), ``display`` (bool, default true).
+
+  • ``"scene_objects"`` action — declare large background dressing elements
+    (building facades, furniture walls) that the camera can reference as
+    subjects.  Objects live in a separate ``_scene_objects`` registry so
+    they do not collide with interactive props.
+
+  • ``"pan-down"`` MOVE value — mirror of ``pan-up``; tilts the camera
+    downward to reveal floor-level action.
+
+  • O.S. / phone speech bubble variant — set ``"style": "os"`` on a ``say``
+    action (or let fountain2pam inject it from parenthetical ``(O.S.)``) to
+    render a dashed-border bubble indicating off-screen dialogue.
+
+  • ``"zone"`` key on ``_subscene_marker`` — camera shifts to a named
+    spatial sub-region of the stage without a full scene break.
 
 Key additions in v0.9.3 — prop scene graph
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -165,6 +195,7 @@ from pam import HumanGraph, AlienGraph, DogGraph, GovernorGraph
 from pam.poses import POSES, STANDING_FRONT, STANDING_SIDE, scale_pose
 from pam.poses import DOG_JOINTS, DOG_STANDING
 from pam.props import build_prop, resolve_position
+from pam.actions import ACTION_REGISTRY
 
 
 BG_COLOR    = "#0a0e1a"
@@ -244,6 +275,7 @@ _MOVE_RT: dict[str, float] = {
     "pan-follow": 0.5,
     "drift":      1.5,
     "pan-up":     2.5,    # v0.9.4: tilt up — slow reveal
+    "pan-down":   2.5,    # v0.9.6: tilt down — reveal floor-level action
 }
 
 
@@ -300,7 +332,7 @@ def _apply_camera(meta: dict, scene: "MovingCameraScene",
         )
     else:
         # Instant reposition — no animation, no scene time consumed
-        frame.set_width(target_w)
+        frame.width = target_w
         frame.move_to(np.array([target_x, target_y, 0]))
     print(f"  CAM {framing:14s} w={target_w:.1f} x={target_x:.1f} y={target_y:.1f} move={move}")
 
@@ -349,46 +381,184 @@ def _camera_anim(meta: dict, scene: "MovingCameraScene",
 
 def _execute_pan_up(meta: dict, scene: "MovingCameraScene",
                     props: "PropRegistry",
-                    char_x_positions: dict) -> None:
+                    char_x_positions: dict,
+                    scene_objects: dict | None = None,
+                    cast: dict | None = None) -> None:
     """
-    Tilt the camera up from its current framing to reveal the top of a
-    tall background prop (typically a building).
+    Cinematic tilt-up shot.
 
-    The frame width and x-centre are set instantly from the FRAMING sub-key
-    (same logic as ``_apply_camera``), then the frame centre-y animates
-    upward until the prop's top edge is in frame.
+    Simulates a real camera tilt (lens pitches upward) using three moves:
+
+    1. Snap instantly to medium-close framing on the anchor character,
+       head near top of frame (waist-up).
+    2. Pan frame upward so character head is near frame bottom and building
+       top is near frame top.  Simultaneously shear the building mob to
+       fake perspective keystoning (vertical lines converge at top).
+    3. Hold briefly, then reverse both frame and shear back to start.
+
+    shot_meta / JSON keys
+    ---------------------
+    ``subject``      — building prop name (scene_object or prop registry).
+    ``char_subject`` — character key to anchor on.  Defaults to first
+                       active cast member.
+    ``rt``           — tilt-up duration in seconds (default 2.5).
+    ``rt_return``    — tilt-back duration (default 1.8).
+    ``hold``         — hold at tilt peak (default 0.8 s).
+    ``shear``        — keystoning shear factor (default 0.18).
+    """
+    frame = getattr(getattr(scene, "camera", None), "frame", None)
+    if frame is None:
+        return
+
+    subject      = (meta.get("subject") or "").lower()
+    char_subject = (meta.get("char_subject") or "").lower()
+    rt           = float(meta.get("rt",        2.5))
+    rt_return    = float(meta.get("rt_return", 1.8))
+    hold_t       = float(meta.get("hold",      0.8))
+    shear_amt    = float(meta.get("shear",     0.18))
+    y_squeeze    = float(meta.get("y_squeeze", 0.0))
+    # y_squeeze: fraction by which the building top is pulled downward at
+    # peak tilt, simulating the foreshortening of a tilted lens.
+    # 0.12 = top of building moves down by 12% of building height.
+
+    # ── find anchor character ─────────────────────────────────────────────
+    char_fig = None
+    if cast:
+        if char_subject and char_subject in cast:
+            char_fig = cast[char_subject].get("fig")
+        if char_fig is None:
+            for cspec in cast.values():
+                f = cspec.get("fig")
+                if f is not None:
+                    char_fig = f
+                    break
+
+    # ── find building mob ─────────────────────────────────────────────────
+    bldg_mob = None
+    if scene_objects and subject in scene_objects:
+        bldg_mob = scene_objects[subject]["mob"]
+    if bldg_mob is None:
+        bldg_mob = props.get_raw(subject)
+
+    if bldg_mob is None:
+        print(f"  CAM tilt-up: subject '{subject}' not found, skipping.")
+        return
+
+    # ── geometry ──────────────────────────────────────────────────────────
+    tilt_w  = 8.0   # medium-close width
+    fh_tilt = tilt_w * (9 / 16)  # frame height at this width
+
+    if char_fig is not None:
+        char_x = float(char_fig.offset[0])
+        sp     = char_fig._apply_scale(char_fig.pose)
+        head_y = float((sp["head"] + char_fig.offset)[1])
+    else:
+        char_x = char_x_positions.get(char_subject, 0.0)
+        head_y = 0.8
+
+    snap_x  = float(np.clip(char_x, -7.1 + tilt_w / 2, 7.1 - tilt_w / 2))
+    # Pre-tilt: head ~75% up the frame (waist-up shot)
+    snap_cy = head_y - fh_tilt * 0.25
+    # Peak tilt: head near frame bottom (~15% up)
+    end_cy  = head_y + fh_tilt * 0.35
+
+    # ── Step 1: snap to medium-close ─────────────────────────────────────
+    frame.width = tilt_w
+    frame.move_to(np.array([snap_x, snap_cy, 0]))
+    print(f"  CAM tilt-up snap: w={tilt_w} x={snap_x:.1f} cy={snap_cy:.2f}")
+
+    # ── Step 2: tilt up + keystone shear ─────────────────────────────────
+    # Store original points for every submobject so we can recompute the
+    # shear from scratch each frame (non-cumulative — no runaway distortion).
+    bldg_bottom  = float(bldg_mob.get_bottom()[1])
+    bldg_top     = float(bldg_mob.get_top()[1])
+    bldg_cx      = float(bldg_mob.get_center()[0])
+    h_range      = max(bldg_top - bldg_bottom, 0.01)
+
+    # Collect all leaf submobjects that actually have points
+    def _leaves(mob):
+        if mob.submobjects:
+            for sub in mob.submobjects:
+                yield from _leaves(sub)
+        else:
+            yield mob
+
+    leaf_mobs    = list(_leaves(bldg_mob))
+    orig_pts     = [m.get_points().copy() for m in leaf_mobs]
+
+    shear_tracker = ValueTracker(0.0)
+
+    def _shear_updater(mob):
+        s = shear_tracker.get_value()
+        for leaf, pts0 in zip(leaf_mobs, orig_pts):
+            if len(pts0) == 0:
+                continue
+            pts = pts0.copy()
+            t_vals = np.clip((pts[:, 1] - bldg_bottom) / h_range, 0.0, 1.0)
+            # x: proportional compression toward centre (trapezoid keystone)
+            pts[:, 0] = bldg_cx + (pts0[:, 0] - bldg_cx) * (1.0 - s * t_vals)
+            # y: slight downward pull at top (foreshortening of tilted lens)
+            if y_squeeze > 0:
+                pts[:, 1] = pts0[:, 1] - s * y_squeeze * h_range * t_vals
+            leaf.set_points(pts)
+
+    bldg_mob.add_updater(_shear_updater)
+
+    scene.play(
+        frame.animate.move_to(np.array([snap_x, end_cy, 0])),
+        shear_tracker.animate.set_value(shear_amt),
+        run_time=rt, rate_func=smooth,
+    )
+
+    # ── Step 3: hold ──────────────────────────────────────────────────────
+    if hold_t > 0:
+        scene.wait(hold_t)
+
+    # ── Step 4: tilt back ─────────────────────────────────────────────────
+    scene.play(
+        frame.animate.move_to(np.array([snap_x, snap_cy, 0])),
+        shear_tracker.animate.set_value(0.0),
+        run_time=rt_return, rate_func=smooth,
+    )
+    bldg_mob.remove_updater(_shear_updater)
+    # Restore exact original geometry
+    for leaf, pts0 in zip(leaf_mobs, orig_pts):
+        leaf.set_points(pts0.copy())
+
+    print(f"  CAM tilt-up '{subject}' peak_cy={end_cy:.2f} "
+          f"shear={shear_amt:.2f} rt={rt:.1f}s return={rt_return:.1f}s")
+
+
+def _execute_pan_down(meta: dict, scene: "MovingCameraScene",
+                      char_x_positions: dict) -> None:
+    """
+    Tilt the camera downward toward floor-level action.
+
+    The frame width and x-centre are set instantly from the FRAMING sub-key,
+    then the frame centre-y animates downward to the floor (y ≈ -2.6).
 
     Parameters
     ----------
-    meta            : shot_meta dict — ``subject`` should name a prop in the
-                      registry that has a ``pam_height`` attribute.
+    meta            : shot_meta dict — FRAMING and SUBJECT as usual.
     scene           : PAMPlayer (MovingCameraScene) instance.
-    props           : live PropRegistry.
-    char_x_positions: x-position snapshot (used for framing x-centre).
+    char_x_positions: x-position snapshot for subject centering.
 
     Geometry
     --------
-    Given::
-
-        H   = prop height  (prop.pam_height, stored at build time)
-        gy  = prop base y  (prop.pam_y — floor level)
-        fh  = frame height (scene.camera.frame.height)
-
-    End frame centre-y::
-
-        end_cy = gy + H - fh / 2   (frame top aligned with prop top)
-
-    If the prop is already shorter than the frame, the camera does not move.
+    End frame centre-y is clamped so the bottom of the frame sits at the
+    stage floor (``FLOOR_Y = -2.6``).  If the frame already shows the
+    floor, the camera does not move.
     """
+    FLOOR_Y = -2.6
+
     frame = getattr(getattr(scene, "camera", None), "frame", None)
     if frame is None:
         return
 
     subject = (meta.get("subject") or "").lower()
     framing = (meta.get("framing") or "wide").lower()
-    rt      = _MOVE_RT.get("pan-up", 2.5)
+    rt      = _MOVE_RT.get("pan-down", 2.5)
 
-    # Step 1 — apply framing width + x-centre instantly (tilt is the move)
     target_w, _ = _FRAMING_CAMERA.get(framing, (14.2, -0.5))
     if framing == "wide" or subject in ("ensemble", "none", ""):
         target_x = 0.0
@@ -397,42 +567,22 @@ def _execute_pan_up(meta: dict, scene: "MovingCameraScene",
         half_w   = target_w / 2
         target_x = float(np.clip(raw_x, -7.1 + half_w, 7.1 - half_w))
 
-    frame.set_width(target_w)
+    frame.width = target_w
     frame.move_to(np.array([target_x, frame.get_center()[1], 0]))
 
-    # Step 2 — look up the target prop
-    prop = props.get_raw(subject)
-    if prop is None:
-        # Subject not in prop registry — gentle upward drift as fallback
-        print(f"  CAM pan-up: subject '{subject}' not in prop registry "
-              f"— using default upward drift.")
-        fh    = frame.height
-        end_y = frame.get_center()[1] + fh * 0.8
-        scene.play(
-            frame.animate.move_to(np.array([target_x, end_y, 0])),
-            run_time=rt, rate_func=smooth,
-        )
-        print(f"  CAM pan-up (drift) x={target_x:.1f} end_y={end_y:.2f}")
-        return
-
-    # Step 3 — tilt geometry
-    H      = float(getattr(prop, "pam_height",
-                            prop.pam_surface_y - prop.pam_y))
-    gy     = float(prop.pam_y)
     fh     = frame.height
-    end_cy = gy + H - fh / 2   # frame top aligned with prop top
-    travel = end_cy - frame.get_center()[1]
+    end_cy = FLOOR_Y + fh / 2   # frame bottom aligned with stage floor
+    travel = frame.get_center()[1] - end_cy   # positive = downward
 
     if travel <= 0.05:
-        print(f"  CAM pan-up: '{subject}' already fits in frame, no tilt.")
+        print(f"  CAM pan-down: floor already in frame, no tilt.")
         return
 
     scene.play(
         frame.animate.move_to(np.array([target_x, end_cy, 0])),
         run_time=rt, rate_func=smooth,
     )
-    print(f"  CAM pan-up '{subject}' H={H:.2f} travel={travel:.2f} "
-          f"end_cy={end_cy:.2f} rt={rt:.1f}s")
+    print(f"  CAM pan-down travel={travel:.2f} end_cy={end_cy:.2f} rt={rt:.1f}s")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -645,8 +795,11 @@ class PAMPlayer(MovingCameraScene):
 
     PAM_CAMERA_MODE
         Set to ``1`` to enable automatic camera repositioning based on
-        the CAMERA annotations in the original Fountain file.  Default:
-        off (fixed wide shot throughout).
+        the CAMERA annotations in the PAM JSON.  **Default: on (``1``)
+        since v0.9.6** — camera mode is active unless you explicitly set
+        ``PAM_CAMERA_MODE=0``.  When a prompts JSON is not found, the
+        player falls back to inline ``_shot_meta`` dicts on each
+        ``_subscene_marker`` action.
 
     PAM_PROMPTS
         Path to the prompts JSON produced by fountain2pam.py alongside
@@ -722,13 +875,13 @@ class PAMPlayer(MovingCameraScene):
     FRAMING          Frame width  Description
     ===============  ===========  ====================================
     ``wide``         14.2         Full stage — default
-    ``medium``        8.0         Waist-up
-    ``medium-close``  5.5         Chest-up
-    ``close``         3.5         Face and shoulders
-    ``ots-left``      7.0         Over-the-shoulder (camera left)
-    ``ots-right``     7.0         Over-the-shoulder (camera right)
-    ``oneshot``       5.0         Single character centred
-    ``insert``        3.0         Extreme close — prop or detail
+    ``medium``       10.0         Waist-up
+    ``medium-close``  8.0         Chest-up
+    ``close``         7.0         Face and shoulders
+    ``ots-left``      8.5         Over-the-shoulder (camera left)
+    ``ots-right``     8.5         Over-the-shoulder (camera right)
+    ``oneshot``       9.0         Single character centred
+    ``insert``        7.0         Extreme close — prop or detail
     ===============  ===========  ====================================
 
     MOVE values and their camera behaviour
@@ -741,15 +894,54 @@ class PAMPlayer(MovingCameraScene):
     ``pull``      0.8 s      Smooth zoom out from subject
     ``pan-follow``0.5 s      Quick pan to new subject position
     ``drift``     1.5 s      Slow atmospheric drift
+    ``pan-up``    2.5 s      Tilt up to reveal top of tall background prop
+    ``pan-down``  2.5 s      Tilt down toward floor-level action
     ============  =========  ==========================================
 
     SUBJECT values
     --------------
-    Any character key (e.g. ``Nona``, ``Sidel``) or prop name
-    (e.g. ``dodecahedron``, ``Governor``).  The camera centres on
-    the subject's actual world x position at the time the marker
-    fires.  Use ``ensemble`` (or omit SUBJECT) to keep the camera
-    centred on the stage.
+    Any character key (e.g. ``Nona``, ``Sidel``), prop name
+    (e.g. ``dodecahedron``, ``Governor``), or scene-object name
+    (e.g. ``building-facade``).  The camera centres on the subject's
+    actual world x position at the time the marker fires.  Use
+    ``ensemble`` (or omit SUBJECT) to keep the camera centred on the
+    stage.
+
+    Zone sub-locations
+    ------------------
+    A ``_subscene_marker`` may carry a ``"zone"`` key naming a spatial
+    sub-region (e.g. ``"lobby"`` or ``"elevator_interior"``).  Zones
+    are declared via the ``"zones"`` key at the top of the screenplay:
+
+    ::
+
+        {"action": "zones", "items": {
+          "lobby":            {"x_min": -7.0, "x_max": 0.0, "label": "Lobby"},
+          "elevator_interior":{"x_min":  0.0, "x_max":  4.0,
+                               "label": "Elevator"}
+        }}
+
+    When the marker fires, the camera frame is clamped to the zone's
+    x range.  Characters placed (or walked to) outside the active zone
+    are still rendered but may be off-camera.
+
+    Scene objects (background dressing)
+    ------------------------------------
+    Large non-interactive background elements (building facades,
+    furniture walls) are declared via ``"scene_objects"``:
+
+    ::
+
+        {"action": "scene_objects", "items": {
+          "building-facade": {"type": "building", "x": 0.0, "height": 6.0,
+                              "label": "INTERGALACTIC POSTAL SERVICE",
+                              "color": "#3a4a6a"}
+        }}
+
+    Scene objects appear behind all characters (z-order managed by
+    insertion order).  They are registered in ``_scene_objects`` and
+    merged into the camera-mode subject lookup so ``SUBJECT=building-facade``
+    works in CAMERA annotations.
 
     Fountain+ annotation example (full scene opening)
     --------------------------------------------------
@@ -783,7 +975,7 @@ class PAMPlayer(MovingCameraScene):
         # PAM_SCRIPT to enable automatic camera repositioning.
         # Each _subscene_marker action in the PAM JSON carries a subscene_id
         # that is looked up here to retrieve framing and move instructions.
-        _camera_mode = bool(os.environ.get("PAM_CAMERA_MODE", ""))
+        _camera_mode = bool(os.environ.get("PAM_CAMERA_MODE", "1"))
         _subscene_index: dict = {}   # subscene_id → shot_meta dict
         if _camera_mode:
             prompts_path = os.environ.get(
@@ -803,9 +995,8 @@ class PAMPlayer(MovingCameraScene):
                       f"{len(_subscene_index)} subscenes loaded from "
                       f"'{prompts_path}'")
             except FileNotFoundError:
-                print(f"PAMPlayer: camera-mode requested but prompts file "
-                      f"'{prompts_path}' not found — camera-mode disabled.")
-                _camera_mode = False
+                print(f"PAMPlayer: prompts file '{prompts_path}' not found — "
+                      f"camera-mode ON using inline _shot_meta only.")
 
         # ── optional title ───────────────────────────────────────────────
         title_mob = subtitle_mob = None
@@ -874,6 +1065,18 @@ class PAMPlayer(MovingCameraScene):
         # ── prop registry ────────────────────────────────────────────────
         props = PropRegistry()   # name → VGroup with pam_node / pam_attachments
 
+        # ── scene-object registry (background dressing) ──────────────────
+        # Large non-interactive background elements (building facades, walls).
+        # Built before cast characters so they render behind everything else.
+        # Camera-mode subject lookup merges these with props.x_positions().
+        _scene_objects: dict = {}   # name → {"mob": VGroup, "x": float}
+
+        # ── zone registry ────────────────────────────────────────────────
+        # Named spatial sub-regions.  Populated by {"action": "zones"}.
+        # At _subscene_marker time, if a "zone" key is present the camera
+        # x-range is clamped to the zone's x_min / x_max.
+        _zones: dict = {}   # name → {"x_min": float, "x_max": float, ...}
+
         # ── deferred camera state ────────────────────────────────────────
         # Camera moves are stored here at each _subscene_marker and applied
         # concurrently with the next FadeIn(bubble) in say() / prop_say().
@@ -904,7 +1107,12 @@ class PAMPlayer(MovingCameraScene):
             """Execute one action for one character.
 
             If *collect_anims* is True and the action is parallelisable,
-            return a list of manim animations instead of playing them.
+            return a list of Manim animations instead of playing them.
+
+            Delegates to pam.actions.ACTION_REGISTRY for all actions except
+            fade_in, say, and trot_to, which need direct player internals.
+            To add a new action, write it in actions.py and register it
+            there — no changes to pam_player are required.
             """
             act = step["action"]
             fig = _get_fig(name)
@@ -970,21 +1178,16 @@ class PAMPlayer(MovingCameraScene):
             if fig is None:
                 return None
 
-            # ── fade_out ─────────────────────────────────────────────────
-            if act == "fade_out":
-                if collect_anims:
-                    return [FadeOut(fig.edge_group), FadeOut(fig.dot_group)]
-                fig.fade_out(self, rt=step.get("rt", 1.0))
-                cast[name]["fig"] = None
-                return None
-
             # ── say ──────────────────────────────────────────────────────
+            # Stays player-owned: needs _pending_camera, PADDING_WAIT,
+            # and direct access to self.play for the bubble geometry.
             if act == "say":
                 _cam_anim = None
                 if _pending_camera:
                     _cmeta, _cxpos = _pending_camera[0]
                     _cam_anim = _camera_anim(_cmeta, self, _cxpos)
                     _pending_camera.clear()
+                bubble_style = step.get("style", "normal").lower()
                 fig.say(
                     step["text"], self,
                     hold=step.get("hold", 1.2),
@@ -992,278 +1195,53 @@ class PAMPlayer(MovingCameraScene):
                     side=step.get("side", "right"),
                     post_wait=PADDING_WAIT,
                     extra_anims=[_cam_anim] if _cam_anim else None,
+                    # "os" / "phone" triggers dashed-border bubble in HumanGraph.say()
+                    # if supported; gracefully ignored by older builds.
+                    bubble_style=bubble_style if bubble_style != "normal" else None,
                 )
                 return None
 
-            # ── turn ─────────────────────────────────────────────────────
-            if act == "turn":
-                pose = _resolve_pose(step.get("pose"),
-                                     fig._bp["standing_side"], fig=fig)
-                if collect_anims:
-                    # return only the expand-phase anims (simplified)
-                    return fig._pose_anims(pose, fig.offset)
-                fig.turn(pose, self)
-                return None
-
-            # ── morph ────────────────────────────────────────────────────
-            if act == "morph":
-                pose = _resolve_pose(step.get("pose"), fig=fig)
-                rt = step.get("rt", 0.4)
-                dx = step.get("dx", 0.0)
-                dy = step.get("dy", 0.0)
-                new_off = fig.offset + np.array([dx, dy, 0.0])
-                if collect_anims:
-                    anims = fig._pose_anims(pose, new_off)
-                    # update state immediately so subsequent anims see it
-                    fig.pose = pose
-                    fig.offset = new_off
-                    return anims
-                fig.morph_to(pose, self, rt=rt, rate=smooth,
-                             dx=dx, dy=dy)
-                return None
-
-            # ── scale ────────────────────────────────────────────────────
-            if act == "scale":
-                sy = step.get("sy", 1.0)
-                sx = step.get("sx", 1.0)
-                anchor = step.get("anchor", "lankle")
-                rt = step.get("rt", 0.8)
-                # Set persistent scale — all future poses will respect it
-                fig.set_scale(sy=sy, sx=sx, anchor=anchor)
-                # Morph current pose to its scaled version
-                if collect_anims:
-                    anims = fig._pose_anims(fig.pose, fig.offset)
-                    return anims
-                fig.morph_to(fig.pose, self, rt=rt, rate=smooth)
-                return None
-
-            # ── walk_to ──────────────────────────────────────────────────
-            if act == "walk_to":
-                if collect_anims:
-                    print(f"PAMPlayer: walk_to cannot be parallelised, "
-                          f"running sequentially for '{name}'.")
-                fig.walk_to(step["x"], self)
-                return None
-
-            # ── run_to ───────────────────────────────────────────────────
-            if act == "run_to":
-                if collect_anims:
-                    print(f"PAMPlayer: run_to cannot be parallelised, "
-                          f"running sequentially for '{name}'.")
-                fig.run_to(step["x"], self)
-                return None
-
-            # ── trot_to (DogGraph only) ──────────────────────────────────
+            # ── trot_to ──────────────────────────────────────────────────
+            # Stays player-owned: DogGraph lives in props, not cast.
             if act == "trot_to":
-                # trot_to can be keyed by "prop" (e.g. "dog") or by "who".
-                # "prop" takes priority since the dog lives in props, not cast.
                 pname = step.get("prop") or name
                 prop  = props.get(pname)
                 dog   = getattr(prop, "pam_dog", None) if prop else None
                 if dog:
-                    stride = step.get("stride", 0.14)
-                    dog.trot_to(step["x"], self, stride=stride)
+                    dog.trot_to(step["x"], self, stride=step.get("stride", 0.14))
                 else:
                     print(f"PAMPlayer: trot_to — '{pname}' is not a DogGraph, skipping.")
                 return None
 
-            # ── sit_down ─────────────────────────────────────────────────
-            if act == "sit_down":
-                if collect_anims:
-                    print(f"PAMPlayer: sit_down cannot be parallelised, "
-                          f"running sequentially for '{name}'.")
-                fig.sit_down(self)
-                return None
-
-            # ── stand_up ─────────────────────────────────────────────────
-            if act == "stand_up":
-                if collect_anims:
-                    print(f"PAMPlayer: stand_up cannot be parallelised, "
-                          f"running sequentially for '{name}'.")
-                fig.stand_up(self)
-                return None
-
             # ── wave ─────────────────────────────────────────────────────
+            # Raise and wag one arm.
+            # JSON keys:
+            #   "who"      — character name (required)
+            #   "hand"     — "right" (default) or "left"
+            #   "cycles"   — number of wag oscillations (default 2)
+            #   "rt_lift"  — run time for arm raise/lower (default 0.4)
+            #   "rt_wag"   — run time per wag keyframe (default 0.24)
             if act == "wave":
-                if collect_anims:
-                    print(f"PAMPlayer: wave cannot be parallelised, "
-                          f"running sequentially for '{name}'.")
-                fig.wave(self, cycles=step.get("cycles", 2))
-                return None
-
-            # ── carry ────────────────────────────────────────────────────
-            if act == "carry":
-                if collect_anims:
-                    print(f"PAMPlayer: carry cannot be parallelised, "
-                          f"running sequentially for '{name}'.")
-                color = step.get("color", "#e8c547")
-                size  = step.get("size", 0.3)
-                parcel = Square(
-                    side_length=size, color=color,
-                    fill_color=color, fill_opacity=0.9,
-                ).move_to(fig.offset + np.array([0.5, 0.5, 0]))
-                self.play(FadeIn(parcel), run_time=0.3)
-                fig.carry(parcel, step["x"], self)
-                self.play(FadeOut(parcel), run_time=0.3)
-                return None
-
-            # ── walk_to_prop ────────────────────────────────────────────
-            if act == "walk_to_prop":
-                prop = _get_prop(step.get("prop", ""))
-                if prop and fig:
-                    fig.walk_to(prop.pam_x, self)
-                return None
-
-            # ── run_to_prop ─────────────────────────────────────────────
-            if act == "run_to_prop":
-                prop = _get_prop(step.get("prop", ""))
-                if prop and fig:
-                    fig.run_to(prop.pam_x, self)
-                return None
-
-            # ── face (turn toward a prop or character) ──────────────────
-            if act == "face":
-                target_name = step.get("target", "")
-                # find the target's x — check props then cast
-                target_x = None
-                if target_name in props:
-                    target_x = props[target_name].pam_x
-                elif target_name in cast and cast[target_name].get("fig"):
-                    target_x = cast[target_name]["fig"].offset[0]
-
-                if target_x is not None and fig:
-                    fig_x = fig.offset[0]
-                    diff = target_x - fig_x
-                    if abs(diff) < 0.5:
-                        # target is roughly in front — face forward
-                        fig.turn(fig._bp["standing_front"], self)
-                    else:
-                        # turn to side view (walk_to handles direction)
-                        fig.turn(fig._bp["standing_side"], self)
-                return None
-
-            # ── point_at ────────────────────────────────────────────────
-            if act == "point_at":
-                target_name = step.get("target", "")
-                hold = step.get("hold", 1.0)
-                # find target position
-                tx, ty = 0.0, 0.0
-                if target_name in props:
-                    tx = props[target_name].pam_x
-                    ty = props[target_name].pam_y
-                elif target_name in cast and cast[target_name].get("fig"):
-                    tfig = cast[target_name]["fig"]
-                    tx = tfig.offset[0]
-                    ty = (tfig._apply_scale(tfig.pose)["head"]
-                          + tfig.offset)[1]
-
+                hand    = step.get("hand", "right")
+                cycles  = step.get("cycles", 2)
+                rt_lift = step.get("rt_lift", 0.4)
+                rt_wag  = step.get("rt_wag", 0.24)
                 if fig:
-                    from copy import deepcopy
-                    from pam.poses import _v
-                    # compute arm direction from shoulder to target
-                    sp = fig._apply_scale(fig.pose)
-                    fig_x = fig.offset[0]
-                    # pick the arm that faces the target
-                    if tx >= fig_x:
-                        arm = "r"
-                    else:
-                        arm = "l"
-                    shoulder = sp[f"{arm}shoulder"] + fig.offset
-                    dx = tx - shoulder[0]
-                    dy = ty - shoulder[1]
-                    dist = max(0.5, np.sqrt(dx*dx + dy*dy))
-                    # elbow at ~60% toward target, wrist at ~90%
-                    point_pose = deepcopy(fig.pose)
-                    point_pose[f"{arm}elbow"] = _v(
-                        dx * 0.6 / fig._scale_sx if fig.is_scaled else dx * 0.6,
-                        dy * 0.6 / fig._scale_sy if fig.is_scaled else dy * 0.6,
-                    )
-                    point_pose[f"{arm}wrist"] = _v(
-                        dx * 0.9 / fig._scale_sx if fig.is_scaled else dx * 0.9,
-                        dy * 0.9 / fig._scale_sy if fig.is_scaled else dy * 0.9,
-                    )
-                    fig.morph_to(point_pose, self, rt=0.4, rate=smooth)
-                    self.wait(hold)
-                    fig.morph_to(fig._bp["standing_front"], self,
-                                 rt=0.3, rate=smooth)
+                    fig.wave(self, cycles=cycles, rt_lift=rt_lift,
+                             rt_wag=rt_wag, hand=hand)
                 return None
 
-            # ── pick_up ─────────────────────────────────────────────────
-            if act == "pick_up":
-                prop = _get_prop(step.get("prop", ""))
-                if prop and fig:
-                    # morph arms down to prop, attach it to wrists
-                    from copy import deepcopy
-                    from pam.poses import _v
-                    reach = deepcopy(fig.pose)
-                    py = prop.pam_surface_y - fig.offset[1]
-                    reach["relbow"] = _v(0.30, py + 0.4)
-                    reach["rwrist"] = _v(0.40, py + 0.1)
-                    reach["lelbow"] = _v(-0.30, py + 0.4)
-                    reach["lwrist"] = _v(-0.40, py + 0.1)
-                    fig.morph_to(reach, self, rt=0.4, rate=smooth)
-                    # attach prop to wrist midpoint
-                    fig._snap_obj_to_wrists(prop)
-                    fig.morph_to(fig._bp.get("carry_hold",
-                                             fig._bp["standing_front"]),
-                                 self, rt=0.3, rate=smooth)
-                    fig._snap_obj_to_wrists(prop)
-                    # store which prop the figure is holding
-                    fig._held_prop = prop
+            # ── all other actions → registry ─────────────────────────────
+            handler = ACTION_REGISTRY.get(act)
+            if handler is None:
+                print(f"PAMPlayer: unknown action '{act}', skipping.")
                 return None
 
-            # ── put_down ────────────────────────────────────────────────
-            if act == "put_down":
-                prop_name = step.get("prop", "")
-                on_name = step.get("on", "")
-                held = getattr(fig, "_held_prop", None) if fig else None
-                prop = _get_prop(prop_name) if prop_name else held
-                target = _get_prop(on_name) if on_name else None
-
-                if prop and fig:
-                    if target:
-                        # place on the target's surface
-                        dest_x = target.pam_x
-                        dest_y = target.pam_surface_y + 0.2
-                    else:
-                        # place on the ground at figure's feet
-                        dest_x = fig.offset[0]
-                        dest_y = -2.4
-                    from copy import deepcopy
-                    from pam.poses import _v
-                    reach = deepcopy(fig.pose)
-                    py = dest_y - fig.offset[1]
-                    reach["relbow"] = _v(0.30, py + 0.4)
-                    reach["rwrist"] = _v(0.40, py + 0.1)
-                    reach["lelbow"] = _v(-0.30, py + 0.4)
-                    reach["lwrist"] = _v(-0.40, py + 0.1)
-                    # reach down (slower so the gesture reads clearly)
-                    fig.morph_to(reach, self, rt=0.55, rate=smooth)
-                    # slide the prop to its destination while arms are down
-                    self.play(prop.animate.move_to(
-                        np.array([dest_x, dest_y, 0])), run_time=0.45,
-                        rate_func=smooth)
-                    # straighten back up
-                    fig.morph_to(fig._bp["standing_front"], self,
-                                 rt=0.45, rate=smooth)
-                    fig._held_prop = None
-                return None
-
-            # ── exit_through ────────────────────────────────────────────
-            if act == "exit_through":
-                prop = _get_prop(step.get("prop", ""))
-                if prop and fig:
-                    # turn and walk/run to the door
-                    fig.turn(fig._bp["standing_side"], self)
-                    fig.walk_to(prop.pam_x, self)
-                    # fade out at the door
-                    fig.fade_out(self, rt=0.5)
-                    cast[name]["fig"] = None
-                return None
-
-            # ── unknown ──────────────────────────────────────────────────
-            print(f"PAMPlayer: unknown action '{act}', skipping.")
-            return None
+            # Thread collect_anims through the step dict so handlers
+            # can inspect it without changing the signature.
+            if collect_anims:
+                step = {**step, "_collect_anims": True}
+            return handler(fig, step, self, name, props=props, cast=cast)
 
         # ── main dispatch loop ───────────────────────────────────────────
         for step in actions:
@@ -1282,13 +1260,36 @@ class PAMPlayer(MovingCameraScene):
                         if fig is not None:
                             char_x[ckey] = float(fig.offset[0])
                     char_x.update(props.x_positions())
+                    # Merge scene_objects so SUBJECT can reference them
+                    for oname, odata in _scene_objects.items():
+                        char_x[oname] = float(odata["x"])
+                    # Zone clamping: if this marker names a zone, restrict
+                    # the camera's x range to the zone's bounds.
+                    zone_name = step.get("zone") or meta.get("zone")
+                    if zone_name and zone_name in _zones:
+                        zspec = _zones[zone_name]
+                        # Clamp all x values to zone bounds so _apply_camera
+                        # centres inside the zone regardless of subject position.
+                        zx_mid = (zspec["x_min"] + zspec["x_max"]) / 2
+                        for k in list(char_x.keys()):
+                            char_x[k] = float(
+                                np.clip(char_x[k], zspec["x_min"], zspec["x_max"])
+                            )
+                        char_x.setdefault("_zone_centre", zx_mid)
+                        print(f"  CAM zone='{zone_name}' "
+                              f"x=[{zspec['x_min']:.1f}, {zspec['x_max']:.1f}]")
                     # For static cuts: apply immediately (no scene time used).
                     # For animated moves: defer so the camera moves concurrently
                     # with the next FadeIn(bubble) rather than before it.
                     move = (meta.get("move") or "static").lower()
                     if move == "pan-up":
-                        # Pan-up owns its own scene.play() — execute immediately
-                        _execute_pan_up(meta, self, props, char_x)
+                        _execute_pan_up(meta, self, props, char_x,
+                                        scene_objects=_scene_objects,
+                                        cast=cast)
+                        _pending_camera.clear()
+                    elif move == "pan-down":
+                        # Pan-down owns its own scene.play() — execute immediately
+                        _execute_pan_down(meta, self, char_x)
                         _pending_camera.clear()
                     elif _MOVE_RT.get(move, 0.0) == 0.0:
                         _apply_camera(meta, self, char_x)
@@ -1313,6 +1314,9 @@ class PAMPlayer(MovingCameraScene):
                         "style":       spec.get("style", {}),
                         "build":       spec.get("build", "default"),
                         "scale":       spec.get("scale"),
+                        "color":       spec.get("color"),
+                        "torso_color": spec.get("torso_color"),
+                        "gender":      spec.get("gender"),
                         # prop-characters carry spawn coords in cast block
                         "spawn":       spec.get("spawn", {}),
                     }
@@ -1326,6 +1330,54 @@ class PAMPlayer(MovingCameraScene):
             if act == "scene_props":
                 _build_prop_items(step.get("items", {}), props, self,
                                   rt=step.get("rt", 0.5))
+                continue
+
+            # ── scene_objects ────────────────────────────────────────────
+            # Large background dressing: building facades, wall panels, etc.
+            # Rendered via build_prop with fade-in; registered in
+            # _scene_objects so the camera can reference them as SUBJECT.
+            # Uses add_to_back() so they appear behind all characters.
+            #
+            # JSON keys (per item):
+            #   "type"   — prop type key passed to build_prop (required)
+            #   "x"      — world x centre (default 0.0)
+            #   "y"      — world y base   (default -2.6 / floor level)
+            #   "color"  — stroke/fill hex (default "#3a4a6a")
+            #   "label"  — text label drawn on the object (optional)
+            #   "height" — for building / backdrop props (optional)
+            if act == "scene_objects":
+                rt = step.get("rt", 0.5)
+                for oname, spec in step.get("items", {}).items():
+                    spec  = dict(spec)
+                    otype = spec.pop("type", "desk")
+                    ox    = spec.get("x", 0.0)
+                    prop  = build_prop(oname, type=otype,
+                                       prop_registry=props._store, **spec)
+                    # Add to scene then push behind all existing mobjects
+                    self.add(prop)
+                    self.bring_to_back(prop)
+                    self.play(FadeIn(prop), run_time=rt)
+                    _scene_objects[oname] = {"mob": prop, "x": ox}
+                continue
+
+            # ── zones ────────────────────────────────────────────────────
+            # Declare named spatial sub-regions of the stage.
+            # Does not trigger any camera move by itself; consulted at
+            # each _subscene_marker that carries a "zone" key.
+            #
+            # JSON keys (per zone):
+            #   "x_min" — left boundary in world units
+            #   "x_max" — right boundary in world units
+            #   "label" — display name (optional, for debug output)
+            if act == "zones":
+                for zname, zspec in step.get("items", {}).items():
+                    _zones[zname] = {
+                        "x_min": float(zspec.get("x_min", -7.1)),
+                        "x_max": float(zspec.get("x_max",  7.1)),
+                        "label": zspec.get("label", zname),
+                    }
+                print(f"PAMPlayer: zones registered — "
+                      f"{list(_zones.keys())}")
                 continue
 
             # ── props ────────────────────────────────────────────────────
@@ -1369,8 +1421,11 @@ class PAMPlayer(MovingCameraScene):
                 pname = step.get("prop")
                 prop = _get_prop(pname)
                 if prop:
-                    self.play(FadeOut(prop),
-                              run_time=step.get("rt", 0.5))
+                    rt = step.get("rt", 0.5)
+                    if rt > 0:
+                        self.play(FadeOut(prop), run_time=rt)
+                    else:
+                        self.remove(prop)   # instant, no animation
                     del props[pname]
                 continue
 
@@ -1426,22 +1481,42 @@ class PAMPlayer(MovingCameraScene):
                     continue
 
                 # ── standard props (hat, chair, desk, door …) ────────────
-                _skip = {"action", "prop", "type", "figure_type", "rt", "on_head_of"}
+                _skip = {"action", "prop", "type", "figure_type", "rt",
+                         "on_head_of", "on_torso_of"}
                 kwargs = {k: v for k, v in step.items() if k not in _skip}
 
+                owner_torso = step.get("on_torso_of")   # for chest accessories
+
                 if owner:
+                    # on_head_of — position relative to head joint
                     fig = _get_fig(owner)
                     if fig:
                         sp   = fig._apply_scale(fig.pose)
                         hpos = sp["head"] + fig.offset
                         hx   = float(hpos[0])
                         hy   = float(hpos[1])
+                        head_r = fig.style.get("head_radius", 0.28) * fig._scale_sy
                         kwargs.setdefault("x", hx)
-                        if ptype == "hat":
-                            head_r = fig.style.get("head_radius", 0.28) * fig._scale_sy
-                            kwargs.setdefault("y", hy + head_r + 0.05)
+                        if ptype in ("hat", "delivery_cap", "silver_hair"):
+                            # Accessories sit above the head circle
+                            kwargs.setdefault("y", hy + head_r + 0.03)
                         else:
                             kwargs.setdefault("y", hy)
+
+                elif owner_torso:
+                    # on_torso_of — position relative to torso centre
+                    fig = _get_fig(owner_torso)
+                    if fig:
+                        sp    = fig._apply_scale(fig.pose)
+                        # Torso centre: midpoint of lshoulder and lhip
+                        spos  = sp.get("lshoulder", sp.get("head",
+                                    np.array([0, 0.5, 0]))) + fig.offset
+                        hpos2 = sp.get("lhip",      sp.get("head",
+                                    np.array([0, -0.5, 0]))) + fig.offset
+                        tx = float(fig.offset[0])
+                        ty = float((spos[1] + hpos2[1]) / 2)
+                        kwargs.setdefault("x", tx)
+                        kwargs.setdefault("y", ty)
 
                 prop = build_prop(pname, type=ptype,
                                   prop_registry=props._store, **kwargs)
@@ -1507,6 +1582,44 @@ class PAMPlayer(MovingCameraScene):
                         else:
                             prop.set_color(new_color)
                         prop.pam_color = new_color
+                continue
+
+            # ── elevator_open ─────────────────────────────────────────────
+            # Slide elevator doors fully open (panels turn transparent).
+            # JSON keys:
+            #   "who"      — prop registry name of the elevator (required)
+            #   "run_time" — animation duration in seconds (default 0.6)
+            if act == "elevator_open":
+                pname = step.get("who") or step.get("prop")
+                prop  = _get_prop(pname)
+                if prop and hasattr(prop, "open_doors"):
+                    rt = step.get("run_time", step.get("rt", 0.6))
+                    prop.open_doors(self, run_time=rt)
+                else:
+                    print(f"PAMPlayer elevator_open: prop '{pname}' not found "
+                          f"or has no open_doors method.")
+                continue
+
+            # ── elevator_close ────────────────────────────────────────────
+            # Slide elevator doors fully closed (panels restore fill color).
+            # JSON keys:
+            #   "who"      — prop registry name of the elevator (required)
+            #   "run_time" — animation duration in seconds (default 0.6)
+            if act == "elevator_close":
+                pname    = step.get("who") or step.get("prop")
+                prop     = _get_prop(pname)
+                fraction = step.get("fraction", 1.0)
+                rt       = step.get("run_time", step.get("rt", 0.6))
+                if prop:
+                    if fraction < 1.0 and hasattr(prop, "partial_close"):
+                        # Partial close — doors slide partway shut
+                        prop.partial_close(self, fraction=fraction, run_time=rt)
+                    elif hasattr(prop, "close_doors"):
+                        # Full close
+                        prop.close_doors(self, run_time=rt)
+                    else:
+                        print(f"PAMPlayer elevator_close: prop '{pname}' not "
+                              f"found or has no close_doors / partial_close method.")
                 continue
 
             # ── prop_say ─────────────────────────────────────────────────
@@ -1629,9 +1742,92 @@ class PAMPlayer(MovingCameraScene):
                     self.play(FadeOut(card), run_time=rt_out)
                 continue
 
+            # ── caption ──────────────────────────────────────────────────
+            # Render a captioning card (lower-third, bottom, or top).
+            # Parsed from Fountain+ CAPTION: keys by fountain2pam.py.
+            #
+            # JSON keys:
+            #   "text"     — caption text (required)
+            #   "position" — "bottom" (default) | "top" | "lower-third"
+            #   "duration" — hold time in seconds (default 3.0)
+            #   "style"    — "normal" | "italic" | "bold" (default "normal")
+            #   "rt_in"    — fade-in run time (default 0.3)
+            #   "rt_out"   — fade-out run time (default 0.25)
+            if act == "caption":
+                cap_text = step.get("text", "")
+                cap_pos  = step.get("position", "bottom").lower()
+                cap_dur  = step.get("duration", 3.0)
+                cap_style = step.get("style", "normal").lower()
+                rt_in    = step.get("rt_in",  0.3)
+                rt_out   = step.get("rt_out", 0.25)
 
-                self.wait(step.get("t", 1.0))
+                if cap_text:
+                    # Font weight
+                    weight = BOLD if cap_style == "bold" else NORMAL
+                    slant  = ITALIC if cap_style == "italic" else NORMAL
+
+                    cap_mob = Text(
+                        cap_text, font="Courier New",
+                        font_size=18, color="#e8e8e8",
+                        weight=weight, slant=slant,
+                    )
+                    # Dark backing bar, full-width tinted strip
+                    bar = Rectangle(
+                        width=14.2,
+                        height=cap_mob.height + 0.28,
+                        color="#000000",
+                        fill_color="#000000",
+                        fill_opacity=0.72,
+                        stroke_width=0,
+                    )
+                    cap_card = VGroup(bar, cap_mob)
+
+                    # Position
+                    if cap_pos == "top":
+                        cap_card.to_edge(UP, buff=0.15)
+                    elif cap_pos == "lower-third":
+                        cap_card.to_edge(DOWN, buff=1.0)
+                    else:   # "bottom" default
+                        cap_card.to_edge(DOWN, buff=0.15)
+                    cap_mob.move_to(bar.get_center())
+
+                    self.play(FadeIn(cap_card), run_time=rt_in)
+                    self.wait(cap_dur)
+                    self.play(FadeOut(cap_card), run_time=rt_out)
                 continue
+
+            # ── sound_cue ────────────────────────────────────────────────
+            # Flash a diegetic sound label (RING!, KNOCK!, DING!) briefly
+            # on screen.  Parsed from Fountain+ SOUND: keys.
+            #
+            # JSON keys:
+            #   "label"   — text to flash, e.g. "RING!" (required)
+            #   "display" — bool; if false, skip rendering (default true)
+            #   "hold"    — visible duration in seconds (default 0.6)
+            #   "rt_in"   — fade-in run time (default 0.15)
+            #   "rt_out"  — fade-out run time (default 0.2)
+            #   "x"       — world x offset (default 0.0 / centre)
+            #   "y"       — world y offset (default 1.8 / above stage)
+            if act == "sound_cue":
+                if not step.get("display", True):
+                    continue
+                cue_label = step.get("label", "")
+                cue_hold  = step.get("hold",   0.6)
+                rt_in     = step.get("rt_in",  0.15)
+                rt_out    = step.get("rt_out", 0.20)
+                cue_x     = step.get("x", 0.0)
+                cue_y     = step.get("y", 1.8)
+
+                if cue_label:
+                    cue_txt = Text(
+                        cue_label, font="Courier New",
+                        font_size=22, color="#ffdd55", weight=BOLD,
+                    ).move_to(np.array([cue_x, cue_y, 0]))
+                    self.play(FadeIn(cue_txt, scale=1.15), run_time=rt_in)
+                    self.wait(cue_hold)
+                    self.play(FadeOut(cue_txt, scale=0.85), run_time=rt_out)
+                continue
+
 
             # ── parallel ─────────────────────────────────────────────────
             if act == "parallel":
@@ -1742,6 +1938,16 @@ class PAMPlayer(MovingCameraScene):
             # since the dog lives in props, not cast.
             if act == "trot_to" and "prop" in step and "who" not in step:
                 _dispatch_one(step, step["prop"])
+                continue
+
+            # Special case: group_translate addresses multiple characters at
+            # once — bypass _targets and call the handler once with a sentinel
+            # name, passing the full cast so the handler can iterate itself.
+            if act == "group_translate":
+                handler = ACTION_REGISTRY.get("group_translate")
+                if handler:
+                    handler(None, step, self, "__group__",
+                            props=props, cast=cast)
                 continue
 
             targets = _targets(step)
