@@ -1,5 +1,5 @@
 # PAM — Pose And Motion
-### Stick-figure animation library for Manim · v0.9.4
+### Stick-figure animation library for Manim · v0.9.5
 
 PAM is a Manim-based toolkit for animating stick-figure characters as
 mathematical graphs.  Poses are plain Python dictionaries mapping joint names
@@ -32,6 +32,7 @@ bubble layout, the character registry system, and this documentation.
 - [Writing animations in Python](#writing-animations-in-python)
 - [The PAM module public API](#the-pam-module-public-api)
 - [Props system](#props-system)
+- [Character accessories](#character-accessories)
 - [Customizing appearance](#customizing-appearance)
 - [The character registry — characters.txt](#the-character-registry--characterstxt)
 - [Fountain+ CHARACTER annotation](#fountain-character-annotation)
@@ -71,9 +72,14 @@ On top of this foundation PAM provides:
   shoulder struts, and hip struts to a different color from the head and limbs,
   suggesting a uniform or shirt without extra geometry.
 - **Props** — chair, desk, hat, door, dodecahedron, building, flower, sun,
-  moon — placed via a JSON declaration and spawnable mid-scene.
+  moon, elevator, briefcase, folder, phone/landline/smartphone, audio/video bug,
+  floral arrangement — placed via a JSON declaration and spawnable mid-scene.
+- **Character accessories** — `name_tag`, `delivery_cap`, `cheap_suit`,
+  `silver_hair` — props that attach to a figure's head or torso node.
 - **Speech bubbles** that size themselves to the text and stay within screen
-  margins.
+  margins.  An O.S. / phone variant uses a dashed border and cooler palette.
+- **Expressions** — reaction glyphs (`smirk`, `roll_eyes`) that flash above
+  a character's head via the `express` action.
 - **A character registry** (`characters.txt`) listing every cast member with
   type, gender, color, and label.  Populated by hand or automatically from
   Fountain+ `CHARACTER` annotations.
@@ -585,7 +591,7 @@ fig = HumanGraph(
 | `stand_up(scene)` | — | Returns to standing front |
 | `wave(scene, direction)` | `"up"` \| `"right"` \| `"left"` | |
 | `carry(prop, scene)` | prop object | Requires side pose |
-| `say(text, scene, hold, side)` | `hold=1.5`, `side="right"` | Auto-wraps long lines |
+| `say(text, scene, hold, side, bubble_style)` | `hold=1.5`, `side="right"`, `bubble_style=None` | Auto-wraps long lines; `bubble_style="os"` for dashed O.S. border |
 | `set_scale(sy, sx, anchor)` | defaults: `1.0, 1.0, "lankle"` | Persistent across actions |
 | `highlight_edges(scene, color, t)` | — | Flash edge color |
 | `exit_through(prop, scene)` | door prop | Walk to door + fade out |
@@ -732,6 +738,9 @@ from pam import (
     SIT_CYCLE, STAND_CYCLE,
     CARRY_WALK_CYCLE,
 
+    # expression glyphs
+    EXPRESSION_GLYPHS,    # v0.9.5
+
     # registries
     POSES, CYCLES,
 
@@ -746,7 +755,9 @@ from pam import (
     # props
     build_prop, PROP_TYPES, PROP_DEFAULTS,
     build_chair, build_desk, build_hat, build_door, build_dodecahedron,
-    build_building, build_flower, build_sun, build_moon,   # v0.9.4
+    build_building, build_flower, build_sun, build_moon,
+    build_name_tag, build_delivery_cap,               # v0.9.5 accessories
+    build_cheap_suit, build_silver_hair,              # v0.9.5 accessories
 )
 ```
 
@@ -787,12 +798,64 @@ self.play(FadeIn(building))
 | `chair` | — | Side-view chair silhouette |
 | `desk` | `table` · `console` · `computer` · `workstation` · `terminal` | Front-view desk with optional monitor |
 | `hat` | — | Small hat — sits on a character's head |
-| `door` | — | Tall rectangle with knob |
+| `door` | — | Tall rectangle with knob (static) |
+| `pocket_door` | — | Animated sliding door panels |
+| `elevator` | — | Wall sign + button panel |
+| `desk_lamp` | — | L-shaped gooseneck lamp |
+| `briefcase` | — | Carried at side (side-carry poses) |
+| `folder` | — | Flat thin rectangle, held in one hand |
+| `phone` | `cellphone` · `smartphone` · `landline_desk` · `landline_wall` | Phone handset in three styles |
+| `audio_video_bug` | `bug` | Tiny dot — planted via `peel_from_hand` + `stick_to` |
+| `floral_arrangement` | `bouquet` | Cluster of colored circles on stems |
 | `dodecahedron` | — | Stylised 12-sided polygon (GovernorGraph prop) |
-| `building` | — | Tall rectangle with window grid — pan-up target (v0.9.4) |
-| `flower` | — | Stem + leaves + radial petals (v0.9.4) |
-| `sun` | — | Disc + rays + optional horizon line (v0.9.4) |
-| `moon` | — | Crescent or half-moon, two-circle mask (v0.9.4) |
+| `building` | — | Tall rectangle with window grid — pan-up target |
+| `flower` | — | Stem + leaves + radial petals |
+| `sun` | — | Disc + rays + optional horizon line |
+| `moon` | — | Crescent or half-moon, two-circle mask |
+
+---
+
+## Character accessories
+
+Character accessories are props that attach to a figure's head or torso
+rather than standing on the stage floor.  Spawn them with `spawn_prop` using
+`on_head_of` or `on_torso_of` so the player derives position from the live
+figure's joint data.
+
+| Type | Key parameter | Attaches to | Description |
+|---|---|---|---|
+| `name_tag` | `text=` | Torso (chest) | Rounded badge with text label and pin dot |
+| `delivery_cap` | `label=` | Head (above) | Wide flat-brim cap; label on front panel |
+| `cheap_suit` | `color=` | Torso (over) | Jacket body + lapels + collar notch |
+| `silver_hair` | `color=` | Head (over) | Thick arc over crown + short fringe line |
+
+**JSON examples:**
+
+```json
+{"action": "spawn_prop", "prop": "chava_tag",
+ "type": "name_tag", "text": "Eve Smith — Florist",
+ "on_torso_of": "chava"}
+
+{"action": "spawn_prop", "prop": "lenny_cap",
+ "type": "delivery_cap", "label": "IPS",
+ "on_head_of": "lenny"}
+
+{"action": "spawn_prop", "prop": "lenny_suit",
+ "type": "cheap_suit", "color": "#2a2a2a",
+ "on_torso_of": "lenny"}
+
+{"action": "spawn_prop", "prop": "bosch_hair",
+ "type": "silver_hair",
+ "on_head_of": "bosch"}
+```
+
+**Positioning notes:**
+
+- `on_head_of` — hat, delivery cap, and silver hair sit just above the head circle (`head_y + head_radius + 0.03`).
+- `on_torso_of` — name tag and cheap suit centre on the midpoint of the `lshoulder` and `lhip` joints.
+- Accessories follow `spawn_prop` rules: they are added to the prop registry and can be removed with `remove_prop`.
+- `cheap_suit` renders *over* the skeleton lines — spawn it after `fade_in` for the cleanest layering.
+- For alien characters pass `attrs={"scale": 1.2}` on `silver_hair` to match the wider head.
 
 ### building parameters (v0.9.4)
 
@@ -1073,21 +1136,21 @@ Fountain screenplay
                 ├──→ prompts.json       (AI video + still prompts, per subscene)
                 └──→ characters.txt     (synced from CHARACTER annotations)
                           │
-      ┌───────────────────┼──────────────────────────┐
-      │                   │                           │
-pam_player.py    pam2blender.py             Kling / Flow / Veo
-(Manim render)   (Blender exporter)        (AI video generation)
-      │                   │                           │
-blocking MP4    screenplay_blender.py      AI video clips (per subscene)
-                (run inside Blender)                  │
-                          │                           │
-                    Blender scene                     │
-                (camera + lights +                    │
-                  prop layout)                        │
-                          │                           │
-                          └──────────────┬────────────┘
-                                         │
-                                Final Cut Pro X (assembly)
+      ┌───────────────────┴──────────────────────────┐
+      │                                               │
+pam_player.py                               pam2blender.py
+(Manim render)                              (Blender exporter)
+      │                                               │
+blocking MP4                          screenplay_blender.py
+(timing reference)                    (run inside Blender)
+                                               │
+                                         Blender scene
+                                    (camera + lights + layout)
+                                               │
+                                       AI video generation
+                                    (per subscene from prompts)
+                                               │
+                                    Final Cut Pro X (assembly)
 ```
 
 The blocking MP4 is used for timing reference and client review.  The Blender
@@ -1148,7 +1211,7 @@ Converts a `.fountain` screenplay to PAM JSON and AI video prompts, and syncs
 
 | Mode | Boundary rule | Best for |
 |---|---|---|
-| `per-speaker` | New clip on every speaker change | Kling, Flow |
+| `per-speaker` | New clip on every speaker change | AI video generators with per-clip consistency |
 | `timed` | Drama-aware 5–10 second windows | Generators with strong temporal consistency |
 
 **Dialogue chunking constants:**
@@ -1177,11 +1240,16 @@ Fade In) — and are parsed before `screenplain` sees the file.
 | `LIGHTING` | Beat-scoped | Lighting setup — structured vocabulary or freeform |
 | `KIND` | File-level | Species/type template prepended to character descriptions |
 | `CHARACTER` | File-level | Character registry entry — synced to `characters.txt` |
+| `CAPTION` | Beat-scoped | On-screen text card with position, duration, and style (v0.9.5) |
+| `SOUND` | Beat-scoped | Diegetic sound cue label flashed on screen, e.g. `RING!` (v0.9.5) |
+| `PHONE` | Beat-scoped | Marks an intercut telephone conversation; triggers O.S. bubble style (v0.9.5) |
+| `PRODUCTION NOTE` | File-level | Non-rendering dubbing/performance annotation; stored as metadata only (v0.9.5) |
+| `ZONE` | Beat-scoped | Named spatial sub-region shift; camera x-range clamped to zone bounds (v0.9.5) |
 
 "Beat-scoped" means the note takes effect where it appears and persists until
 replaced by another note of the same key.
 
-**CAMERA sub-key vocabulary (v0.9.1 / v0.9.4):**
+**CAMERA sub-key vocabulary (v0.9.1 / v0.9.5):**
 
 ```fountain
 [[ CAMERA: FRAMING=wide | SUBJECT=ensemble | MOVE=drift | TRANSITION=hold ]]
@@ -1190,14 +1258,14 @@ replaced by another note of the same key.
 | Sub-key | Legal values |
 |---|---|
 | `FRAMING` | `wide` · `medium` · `medium-close` · `close` · `ots-left` · `ots-right` · `oneshot` · `insert` |
-| `SUBJECT` | Character name · prop name · `ensemble` |
-| `MOVE` | `static` · `push` · `pull` · `pan-follow` · `drift` · `pan-up` |
+| `SUBJECT` | Character name · prop name · scene-object name · `ensemble` |
+| `MOVE` | `static` · `push` · `pull` · `pan-follow` · `drift` · `pan-up` · `pan-down` |
 | `TRANSITION` | `cut` · `hold` · `hold-empty` · `smash` |
 
 Freeform tags (no `=` present) pass through unchanged and are fully backward
 compatible with v0.9.0.
 
-**`pan-up` move (v0.9.4):**
+**`pan-up` move:**
 
 `MOVE=pan-up` tilts the camera upward from the current framing until the top
 of the `SUBJECT` prop is in frame.  `SUBJECT` should name a `building` prop
@@ -1208,9 +1276,64 @@ of the `SUBJECT` prop is in frame.  `SUBJECT` should name a `building` prop
 ```
 
 Geometry: the frame starts at its current centre-y and animates upward until
-`frame_top = prop.pam_y + prop.pam_height`.  If the prop already fits within
-the frame the camera does not move.  Tilt duration is 2.5 seconds.
-`PAM_CAMERA_MODE=1` must be set for the tilt to execute in `pam_player.py`.
+`frame_top = prop.pam_y + prop.pam_height`.  Tilt duration is 2.5 seconds.
+
+**`pan-down` move (v0.9.5):**
+
+`MOVE=pan-down` tilts the camera downward toward floor-level action.  The frame
+bottom is aligned to the stage floor (`y ≈ -2.6`).  Tilt duration is 2.5 seconds.
+
+```fountain
+[[ CAMERA: FRAMING=medium | SUBJECT=ensemble | MOVE=pan-down | TRANSITION=cut ]]
+```
+
+Both `pan-up` and `pan-down` require `PAM_CAMERA_MODE=1`.
+
+**`CAPTION` key (v0.9.5):**
+
+Renders a text card over the scene.  Parsed into a `caption` action.
+
+```fountain
+[[ CAPTION: TEXT=In the not-too-distant future... | POSITION=bottom | DURATION=3.5 | STYLE=italic ]]
+[[ CAPTION: In the not-too-distant future... ]]
+```
+
+| Sub-key | Values | Default |
+|---|---|---|
+| `TEXT` (or bare value) | Any string | — |
+| `POSITION` | `bottom` · `top` · `lower-third` | `bottom` |
+| `DURATION` | float seconds | `3.0` |
+| `STYLE` | `normal` · `italic` · `bold` | `normal` |
+
+**`SOUND` key (v0.9.5):**
+
+Flashes a diegetic sound label on screen.
+
+```fountain
+[[ SOUND: RING! ]]
+[[ SOUND: KNOCK KNOCK ]]
+```
+
+**`PHONE` key (v0.9.5):**
+
+Marks a telephone intercut.  `say` actions within the PHONE block receive
+`bubble_style="os"` — a dashed-border speech bubble.
+
+```fountain
+[[ PHONE: on ]]
+[[ PHONE: off ]]
+```
+
+**`ZONE` key (v0.9.5):**
+
+Declares a named spatial sub-region.  At `_subscene_marker` time, the camera's
+x-range is clamped to the zone's bounds without a full scene break.
+
+```fountain
+[[ ZONE: lobby ]]
+```
+
+Zones must first be declared in the PAM JSON via `{"action": "zones", ...}`.
 
 **CHARACTER key (v0.9.3):**
 
@@ -1438,6 +1561,14 @@ silently.
  "hold": 1.8, "side": "right"}
 ```
 
+Pass `"style": "os"` (or `"phone"`) for a dashed-border O.S. speech bubble:
+
+```json
+{"action": "say", "who": "sidel",
+ "text": "I'm in the elevator.",
+ "style": "os", "side": "left"}
+```
+
 **prop_say**
 
 ```json
@@ -1527,6 +1658,164 @@ Accepts any named pose or a raw joint dict.
  "hold": 2.0}
 ```
 
+**caption** (v0.9.5) — on-screen text card with position, duration, and style.
+
+```json
+{"action": "caption",
+ "text": "In the not-too-distant future...",
+ "position": "bottom",
+ "duration": 3.5,
+ "style": "italic"}
+```
+
+| Key | Values | Default |
+|---|---|---|
+| `position` | `"bottom"` · `"top"` · `"lower-third"` | `"bottom"` |
+| `duration` | float seconds | `3.0` |
+| `style` | `"normal"` · `"italic"` · `"bold"` | `"normal"` |
+
+**sound_cue** (v0.9.5) — flash a diegetic sound label on screen.
+
+```json
+{"action": "sound_cue", "label": "RING!", "display": true}
+```
+
+**express** (v0.9.5) — flash a reaction glyph above a character's head.
+
+```json
+{"action": "express", "who": "nona", "expression": "smirk", "hold": 1.2}
+{"action": "express", "who": "sidel", "expression": "roll_eyes"}
+```
+
+| Expression | Glyph | Description |
+|---|---|---|
+| `smirk` | `〜` | Wry satisfaction |
+| `roll_eyes` | `ಠ_ಠ` | Exasperation |
+
+**reach_for** — extend one arm toward a prop, hold briefly, retract.
+
+```json
+{"action": "reach_for", "who": "sidel", "target": "button_panel",
+ "arm": "r", "hold": 0.6}
+```
+
+**grab** — decisive reach + retract with prop now held (faster than `pick_up`).
+
+```json
+{"action": "grab", "who": "nona", "prop": "folder", "arm": "r"}
+```
+
+**punch_button** — sharp jab at a prop then retract.
+
+```json
+{"action": "punch_button", "who": "sidel", "target": "button_panel"}
+```
+
+**place_on** — set a carried prop onto a target surface.
+
+```json
+{"action": "place_on", "who": "nona",
+ "prop": "floral_arrangement", "target": "desk"}
+```
+
+**move_aside** — push a prop laterally without picking it up.
+
+```json
+{"action": "move_aside", "who": "sidel",
+ "prop": "desk_lamp", "direction": "left", "distance": 0.4}
+```
+
+**peel_from_hand** (v0.9.5) — slide a tiny prop off the palm, ready for `stick_to`.
+
+```json
+{"action": "peel_from_hand", "who": "sidel", "prop": "bug", "arm": "r"}
+```
+
+Best paired with `FRAMING=insert` — the prop is tiny in wide shots.
+
+**stick_to** — attach a tiny prop to a target prop's surface.
+
+```json
+{"action": "stick_to", "who": "sidel",
+ "prop": "bug", "target": "desk_lamp"}
+```
+
+**snap_photo** — point a phone at a target and flash.
+
+```json
+{"action": "snap_photo", "who": "nona", "target": "governor"}
+```
+
+**exit_through_doors** — walk to a door/elevator, pause, then fade out.
+
+```json
+{"action": "exit_through_doors", "who": "sidel", "prop": "elevator"}
+```
+
+**rush_to / rush_out** — fast run with forward-lean pose.
+
+```json
+{"action": "rush_to", "who": "nona", "x": 2.5}
+```
+
+**squeeze_through** — narrow-stance walk through a tight space.
+
+```json
+{"action": "squeeze_through", "who": "sidel", "x": 0.5}
+```
+
+**dodge** — lateral sidestep away from another character's path.
+
+```json
+{"action": "dodge", "who": "nona", "direction": "left", "distance": 0.6}
+```
+
+**jump_up** — eager reactive jump: crouch → peak → land.
+
+```json
+{"action": "jump_up", "who": "sidel", "height": 0.4}
+```
+
+**pat** — short repeated tapping gesture.
+
+```json
+{"action": "pat", "who": "nona", "target": "ramis", "cycles": 3}
+```
+
+**search_drawers** — rummaging macro: repeated reach_for(desk) with downward variants.
+
+```json
+{"action": "search_drawers", "who": "sidel",
+ "target": "sidels_desk", "cycles": 3}
+```
+
+**pick_up_phone** — reach to handset, lift to ear.
+
+```json
+{"action": "pick_up_phone", "who": "sidel", "prop": "desk_phone"}
+```
+
+**hang_up** — return held handset to its cradle.
+
+```json
+{"action": "hang_up", "who": "sidel",
+ "prop": "desk_phone", "target": "sidels_desk"}
+```
+
+**group_translate** (v0.9.5) — move multiple characters and props simultaneously.
+Primary mechanism for elevator rise.
+
+```json
+{"action": "group_translate",
+ "who":   ["nona", "sidel"],
+ "props": ["elevator-car"],
+ "dx": 0.0, "dy": 2.5,
+ "rt": 1.8}
+```
+
+Characters' `offset` and props' `pam_x`/`pam_y` are updated in place so
+subsequent actions start from the correct post-translate position.
+
 **scale**
 
 ```json
@@ -1556,6 +1845,32 @@ Accepts any named pose or a raw joint dict.
 }}
 ```
 
+**scene_objects** (v0.9.5) — large background dressing that the camera can
+reference as `SUBJECT`.  Objects are added to the back of the scene so they
+render behind all characters.
+
+```json
+{"action": "scene_objects", "items": {
+  "building-facade": {
+    "type":   "building",
+    "x":      0.0,
+    "height": 7.0,
+    "label":  "INTERGALACTIC POSTAL SERVICE",
+    "color":  "#3a4a6a"
+  }
+}}
+```
+
+**zones** (v0.9.5) — declare named spatial sub-regions.  Consulted at each
+`_subscene_marker` that carries a `"zone"` key to clamp camera x-range.
+
+```json
+{"action": "zones", "items": {
+  "lobby":             {"x_min": -7.0, "x_max": 0.0, "label": "Lobby"},
+  "elevator_interior": {"x_min":  0.0, "x_max": 4.0, "label": "Elevator"}
+}}
+```
+
 ### Parallel actions
 
 ```json
@@ -1570,9 +1885,10 @@ Accepts any named pose or a raw joint dict.
 }
 ```
 
-Only locomotion actions (`walk_to`, `run_to`, `trot_to`, `walk_to_prop`,
-`run_to_prop`) may appear in `do`.  Multi-step choreography methods
-(`sit_down`, `wave`) fall back to sequential with a console warning.
+Only locomotion (`walk_to`, `run_to`, `trot_to`, `walk_to_prop`, `run_to_prop`)
+and single-step pose actions (`morph`, `turn`, `scale`, `fade_out`) may appear
+in `do`.  Multi-step choreography (`sit_down`, `wave`, `rush_to`) falls back to
+sequential with a console warning.
 
 ### Annotation entries
 
@@ -1652,8 +1968,24 @@ always places `_comment` as a separate preceding action.
 **`x: null` in locomotion.**  A `trot_to` or `walk_to` with `x: null` may
 break the keyframe interleaver.  Always set a concrete `x`.
 
-**The `insert` CAMERA framing** is a PAM-only beat — do not send to Kling.
-Use PAM render or a composited still for these beats.
+**`cheap_suit` layering.**  The jacket silhouette renders over the skeleton
+lines.  Spawn it *after* `fade_in` so it sits on top of the figure.
+
+**`peel_from_hand` is best in INSERT framing.**  The audio/video bug prop is
+tiny in wide shots.  Pair the action with
+`[[ CAMERA: FRAMING=insert | SUBJECT=... ]]` so the hands fill the frame.
+
+**`group_translate` updates offsets in place.**  After a `group_translate`,
+each character's `fig.offset` reflects the new position.  Subsequent `walk_to`
+targets should be world coordinates, not relative distances.
+
+**`express` glyphs are defined in `poses.EXPRESSION_GLYPHS`.**  Add new
+expressions there (glyph char, dx/dy offset from head, font_size, hold, color)
+and they are automatically available to the `express` action.
+
+**O.S. bubble requires `bubble_style="os"`.** The dashed-border bubble is not
+triggered by parenthetical alone — `fountain2pam.py` must inject the `style`
+key, or you can set it manually in hand-written JSON.
 
 **Freeform `[[ CAMERA: ]]` tags** (no `=` sign) pass through unchanged and
 are fully backward compatible with v0.9.0.
@@ -1674,7 +2006,83 @@ change the font in `builds.py` to `"Liberation Mono"` or `"DejaVu Sans Mono"`.
 
 ## Major changes by version
 
-### 0.9.4 (current)
+### 0.9.5 (current)
+
+**Character accessories (props.py)**
+
+- `build_name_tag(name, x, y, text, color)` — rounded chest badge with text
+  label and a pin dot at the top edge.  Spawn via `spawn_prop` with
+  `on_torso_of=`.
+- `build_delivery_cap(name, x, y, color, label)` — wide flat-brim cap; brim
+  extends further forward than back; optional front-panel label.  Spawn via
+  `spawn_prop` with `on_head_of=`.
+- `build_cheap_suit(name, x, y, color)` — jacket body + lapel triangles +
+  V-notch collar.  Draws over the skeleton — spawn after `fade_in`.  Spawn via
+  `spawn_prop` with `on_torso_of=`.
+- `build_silver_hair(name, x, y, color)` — thick `Arc` (220°) over the crown
+  plus a short fringe line.  Spawn via `spawn_prop` with `on_head_of=`.
+- All four registered in `PROP_TYPES`; `pam_player.spawn_prop` gains
+  `on_torso_of` alongside `on_head_of`.
+
+**New actions (actions.py)**
+
+- `express` — flash a reaction glyph above a character's head.  Reads
+  `EXPRESSION_GLYPHS` from `poses.py` (currently `smirk` and `roll_eyes`).
+  Add new expressions to `EXPRESSION_GLYPHS`; no player changes needed.
+- `peel_from_hand` — open-palm gesture that slides a tiny prop (bug, sticker)
+  from wrist to fingertip, leaving it in `fig._held_prop` ready for `stick_to`.
+  Best used in INSERT framing.
+- `group_translate` — move multiple characters and/or props simultaneously in
+  a single `scene.play()` call with a `[dx, dy]` displacement.  Primary
+  mechanism for elevator rise.  Bypasses `_targets()` in `pam_player.py`
+  (same pattern as `trot_to`).  Updates `fig.offset` and prop position attrs
+  in place.
+
+**O.S. / phone speech bubble (figure.py)**
+
+- `HumanGraph.say()` gains `bubble_style=None` parameter.
+  - `bubble_style="os"` or `"phone"` — dashed-border `DashedVMobject` box in
+    cool blue (`#6ab0d4`) with a zigzag VMobject tail; text in `#a8d8f0`.
+  - `bubble_style=None` / `"normal"` — unchanged standard bubble.
+- `DogGraph.say()` and `GovernorGraph.say()` gain `bubble_style=None` for
+  signature parity (no rendering difference).
+
+**Spatial / camera additions (pam_player.py)**
+
+- `pan-down` MOVE value — mirror of `pan-up`; tilts camera bottom to floor
+  (`y ≈ -2.6`).  Tilt duration 2.5 s.  `_execute_pan_down()` added.
+- `scene_objects` action — background dressing registered in `_scene_objects`
+  and added to the back of the scene; merged into camera subject lookup so
+  `SUBJECT=building-facade` works in CAMERA annotations.
+- `zones` action — declares named spatial sub-regions into `_zones`; camera
+  x-range clamped to active zone at each `_subscene_marker`.
+- `caption` action — Manim Text card with dark backing bar; `position`
+  (`bottom` / `top` / `lower-third`), `duration`, `style` sub-keys.
+- `sound_cue` action — scale-pop flash of a diegetic label (RING!, KNOCK!).
+
+**Fountain+ keys (fountain2pam.py)**
+
+- `CAPTION` — parsed into `caption` action with TEXT, POSITION, DURATION,
+  STYLE sub-keys.
+- `SOUND` — parsed into `sound_cue` action.
+- `PHONE` — marks intercut telephone conversation; `say` actions receive
+  `style="os"`.
+- `PRODUCTION NOTE` — stored as metadata only; not emitted to PAM JSON.
+- `ZONE` — parsed into `_subscene_marker` `zone` field.
+- `pan-down` added to `CAMERA_MOVE` vocabulary.
+
+**Docstring / version cleanup**
+
+- All Veo/Kling references removed from `pam_player.py` docstrings; the
+  PAM → Blender workflow replaces the PAM → AI video direct pipeline.
+- FRAMING table in `PAMPlayer` class docstring corrected to match actual
+  `_FRAMING_CAMERA` dict values.
+- Orphaned unreachable `self.wait()` dead code removed from `on_screen_text`
+  handler.
+
+---
+
+### 0.9.4
 
 **Two-zone character color (Track D)**
 
@@ -1739,8 +2147,8 @@ change the font in `builds.py` to `"Liberation Mono"` or `"DejaVu Sans Mono"`.
   `pam_torso_color`, `pam_gender` custom properties.
 - Timeline markers: one per `_subscene_marker`, labelled with subscene ID +
   framing/move suffix for NLA editor navigation.
-- Scope note: character armatures, deformable geometry, and action strips are
-  deferred to v0.9.5.
+- Scope note: character armatures, deformable geometry, and action strips were
+  deferred beyond v0.9.4.
 
 ---
 
@@ -1880,10 +2288,10 @@ MIT License — see LICENSE for details.
 
 PAM was built to support *Too Nice to Die* — an animated sci-fi comedy
 screenplay set on Venus, part of the Avatar Academy universe.  The production
-pipeline runs from Fountain screenplay through PAM blocking animation, AI still
-generation, Kling video clips, and Final Cut Pro X assembly.
+pipeline runs from Fountain screenplay through PAM blocking animation, Blender
+scene layout, AI video generation, and Final Cut Pro X assembly.
 
 ---
 
-*PAM v0.9.4 · fountain2pam v0.9.4 · pam2blender v0.9.4*
+*PAM v0.9.5 · fountain2pam v0.9.5 · pam2blender v0.9.5*
 *Co-authored by David Joyner and Claude Sonnet 4.6 (Anthropic)*
