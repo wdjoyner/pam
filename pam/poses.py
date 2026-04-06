@@ -430,6 +430,19 @@ WAVE_LEFT  = _wave_arm(1.10, 1.90, 1.00, 2.40)
 
 WAVE_CYCLE = [WAVE_RIGHT, WAVE_LEFT, WAVE_RIGHT, WAVE_LEFT]
 
+# Left-arm equivalents — mirror x signs for lelbow/lwrist
+def _lwave_arm(lelbow_x, lelbow_y, lwrist_x, lwrist_y):
+    p = deepcopy(STANDING_FRONT)
+    p["lelbow"] = _v(lelbow_x, lelbow_y)
+    p["lwrist"] = _v(lwrist_x, lwrist_y)
+    return p
+
+LWAVE_UP    = _lwave_arm(-1.10, 1.90, -1.60, 2.50)
+LWAVE_RIGHT = _lwave_arm(-1.10, 1.90, -1.00, 2.40)
+LWAVE_LEFT  = _lwave_arm(-1.10, 1.90, -2.10, 2.20)
+
+LWAVE_CYCLE = [LWAVE_RIGHT, LWAVE_LEFT, LWAVE_RIGHT, LWAVE_LEFT]
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  SITTING POSES  (front view — symmetric descent to a seated position)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -740,6 +753,322 @@ DOG_TROT_B = dog_side_pose(
 DOG_TROT_CYCLE = [DOG_TROT_A, DOG_TROT_B, DOG_TROT_A, DOG_TROT_B]
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  LOOK UP  (front view — head raised, one arm optionally lifted)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  Head node shifts upward by ~0.35.  Two variants:
+#    LOOK_UP       — both arms neutral (looking at ceiling / sky / screen)
+#    LOOK_UP_POINT — right arm raised toward the looked-at object
+#
+#  Player usage:
+#    {"action": "morph", "who": "nona", "pose": "look_up"}
+#    {"action": "morph", "who": "nona", "pose": "look_up_point"}
+
+LOOK_UP = front_pose(
+    head_y=3.35,          # raised ~0.35 above normal 3.00
+    neck_y=2.50,          # neck follows up slightly
+    # arms neutral — shoulders/elbows/wrists unchanged
+)
+
+LOOK_UP_POINT = front_pose(
+    head_y=3.35,
+    neck_y=2.50,
+    # right arm raised toward the object being looked at
+    elbow_w=1.10, elbow_y=1.60,
+    wrist_w=1.40, wrist_y=2.30,
+)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  AT ATTENTION  (front view — arms rigid at sides, feet together)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  Upright standing posture: elbows close to torso, wrists at hip level,
+#  ankles brought to centre.  Readable as military / formal / nervous.
+#
+#  Distinct from SQUEEZE: this is a static standing pose, not a walking pose.
+
+AT_ATTENTION = front_pose(
+    # arms straight down, tight to body
+    elbow_w=0.55, elbow_y=0.60,
+    wrist_w=0.50, wrist_y=-0.35,
+    # feet together
+    ankle_w=0.12, ankle_y=-2.60,
+    knee_w=0.14,  knee_y=-1.50,
+)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  REACH FORWARD  (side view — both arms extended forward at mid-height)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  Used for pick_up, grab, two-handed prop interaction.  Replaces the inline
+#  arm math currently hardcoded in pam_player.py pick_up / put_down handlers.
+#  The player's Pass-2 refactor will reference this pose by name.
+#
+#  Wrist height is prop-surface-relative in the player; this pose gives the
+#  arm shape — the player applies a dy offset to match the actual prop y.
+
+REACH_FORWARD = side_pose(
+    relbow_x=0.30, relbow_y=0.90,  rwrist_x=0.55, rwrist_y=0.50,
+    lelbow_x=0.30, lelbow_y=0.90,  lwrist_x=0.55, lwrist_y=0.50,
+)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  REACH SIDE  (side view — one arm extended laterally toward a target)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  Used for reach_for, punch_button (sharp version), desk drawer rummage.
+#  _R = right arm leads (target is forward / screen-right in side view).
+#  _L = left arm leads (target is behind / screen-left).
+#
+#  "Sharp" variant (punch_button): player applies a brief fast morph to
+#  REACH_SIDE_R then back — the pose itself is the extended position.
+
+REACH_SIDE_R = side_pose(
+    relbow_x=0.45, relbow_y=1.00,  rwrist_x=0.80, rwrist_y=0.85,
+    lelbow_x=0.10, lelbow_y=0.70,  lwrist_x=0.10, lwrist_y=0.30,
+)
+
+REACH_SIDE_L = side_pose(
+    lelbow_x=-0.45, lelbow_y=1.00,  lwrist_x=-0.80, lwrist_y=0.85,
+    relbow_x=-0.10, relbow_y=0.70,  rwrist_x=-0.10, rwrist_y=0.30,
+)
+
+# Low reach — for desk drawers, floor-level props
+REACH_SIDE_R_LOW = side_pose(
+    relbow_x=0.35, relbow_y=0.30,  rwrist_x=0.65, rwrist_y=-0.40,
+    lelbow_x=0.05, lelbow_y=0.60,  lwrist_x=0.05, lwrist_y=0.20,
+)
+
+REACH_SIDE_L_LOW = side_pose(
+    lelbow_x=-0.35, lelbow_y=0.30,  lwrist_x=-0.65, lwrist_y=-0.40,
+    relbow_x=-0.05, relbow_y=0.60,  rwrist_x=-0.05, rwrist_y=0.20,
+)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SIDE CARRY  (side view — one arm at side, low wrist, for briefcase)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  Right hand carries a prop at low-arm height (briefcase, bag).
+#  Left arm swings naturally as in a walk.  The player attaches the prop
+#  to the rwrist attachment point.
+#
+#  SIDE_CARRY_R_WALK_* are the locomotion variants (legs cycle, arm stays low).
+
+SIDE_CARRY_R = side_pose(
+    relbow_x=0.12, relbow_y=0.55,  rwrist_x=0.15, rwrist_y=-0.55,
+    lelbow_x=_AF,  lelbow_y=_AEY,  lwrist_x=_AWF, lwrist_y=_AWY,
+)
+
+SIDE_CARRY_R_WALK_A = side_pose(
+    lhip_x=-0.05, lknee_x=-0.15, lankle_x=-0.20, lknee_y=-1.50, lankle_y=-2.60,
+    rhip_x= 0.08, rknee_x= 0.25, rankle_x= 0.15, rknee_y=-1.10, rankle_y=-1.80,
+    relbow_x=0.12, relbow_y=0.55,  rwrist_x=0.15, rwrist_y=-0.55,
+    lelbow_x=_AF,  lelbow_y=_AEY,  lwrist_x=_AWF, lwrist_y=_AWY,
+)
+
+SIDE_CARRY_R_WALK_B = side_pose(
+    rhip_x= 0.05, rknee_x= 0.15, rankle_x= 0.20, rknee_y=-1.50, rankle_y=-2.60,
+    lhip_x=-0.08, lknee_x=-0.25, lankle_x=-0.15, lknee_y=-1.10, lankle_y=-1.80,
+    relbow_x=0.12, relbow_y=0.55,  rwrist_x=0.15, rwrist_y=-0.55,
+    lelbow_x=_AB,  lelbow_y=_AEY,  lwrist_x=_AWB, lwrist_y=_AWY,
+)
+
+SIDE_CARRY_R_CYCLE = [
+    SIDE_CARRY_R_WALK_A, SIDE_CARRY_R_WALK_B,
+    SIDE_CARRY_R_WALK_A, SIDE_CARRY_R_WALK_B,
+]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  RUSH LEAN  (side view — walk base with pronounced forward lean)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  Used as the standing pose between rush_to locomotion keyframes.
+#  The player uses run_to for locomotion but morphs through RUSH_LEAN
+#  at the start and end to signal urgency without full flight phases.
+#
+#  Arm swing is wider than a walk but narrower than a full run.
+
+_RL_F, _RL_B   =  0.65, -0.65
+_RL_WF, _RL_WB =  0.80, -0.80
+
+RUSH_LEAN = side_pose(
+    head_x=0.22, neck_x=0.16,      # forward lean
+    lhip_x=-0.08, lknee_x=-0.18, lankle_x=-0.28,
+    rhip_x= 0.10, rknee_x= 0.35, rankle_x= 0.25, rknee_y=-1.00, rankle_y=-1.70,
+    lelbow_x=_RL_F,  lelbow_y=_AEY, lwrist_x=_RL_WF,  lwrist_y=_AWY,
+    relbow_x=_RL_B,  relbow_y=_AEY, rwrist_x=_RL_WB,  rwrist_y=_AWY,
+)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SQUEEZE  (side view — narrow-stance walk, arms tucked)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  Standing and locomotion variant for squeezing through a narrow gap
+#  (pocket door, crowded hallway).  Arms pulled back behind torso plane,
+#  stride shortened.
+#
+#  Note: on the AlienGraph the wide torso bar means tucked arms may
+#  visually overlap the torso rectangle.  This is accepted in v0.9.6;
+#  a build-aware variant is deferred to a future version.
+
+SQUEEZE = side_pose(
+    # arms tucked back — elbows behind torso
+    relbow_x=-0.18, relbow_y=0.90,  rwrist_x=-0.22, rwrist_y=0.35,
+    lelbow_x=-0.18, lelbow_y=0.90,  lwrist_x=-0.22, lwrist_y=0.35,
+    # narrow foot placement
+    lhip_x=-0.03, lknee_x=-0.04, lankle_x=-0.05,
+    rhip_x= 0.03, rknee_x= 0.04, rankle_x= 0.05,
+)
+
+SQUEEZE_WALK_A = side_pose(
+    relbow_x=-0.18, relbow_y=0.90,  rwrist_x=-0.22, rwrist_y=0.35,
+    lelbow_x=-0.18, lelbow_y=0.90,  lwrist_x=-0.22, lwrist_y=0.35,
+    lhip_x=-0.03, lknee_x=-0.10, lankle_x=-0.12, lknee_y=-1.50, lankle_y=-2.60,
+    rhip_x= 0.03, rknee_x= 0.18, rankle_x= 0.10, rknee_y=-1.15, rankle_y=-1.85,
+)
+
+SQUEEZE_WALK_B = side_pose(
+    relbow_x=-0.18, relbow_y=0.90,  rwrist_x=-0.22, rwrist_y=0.35,
+    lelbow_x=-0.18, lelbow_y=0.90,  lwrist_x=-0.22, lwrist_y=0.35,
+    rhip_x= 0.03, rknee_x= 0.10, rankle_x= 0.12, rknee_y=-1.50, rankle_y=-2.60,
+    lhip_x=-0.03, lknee_x=-0.18, lankle_x=-0.10, lknee_y=-1.15, lankle_y=-1.85,
+)
+
+SQUEEZE_CYCLE = [SQUEEZE_WALK_A, SQUEEZE_WALK_B,
+                 SQUEEZE_WALK_A, SQUEEZE_WALK_B]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  DODGE  (side view — lateral sidestep lean away from another character)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  A reactive lean: torso and head tip in one direction while the opposite
+#  foot steps out.  Two variants: dodge right (lean right) and dodge left.
+#
+#  Player usage (one-shot — morph in, hold, morph back):
+#    {"action": "morph", "who": "nona", "pose": "dodge_r", "rt": 0.18}
+#    {"action": "wait",  "t": 0.3}
+#    {"action": "morph", "who": "nona", "pose": "standing_side"}
+
+DODGE_R = side_pose(
+    head_x= 0.30, neck_x= 0.22,    # lean rightward (forward in side view)
+    rhip_x= 0.25, rknee_x= 0.40, rankle_x= 0.55,   # right leg steps out
+    lhip_x=-0.05, lknee_x=-0.08, lankle_x=-0.10,
+    relbow_x= 0.35, relbow_y=0.85,  rwrist_x= 0.50, rwrist_y=0.45,
+    lelbow_x=-0.10, lelbow_y=0.75,  lwrist_x=-0.15, lwrist_y=0.30,
+)
+
+DODGE_L = side_pose(
+    head_x=-0.30, neck_x=-0.22,    # lean leftward (backward in side view)
+    lhip_x=-0.25, lknee_x=-0.40, lankle_x=-0.55,   # left leg steps out
+    rhip_x= 0.05, rknee_x= 0.08, rankle_x= 0.10,
+    lelbow_x=-0.35, lelbow_y=0.85,  lwrist_x=-0.50, lwrist_y=0.45,
+    relbow_x= 0.10, relbow_y=0.75,  rwrist_x= 0.15, rwrist_y=0.30,
+)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  JUMP UP  (front view — eager reactive spring from standing)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  Three-frame sequence: JUMP_CROUCH → JUMP_PEAK → standing_front.
+#  The player morphs through these quickly (rt ≈ 0.15 each) for a snappy
+#  jump.  Used for jump_up and eager/reactive stand_up variants.
+#
+#  JUMP_CROUCH — brief knee bend before launch (telegraphs the jump)
+#  JUMP_PEAK   — body raised, knees drawn up, arms out for balance
+
+JUMP_CROUCH = front_pose(
+    head_y=2.70, neck_y=2.00,
+    shoulder_y=1.40, torso_y=0.40,
+    elbow_w=1.40, elbow_y=0.55,
+    wrist_w=1.60, wrist_y=0.10,
+    knee_w=0.60,  knee_y=-1.20,
+    ankle_w=0.55, ankle_y=-2.60,
+)
+
+JUMP_PEAK = front_pose(
+    head_y=3.55, neck_y=2.85,      # whole body ~0.55 higher
+    shoulder_y=2.25, torso_y=1.25,
+    elbow_w=1.60, elbow_y=1.35,    # arms spread wide for balance
+    wrist_w=1.80, wrist_y=0.80,
+    hip_y= 0.15,
+    knee_w=0.75,  knee_y=-0.60,    # knees drawn up
+    ankle_w=0.65, ankle_y=-1.30,   # feet off floor
+)
+
+JUMP_CYCLE = [JUMP_CROUCH, JUMP_PEAK, STANDING_FRONT]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  PAT  (side view — short repeated arm tap toward a prop or body area)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  Two-frame cycle: PAT_A (arm extended) → PAT_B (arm retracted slightly).
+#  The player loops this 2–4 times to sell the patting gesture.
+#  Used for: patting a dog, tapping a prop, self-reassurance gesture.
+
+PAT_A = side_pose(
+    relbow_x=0.30, relbow_y=0.65,  rwrist_x=0.55, rwrist_y=0.10,
+    lelbow_x=0.05, lelbow_y=0.70,  lwrist_x=0.05, lwrist_y=0.30,
+)
+
+PAT_B = side_pose(
+    relbow_x=0.25, relbow_y=0.72,  rwrist_x=0.45, rwrist_y=0.22,
+    lelbow_x=0.05, lelbow_y=0.70,  lwrist_x=0.05, lwrist_y=0.30,
+)
+
+PAT_CYCLE = [PAT_A, PAT_B, PAT_A, PAT_B]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  EXPRESSION GLYPHS
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  Not joint positions — small metadata dicts that the player (Pass 2)
+#  renders as brief Manim Text mobjects near the character's head node.
+#
+#  Keys:
+#    "glyph"     — Unicode string displayed as the expression
+#    "dx"        — x offset from head node centre (positive = right)
+#    "dy"        — y offset from head node centre (positive = up)
+#    "font_size" — Manim font size for the Text mobject
+#    "hold"      — default display duration in seconds
+#    "color"     — default text color
+#
+#  Player usage (Pass 2):
+#    {"action": "express", "who": "nona", "expression": "smirk", "hold": 1.2}
+#    {"action": "express", "who": "sidel", "expression": "roll_eyes"}
+#
+#  The player resolves head position via:
+#    head_pos = fig._apply_scale(fig.pose)["head"] + fig.offset
+#    glyph_pos = head_pos + np.array([meta["dx"], meta["dy"], 0])
+
+EXPRESSION_GLYPHS = {
+    "smirk": {
+        "glyph":     "〜",
+        "dx":         0.38,
+        "dy":         0.10,
+        "font_size":  16,
+        "hold":       1.0,
+        "color":      "#e8c547",
+    },
+    "roll_eyes": {
+        "glyph":     "ಠ_ಠ",
+        "dx":         0.40,
+        "dy":         0.12,
+        "font_size":  13,
+        "hold":       1.0,
+        "color":      "#aaccee",
+    },
+}
 
 
 POSES = {
@@ -753,6 +1082,10 @@ POSES = {
     "wave_up":        WAVE_UP,
     "wave_right":     WAVE_RIGHT,
     "wave_left":      WAVE_LEFT,
+    # left-arm wave
+    "lwave_up":       LWAVE_UP,
+    "lwave_right":    LWAVE_RIGHT,
+    "lwave_left":     LWAVE_LEFT,
     # walk
     "walk_r_lift":    WALK_R_LIFT,
     "walk_r_swing":   WALK_R_SWING,
@@ -769,12 +1102,42 @@ POSES = {
     "run_l_push":     RUN_L_PUSH,
     "run_l_flight":   RUN_L_FLIGHT,
     "run_l_land":     RUN_L_LAND,
-    # carry
-    "carry_hold":     CARRY_HOLD,
+    # carry (chest height)
+    "carry_hold":         CARRY_HOLD,
     "carry_walk_r":       CARRY_WALK_R,
     "carry_walk_r_plant": CARRY_WALK_R_PLANT,
     "carry_walk_l":       CARRY_WALK_L,
     "carry_walk_l_plant": CARRY_WALK_L_PLANT,
+    # carry (side / low arm — briefcase)
+    "side_carry_r":          SIDE_CARRY_R,
+    "side_carry_r_walk_a":   SIDE_CARRY_R_WALK_A,
+    "side_carry_r_walk_b":   SIDE_CARRY_R_WALK_B,
+    # look up
+    "look_up":        LOOK_UP,
+    "look_up_point":  LOOK_UP_POINT,
+    # attention
+    "at_attention":   AT_ATTENTION,
+    # reach
+    "reach_forward":      REACH_FORWARD,
+    "reach_side_r":       REACH_SIDE_R,
+    "reach_side_l":       REACH_SIDE_L,
+    "reach_side_r_low":   REACH_SIDE_R_LOW,
+    "reach_side_l_low":   REACH_SIDE_L_LOW,
+    # rush
+    "rush_lean":      RUSH_LEAN,
+    # squeeze
+    "squeeze":         SQUEEZE,
+    "squeeze_walk_a":  SQUEEZE_WALK_A,
+    "squeeze_walk_b":  SQUEEZE_WALK_B,
+    # dodge
+    "dodge_r":        DODGE_R,
+    "dodge_l":        DODGE_L,
+    # jump
+    "jump_crouch":    JUMP_CROUCH,
+    "jump_peak":      JUMP_PEAK,
+    # pat
+    "pat_a":          PAT_A,
+    "pat_b":          PAT_B,
     # dog
     "dog_standing":   DOG_STANDING,
     "dog_trot_a":     DOG_TROT_A,
@@ -783,13 +1146,17 @@ POSES = {
 
 # Named cycles (for convenience)
 CYCLES = {
-    "walk":       WALK_CYCLE,
-    "run":        RUN_CYCLE,
-    "wave":       WAVE_CYCLE,
-    "sit":        SIT_CYCLE,
-    "stand":      STAND_CYCLE,
-    "carry_walk": CARRY_WALK_CYCLE,
-    "dog_trot":   DOG_TROT_CYCLE,
+    "walk":           WALK_CYCLE,
+    "run":            RUN_CYCLE,
+    "wave":           WAVE_CYCLE,
+    "sit":            SIT_CYCLE,
+    "stand":          STAND_CYCLE,
+    "carry_walk":     CARRY_WALK_CYCLE,
+    "side_carry_r":   SIDE_CARRY_R_CYCLE,
+    "squeeze":        SQUEEZE_CYCLE,
+    "jump":           JUMP_CYCLE,
+    "pat":            PAT_CYCLE,
+    "dog_trot":       DOG_TROT_CYCLE,
 }
 
 
@@ -892,6 +1259,18 @@ def build_poses(proportions: dict, torso_y_override: float | None = None) -> dic
     wave_right = _wave_arm(1.10, 1.90, 2.10, 2.20)
     wave_left  = _wave_arm(1.10, 1.90, 1.00, 2.40)
 
+    # left-arm wave poses — mirror x signs for lelbow/lwrist
+    def _lwave_arm(lelbow_x, lelbow_y, lwrist_x, lwrist_y):
+        from copy import deepcopy
+        wp = deepcopy(standing_front)
+        wp["lelbow"] = _v(lelbow_x, lelbow_y)
+        wp["lwrist"] = _v(lwrist_x, lwrist_y)
+        return wp
+
+    lwave_up    = _lwave_arm(-1.10, 1.90, -1.60, 2.50)
+    lwave_right = _lwave_arm(-1.10, 1.90, -1.00, 2.40)
+    lwave_left  = _lwave_arm(-1.10, 1.90, -2.10, 2.20)
+
     # ── side-view poses (scale default keyframes proportionally) ─────────
     # The x-scaling ratio adjusts shoulder/arm/hip spread.
     # The y-values stay the same (same height skeleton).
@@ -937,6 +1316,7 @@ def build_poses(proportions: dict, torso_y_override: float | None = None) -> dic
     sit_cycle   = [sitting_mid, sitting_down]
     stand_cycle = [sitting_mid, standing_front]
     wave_cycle  = [wave_right, wave_left, wave_right, wave_left]
+    lwave_cycle = [lwave_right, lwave_left, lwave_right, lwave_left]
 
     poses_reg = {
         "standing_front": standing_front,
@@ -946,6 +1326,9 @@ def build_poses(proportions: dict, torso_y_override: float | None = None) -> dic
         "wave_up":        wave_up,
         "wave_right":     wave_right,
         "wave_left":      wave_left,
+        "lwave_up":       lwave_up,
+        "lwave_right":    lwave_right,
+        "lwave_left":     lwave_left,
     }
     # add walk/run/carry keyframes
     wn = ["walk_r_lift", "walk_r_swing", "walk_r_extend", "walk_r_plant",
@@ -962,6 +1345,100 @@ def build_poses(proportions: dict, torso_y_override: float | None = None) -> dic
     for name, kf in zip(cn, carry_walk_cycle):
         poses_reg[name] = kf
 
+    # ── new v0.9.6 poses — built from proportions then x-scaled ──────────
+    look_up       = _make_front(
+        head_y=p["head_y"] + 0.35, neck_y=p["neck_y"] + 0.20,
+        shoulder_w=p["shoulder_w"], shoulder_y=p["shoulder_y"],
+        torso_y=p["torso_y"],
+        torso_bar_scale=p.get("torso_bar_scale", 1.1),
+        elbow_w=p["elbow_w"], elbow_y=p["elbow_y"],
+        wrist_w=p["wrist_w"], wrist_y=p["wrist_y"],
+        hip_w=p["hip_w"], hip_y=p["hip_y"],
+        knee_w=p["knee_w"], knee_y=p["knee_y"],
+        ankle_w=p["ankle_w"], ankle_y=p["ankle_y"],
+    )
+    look_up_point = deepcopy(look_up)
+    look_up_point["relbow"] = _v(p["elbow_w"] * 0.85,  p["shoulder_y"] - 0.10)
+    look_up_point["rwrist"] = _v(p["wrist_w"]  * 0.93,  p["shoulder_y"] + 0.60)
+
+    at_attention = _make_front(
+        head_y=p["head_y"], neck_y=p["neck_y"],
+        shoulder_w=p["shoulder_w"], shoulder_y=p["shoulder_y"],
+        torso_y=p["torso_y"],
+        torso_bar_scale=p.get("torso_bar_scale", 1.1),
+        elbow_w=p["elbow_w"] * 0.42, elbow_y=p["elbow_y"] - 0.10,
+        wrist_w=p["wrist_w"] * 0.33, wrist_y=p["hip_y"] - 0.05,
+        hip_w=p["hip_w"], hip_y=p["hip_y"],
+        knee_w=p["knee_w"] * 0.28, knee_y=p["knee_y"],
+        ankle_w=p["ankle_w"] * 0.23, ankle_y=p["ankle_y"],
+    )
+
+    jump_crouch = _make_front(
+        head_y=p["head_y"] - 0.30, neck_y=p["neck_y"] - 0.30,
+        shoulder_w=p["shoulder_w"], shoulder_y=p["shoulder_y"] - 0.30,
+        torso_y=p["torso_y"]  - 0.30,
+        torso_bar_scale=p.get("torso_bar_scale", 1.1),
+        elbow_w=p["elbow_w"] * 1.08, elbow_y=p["elbow_y"] - 0.15,
+        wrist_w=p["wrist_w"] * 1.07, wrist_y=p["wrist_y"] + 0.20,
+        hip_w=p["hip_w"], hip_y=p["hip_y"],
+        knee_w=p["knee_w"] * 1.20, knee_y=p["knee_y"] + 0.30,
+        ankle_w=p["ankle_w"], ankle_y=p["ankle_y"],
+    )
+    jump_peak = _make_front(
+        head_y=p["head_y"] + 0.55, neck_y=p["neck_y"] + 0.55,
+        shoulder_w=p["shoulder_w"], shoulder_y=p["shoulder_y"] + 0.55,
+        torso_y=p["torso_y"]  + 0.55,
+        torso_bar_scale=p.get("torso_bar_scale", 1.1),
+        elbow_w=p["elbow_w"] * 1.23, elbow_y=p["elbow_y"] + 0.65,
+        wrist_w=p["wrist_w"] * 1.20, wrist_y=p["wrist_y"] + 1.10,
+        hip_w=p["hip_w"], hip_y=p["hip_y"] + 0.45,
+        knee_w=p["knee_w"] * 1.50, knee_y=p["knee_y"] + 0.90,
+        ankle_w=p["ankle_w"] * 1.25, ankle_y=p["ankle_y"] + 1.30,
+    )
+
+    # Side-view new poses — scale to build proportions
+    reach_forward    = _adapt_side(REACH_FORWARD)
+    reach_side_r     = _adapt_side(REACH_SIDE_R)
+    reach_side_l     = _adapt_side(REACH_SIDE_L)
+    reach_side_r_low = _adapt_side(REACH_SIDE_R_LOW)
+    reach_side_l_low = _adapt_side(REACH_SIDE_L_LOW)
+    rush_lean        = _adapt_side(RUSH_LEAN)
+    squeeze          = _adapt_side(SQUEEZE)
+    squeeze_cycle    = [_adapt_side(kf) for kf in SQUEEZE_CYCLE]
+    dodge_r          = _adapt_side(DODGE_R)
+    dodge_l          = _adapt_side(DODGE_L)
+    side_carry_r     = _adapt_side(SIDE_CARRY_R)
+    side_carry_r_cycle = [_adapt_side(kf) for kf in SIDE_CARRY_R_CYCLE]
+    pat_a            = _adapt_side(PAT_A)
+    pat_b            = _adapt_side(PAT_B)
+
+    jump_cycle   = [jump_crouch, jump_peak, standing_front]
+    pat_cycle    = [pat_a, pat_b, pat_a, pat_b]
+
+    poses_reg.update({
+        "look_up":           look_up,
+        "look_up_point":     look_up_point,
+        "at_attention":      at_attention,
+        "reach_forward":     reach_forward,
+        "reach_side_r":      reach_side_r,
+        "reach_side_l":      reach_side_l,
+        "reach_side_r_low":  reach_side_r_low,
+        "reach_side_l_low":  reach_side_l_low,
+        "rush_lean":         rush_lean,
+        "squeeze":           squeeze,
+        "squeeze_walk_a":    squeeze_cycle[0],
+        "squeeze_walk_b":    squeeze_cycle[1],
+        "dodge_r":           dodge_r,
+        "dodge_l":           dodge_l,
+        "jump_crouch":       jump_crouch,
+        "jump_peak":         jump_peak,
+        "side_carry_r":      side_carry_r,
+        "side_carry_r_walk_a": side_carry_r_cycle[0],
+        "side_carry_r_walk_b": side_carry_r_cycle[1],
+        "pat_a":             pat_a,
+        "pat_b":             pat_b,
+    })
+
     return {
         "joints":         ALIEN_JOINTS if _use_alien_torso else JOINTS,
         "edges":          ALIEN_EDGES  if _use_alien_torso else EDGES,
@@ -972,13 +1449,21 @@ def build_poses(proportions: dict, torso_y_override: float | None = None) -> dic
         "wave_up":        wave_up,
         "wave_right":     wave_right,
         "wave_left":      wave_left,
+        "lwave_up":       lwave_up,
+        "lwave_right":    lwave_right,
+        "lwave_left":     lwave_left,
         "walk_cycle":     walk_cycle,
         "run_cycle":      run_cycle,
         "sit_cycle":      sit_cycle,
         "stand_cycle":    stand_cycle,
         "wave_cycle":     wave_cycle,
+        "lwave_cycle":    lwave_cycle,
         "carry_hold":     carry_hold,
-        "carry_walk_cycle": carry_walk_cycle,
+        "carry_walk_cycle":    carry_walk_cycle,
+        "side_carry_r_cycle":  side_carry_r_cycle,
+        "squeeze_cycle":       squeeze_cycle,
+        "jump_cycle":          jump_cycle,
+        "pat_cycle":           pat_cycle,
         "poses":          poses_reg,
     }
 
