@@ -1,6 +1,8 @@
 """
 PAM — Pose And Motion library for the humanoid skeleton graph.
 
+version 0.9.6
+
 props.py
 ~~~~~~~~
 Stage objects ("props") that humanoid graphs can interact with:
@@ -585,17 +587,17 @@ def build_hat(name: str, x=0.0, y=0.0, color=None, label=None,
 #
 #     ┌───────┐
 #     │       │
-#     │     ○ │    ← knob
+#     │   |   │    ← vertical bar handle (replaces legacy knob)
 #     │       │
 #     └───────┘
 #
-# Tall rectangle with a knob.  ~3.0 tall, ~1.2 wide.
+# Tall rectangle with a centred vertical bar handle.  ~3.0 tall, ~1.2 wide.
 # Characters exit by walking past the door's x, then fading out.
 
 def build_door(name: str, x=5.5, y=-2.6, color=None, label=None,
                parent=None, attach=None, attrs=None,
                prop_registry=None, **kwargs) -> VGroup:
-    """Build a door (tall rectangle with a knob).
+    """Build a door (tall rectangle with a vertical bar handle).
 
     Parameters
     ----------
@@ -623,19 +625,22 @@ def build_door(name: str, x=5.5, y=-2.6, color=None, label=None,
     door_h = 3.0
     door_w = 1.0
     top_y = y + door_h
+    handle_cx = x + door_w / 2 - 0.15
+    handle_mid = y + door_h * 0.45
 
     frame = Rectangle(
         width=door_w, height=door_h,
         color=c, fill_color=fc, fill_opacity=0.7, stroke_width=sw,
     ).move_to(np.array([x, y + door_h / 2, 0]))
 
-    # knob (small circle on the right side)
-    knob = Circle(
-        radius=0.06, color="#cccccc",
-        fill_color="#aaaaaa", fill_opacity=1, stroke_width=1,
-    ).move_to(np.array([x + door_w / 2 - 0.15, y + door_h * 0.45, 0]))
+    # vertical bar handle (replaces the old knob circle)
+    handle = Line(
+        np.array([handle_cx, handle_mid - 0.12, 0]),
+        np.array([handle_cx, handle_mid + 0.12, 0]),
+        color="#cccccc", stroke_width=sw + 1.5,
+    )
 
-    parts = [frame, knob]
+    parts = [frame, handle]
 
     if label:
         lbl = _make_label(label, x, top_y + 0.15, color=c)
@@ -648,8 +653,7 @@ def build_door(name: str, x=5.5, y=-2.6, color=None, label=None,
         surface_y=top_y,
         attachments={
             "surface":    np.array([x, top_y,              0]),
-            "knob":       np.array([x + door_w / 2 - 0.15,
-                                    y + door_h * 0.45,     0]),
+            "handle":     np.array([handle_cx, handle_mid, 0]),
             "threshold":  np.array([x, y,                  0]),
             "floor":      np.array([x, y,                  0]),
             "left-edge":  np.array([x - door_w / 2, y + door_h / 2, 0]),
@@ -751,6 +755,7 @@ def build_dodecahedron(name: str, x=0.0, y=1.5, color=None,
 def build_building(name: str, x=3.0, y=-2.6,
                    height=6.0, width=2.0,
                    color=None, window_color=None, label=None,
+                   label_font=None, label_color=None,
                    parent=None, attach=None, attrs=None,
                    prop_registry=None, **kwargs) -> VGroup:
     """Build a tall background building (rectangle + window grid).
@@ -765,7 +770,12 @@ def build_building(name: str, x=3.0, y=-2.6,
     width        : building width.  Default ``2.0``.
     color        : body stroke/fill colour.  Default concrete grey ``"#8a8a8a"``.
     window_color : window fill colour.  Default muted blue ``"#4a7a99"``.
-    label        : optional label above the roofline.
+    label        : optional company/building name sign at street level.
+                   Rendered as a small rectangle with text at the base of
+                   the building (bottom-left corner area), not at the roofline.
+                   Survives keystoning because it is near y=0 (t≈0).
+    label_font   : font for the sign text.  Default ``"Times New Roman"``.
+    label_color  : sign text / border colour.  Default gold ``"#e8c547"``.
     parent       : name of a parent prop, or ``None`` (world coords).
     attach       : named attachment point on the parent.
     attrs        : dict of visual overrides — ``"scale"``, ``"inclination"``.
@@ -797,13 +807,13 @@ def build_building(name: str, x=3.0, y=-2.6,
     fc  = "#6a6a6a"                   # slightly darker fill than stroke
 
     top_y   = y + height
-    centre_y = y + height / 2
+    center_y = y + height / 2
 
     # body rectangle — base at y, top at y+height
     body = Rectangle(
         width=width, height=height,
         color=c, fill_color=fc, fill_opacity=0.85, stroke_width=sw,
-    ).move_to(np.array([x, centre_y, 0]))
+    ).move_to(np.array([x, center_y, 0]))
 
     parts = [body]
 
@@ -830,8 +840,23 @@ def build_building(name: str, x=3.0, y=-2.6,
             parts.append(win)
 
     if label:
-        lbl = _make_label(label, x, top_y + 0.2, color=c)
-        parts.append(lbl)
+        lc   = label_color or "#e8c547"   # gold
+        lfont = label_font or "Times New Roman"
+        # Sign panel: small rectangle at bottom-left of the building facade
+        sign_w  = min(width * 0.75, 1.4)
+        sign_h  = 0.28
+        sign_x  = x - width / 2 + sign_w / 2 + 0.08   # left-aligned, slight margin
+        sign_y  = y + sign_h / 2 + 0.08                # just above the base
+        sign_bg = Rectangle(
+            width=sign_w, height=sign_h,
+            color=lc, fill_color="#1a1a0a",
+            fill_opacity=0.92, stroke_width=1.2,
+        ).move_to(np.array([sign_x, sign_y, 0]))
+        sign_txt = Text(
+            label, font=lfont,
+            font_size=10, color=lc,
+        ).move_to(sign_bg.get_center())
+        parts.extend([sign_bg, sign_txt])
 
     group = VGroup(*parts)
     # Store height for pan-up camera handler
@@ -843,9 +868,9 @@ def build_building(name: str, x=3.0, y=-2.6,
         attachments={
             "surface":    np.array([x, top_y,      0]),
             "floor":      np.array([x, y,           0]),
-            "centre":     np.array([x, centre_y,    0]),
-            "left-edge":  np.array([x - width / 2, centre_y, 0]),
-            "right-edge": np.array([x + width / 2, centre_y, 0]),
+            "centre":     np.array([x, center_y,    0]),
+            "left-edge":  np.array([x - width / 2, center_y, 0]),
+            "right-edge": np.array([x + width / 2, center_y, 0]),
         },
         parent=parent, attach=attach, attrs=attrs,
     )
@@ -1189,24 +1214,1374 @@ def build_moon(name: str, x=0.0, y=1.5,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  FLORAL ARRANGEMENT  (carried cluster or large set-down vase)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  "carry" size:  compact cluster of 3–5 coloured circles on short stems,
+#                 designed to be held at chest height.  ~0.55 tall, ~0.45 wide.
+#
+#  "large" size:  wider cluster in a vase rectangle, placed on a surface.
+#                 ~0.85 tall, ~0.70 wide.  Optional tag label ("Sorry I
+#                 Missed You") stored as .pam_tag for caption rendering.
+#
+#  Note on carried framing: when a character carries this prop during a
+#  pan-up or tilt shot the arrangement may be partially or fully out of
+#  frame depending on carry_position.  The player's carry_position logic
+#  will govern visibility; the prop itself makes no assumption.
+
+def build_floral_arrangement(name: str, x=0.0, y=0.0,
+                             size="carry",
+                             color=None, stem_color=None,
+                             bloom_count=5, tag=None,
+                             parent=None, attach=None, attrs=None,
+                             prop_registry=None, **kwargs) -> VGroup:
+    """Build a floral arrangement — a carried bouquet or a large set-down bunch.
+
+    Parameters
+    ----------
+    name        : registry name.
+    x, y        : position of the stem base (carry) or vase base (large).
+    size        : ``"carry"`` (default) — compact bouquet held at chest;
+                  ``"large"`` — wider arrangement placed on a surface.
+    color       : bloom colour.  Default warm pink ``"#e87878"``.
+    stem_color  : stem colour.  Default green ``"#4a8a4a"``.
+    bloom_count : number of bloom circles.  Default ``5``.
+    tag         : optional string stored as ``.pam_tag`` (e.g.
+                  ``"Sorry I Missed You"``).  Rendered as a tiny label
+                  on the large variant; metadata-only on carry.
+    parent      : name of a parent prop or character node, or ``None``.
+    attach      : named attachment point on the parent.
+    attrs       : dict of visual overrides — ``"scale"``, ``"inclination"``.
+    prop_registry : live prop dict, needed when *parent* is set.
+    """
+    _node_stub = {"name": name, "kind": "floral_arrangement",
+                  "parent": parent, "attach": attach,
+                  "attrs": attrs or {}, "x": x, "y": y}
+    if parent and prop_registry:
+        pos = resolve_position(_node_stub, prop_registry)
+        x, y = float(pos[0]), float(pos[1])
+
+    bc  = color      or "#e87878"   # warm pink blooms
+    sc  = stem_color or "#4a8a4a"   # green stems
+    sw  = PROP_DEFAULTS["stroke_width"]
+
+    parts = []
+
+    if size == "large":
+        scale_f  = 1.6
+        vase_w   = 0.40
+        vase_h   = 0.30
+        stem_h   = 0.45
+        spread   = 0.28
+        bloom_r  = 0.12
+    else:   # "carry"
+        scale_f  = 1.0
+        vase_w   = 0.0   # no vase on carry variant
+        vase_h   = 0.0
+        stem_h   = 0.30
+        spread   = 0.18
+        bloom_r  = 0.09
+
+    # vase (large only) — simple rounded rectangle
+    if size == "large":
+        vase = Rectangle(
+            width=vase_w, height=vase_h,
+            color=sc, fill_color="#5a3a2a", fill_opacity=0.85,
+            stroke_width=sw,
+        ).move_to(np.array([x, y + vase_h / 2, 0]))
+        parts.append(vase)
+        stem_base_y = y + vase_h
+    else:
+        stem_base_y = y
+
+    # stems — thin lines fanning upward
+    angles = np.linspace(-0.4, 0.4, bloom_count)
+    bloom_centres = []
+    for ang in angles:
+        tip_x = x + stem_h * np.sin(ang)
+        tip_y = stem_base_y + stem_h * np.cos(ang)
+        stem_line = Line(
+            np.array([x, stem_base_y, 0]),
+            np.array([tip_x, tip_y, 0]),
+            color=sc, stroke_width=sw - 0.5,
+        )
+        parts.append(stem_line)
+        bloom_centres.append((tip_x, tip_y))
+
+    # blooms — filled circles at stem tips
+    bloom_colors = [bc, "#f0c040", "#e0a0c0", "#a0c8e0", "#c0e0a0"]
+    for i, (bx, by) in enumerate(bloom_centres):
+        bloom = Circle(
+            radius=bloom_r,
+            color=bloom_colors[i % len(bloom_colors)],
+            fill_color=bloom_colors[i % len(bloom_colors)],
+            fill_opacity=0.92, stroke_width=0.8,
+        ).move_to(np.array([bx, by, 0]))
+        parts.append(bloom)
+
+    top_y = stem_base_y + stem_h + bloom_r
+
+    # tag label (large variant)
+    if tag and size == "large":
+        tag_lbl = _make_label(tag, x, top_y + 0.14,
+                              color=PROP_DEFAULTS["label_color"], font_size=9)
+        parts.append(tag_lbl)
+
+    group = VGroup(*parts)
+    group.pam_tag = tag or ""    # metadata available on both variants
+
+    _apply_attrs(group, attrs or {})
+    return _attach_pam_attrs(
+        group, name, "floral_arrangement", x, y,
+        surface_y=top_y,
+        attachments={
+            "surface":    np.array([x,            top_y,       0]),
+            "centre":     np.array([x,            stem_base_y + stem_h / 2, 0]),
+            "floor":      np.array([x,            y,           0]),
+            "left-edge":  np.array([x - spread,   stem_base_y + stem_h, 0]),
+            "right-edge": np.array([x + spread,   stem_base_y + stem_h, 0]),
+        },
+        parent=parent, attach=attach, attrs=attrs,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  POCKET DOOR  (sliding panels — animated open / close)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  Two rectangular panels that slide apart (open) or together (close).
+#  In the closed state the panels meet at the door centre-line; in the
+#  open state each panel is retracted ~90 % into the wall on its side.
+#
+#     closed:   ┤██████|██████├     ← left panel | right panel
+#     open:     ┤█|              |█├   ← panels retracted into walls
+#
+#  Usage::
+#
+#      door = build_prop("lobby_door", type="pocket_door", x=0.0)
+#      scene.add(door)
+#      door.open_doors(scene)    # animated slide apart
+#      door.close_doors(scene)   # animated slide together
+
+def build_pocket_door(name: str, x=0.0, y=-2.6,
+                      width=1.4, height=2.8,
+                      color=None, label=None,
+                      parent=None, attach=None, attrs=None,
+                      prop_registry=None, **kwargs) -> VGroup:
+    """Build a pocket door with animated ``open_doors`` / ``close_doors``.
+
+    Parameters
+    ----------
+    name    : registry name.
+    x       : centre x of the door opening.  Default ``0.0``.
+    y       : base y (floor level).  Default ``-2.6``.
+    width   : total door opening width.  Default ``1.4``.
+    height  : door panel height.  Default ``2.8``.
+    color   : panel colour.  Default blue-grey ``"#557799"``.
+    label   : optional label above the door frame.
+    parent  : name of a parent prop, or ``None`` (world coords).
+    attach  : named attachment point on the parent.
+    attrs   : dict of visual overrides — ``"scale"``, ``"inclination"``.
+    prop_registry : live prop dict, needed when *parent* is set.
+
+    Methods on the returned VGroup
+    --------------------------------
+    ``open_doors(scene, run_time=0.6)``
+        Animate the two panels sliding apart into the walls.
+    ``close_doors(scene, run_time=0.6)``
+        Animate the two panels sliding back to the closed position.
+    ``is_open`` (bool attribute)
+        Tracks the current state.
+    """
+    _node_stub = {"name": name, "kind": "pocket_door",
+                  "parent": parent, "attach": attach,
+                  "attrs": attrs or {}, "x": x, "y": y}
+    if parent and prop_registry:
+        pos = resolve_position(_node_stub, prop_registry)
+        x, y = float(pos[0]), float(pos[1])
+
+    c  = color or "#557799"
+    fc = color or "#2a3d55"
+    sw = PROP_DEFAULTS["stroke_width"]
+
+    hw     = width  / 2          # half opening width
+    panel_w = hw - 0.02          # each panel fills half the opening
+    center_y = y + height / 2
+    top_y    = y + height
+
+    # Frame — two thin vertical posts + top bar
+    post_kw = dict(color="#445566", stroke_width=sw + 0.5)
+    left_post  = Line(np.array([x - hw, y, 0]),
+                      np.array([x - hw, top_y, 0]), **post_kw)
+    right_post = Line(np.array([x + hw, y, 0]),
+                      np.array([x + hw, top_y, 0]), **post_kw)
+    top_bar    = Line(np.array([x - hw, top_y, 0]),
+                      np.array([x + hw, top_y, 0]), **post_kw)
+
+    # Panels — one per side, meeting at centre-line when closed
+    left_panel = Rectangle(
+        width=panel_w, height=height,
+        color=c, fill_color=fc, fill_opacity=0.80, stroke_width=sw,
+    ).move_to(np.array([x - panel_w / 2 - 0.01, center_y, 0]))
+
+    right_panel = Rectangle(
+        width=panel_w, height=height,
+        color=c, fill_color=fc, fill_opacity=0.80, stroke_width=sw,
+    ).move_to(np.array([x + panel_w / 2 + 0.01, center_y, 0]))
+
+    # Grip marks — small vertical lines near the inner edges
+    grip_kw = dict(color="#7799bb", stroke_width=1.0)
+    left_grip  = Line(
+        np.array([x - 0.10, center_y - 0.15, 0]),
+        np.array([x - 0.10, center_y + 0.15, 0]), **grip_kw)
+    right_grip = Line(
+        np.array([x + 0.10, center_y - 0.15, 0]),
+        np.array([x + 0.10, center_y + 0.15, 0]), **grip_kw)
+
+    frame_group = VGroup(left_post, right_post, top_bar)
+    parts = [frame_group, left_panel, right_panel, left_grip, right_grip]
+
+    if label:
+        lbl = _make_label(label, x, top_y + 0.15,
+                          color=PROP_DEFAULTS["label_color"])
+        parts.append(lbl)
+
+    group = VGroup(*parts)
+
+    # ── animation state ───────────────────────────────────────────────────
+    group.is_open = False
+    _open_shift   = panel_w * 0.88   # how far each panel slides out
+
+    # Closed-position centres (for reset)
+    _left_closed  = np.array([x - panel_w / 2 - 0.01, center_y, 0])
+    _right_closed = np.array([x + panel_w / 2 + 0.01, center_y, 0])
+
+    def open_doors(scene, run_time=0.6):
+        if group.is_open:
+            return
+        scene.play(
+            left_panel.animate.shift(np.array([-_open_shift, 0, 0])),
+            right_panel.animate.shift(np.array([ _open_shift, 0, 0])),
+            left_grip.animate.shift(np.array([-_open_shift, 0, 0])),
+            right_grip.animate.shift(np.array([ _open_shift, 0, 0])),
+            run_time=run_time,
+        )
+        group.is_open = True
+
+    def close_doors(scene, run_time=0.6):
+        if not group.is_open:
+            return
+        scene.play(
+            left_panel.animate.move_to(_left_closed),
+            right_panel.animate.move_to(_right_closed),
+            left_grip.animate.move_to(
+                _left_closed + np.array([panel_w / 2 - 0.10, 0, 0])),
+            right_grip.animate.move_to(
+                _right_closed + np.array([-panel_w / 2 + 0.10, 0, 0])),
+            run_time=run_time,
+        )
+        group.is_open = False
+
+    group.open_doors  = open_doors
+    group.close_doors = close_doors
+
+    _apply_attrs(group, attrs or {})
+    return _attach_pam_attrs(
+        group, name, "pocket_door", x, y,
+        surface_y=top_y,
+        attachments={
+            "surface":    np.array([x,       top_y,       0]),
+            "threshold":  np.array([x,       y,           0]),
+            "floor":      np.array([x,       y,           0]),
+            "left-edge":  np.array([x - hw,  center_y,    0]),
+            "right-edge": np.array([x + hw,  center_y,    0]),
+            "centre":     np.array([x,       center_y,    0]),
+        },
+        parent=parent, attach=attach, attrs=attrs,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  ELEVATOR  (sliding doors + wall sign + call-button panel)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  ┌─────────────────────────────────┐
+#  │  ELEVATOR  ·  Max capacity: 4  │  ← wall sign (above doors)
+#  └─────────────────────────────────┘  ┌───┐ ← call-button panel
+#  ┌───────────┬────────────┐           │ ▲ │
+#  │           │            │           │ ▼ │
+#  │  left     │   right    │           └───┘
+#  │  panel    │   panel    │
+#  │           │            │
+#  └───────────┴────────────┘
+#        ↑ center seam line (the "vertical line" in the middle)
+#
+#  open_doors(scene)  → panels slide apart (left panel left, right panel right)
+#  close_doors(scene) → panels slide back to meet at the centre seam
+#
+#  The button panel is registered as a sub-prop ("button_panel") with
+#  its own attachment point so reach_for / punch_button actions can
+#  target it by name.
+
+def build_elevator(name: str, x=0.0, y=-2.6,
+                   width=1.6, height=2.8,
+                   color=None, capacity=4, label=None,
+                   parent=None, attach=None, attrs=None,
+                   prop_registry=None, **kwargs) -> VGroup:
+    """Build an elevator with animated sliding doors, a wall sign, and a
+    call-button panel.
+
+    The two door panels meet at a center seam when closed and slide apart
+    into the frame walls when open.  Panels turn transparent when open and
+    restore their fill color when closed, making the state visually obvious.
+
+    Call ``open_doors(scene)`` / ``close_doors(scene)`` to animate fully.
+    Call ``partial_close(scene, fraction=0.6)`` to animate a partial close
+    (e.g. doors nearly shutting before a character blocks them), then follow
+    with ``open_doors`` to rebound.
+
+    Parameters
+    ----------
+    name     : registry name.
+    x        : center x of the door opening.  Default ``0.0``.
+    y        : base y (floor level).  Default ``-2.6``.
+    width    : total door opening width.  Default ``1.6``.
+    height   : door panel height.  Default ``2.8``.
+    color    : accent color for frame, sign, and panels.
+               Default steel blue ``"#4477aa"``.
+    capacity : max occupancy shown on the sign.  Default ``4``.
+    label    : optional extra label above the sign.
+    parent   : name of a parent prop, or ``None`` (world coords).
+    attach   : named attachment point on the parent.
+    attrs    : dict of visual overrides — ``"scale"``, ``"inclination"``.
+    prop_registry : live prop dict, needed when *parent* is set.
+
+    Methods on the returned VGroup
+    --------------------------------
+    ``open_doors(scene, run_time=0.6)``
+        Slide panels fully open; panels fade to transparent.
+    ``close_doors(scene, run_time=0.6)``
+        Slide panels fully closed; panels restore fill color.
+    ``partial_close(scene, fraction=0.5, run_time=0.4)``
+        Slide panels partway closed (fraction=0.0 → stay open,
+        fraction=1.0 → fully closed).  Panels partially restore color.
+        Follow with ``open_doors`` to animate the rebound.
+    ``is_open`` (bool attribute)
+        Tracks the current door state.
+
+    Sub-prop attachment points
+    --------------------------
+    ``"button_panel"``
+        Center of the call-button rectangle.
+    ``"threshold"``
+        Floor level at the door center — entry/exit point for characters.
+    ``"center"``
+        Mid-height center of the door opening.
+    """
+    _node_stub = {"name": name, "kind": "elevator",
+                  "parent": parent, "attach": attach,
+                  "attrs": attrs or {}, "x": x, "y": y}
+    if parent and prop_registry:
+        pos = resolve_position(_node_stub, prop_registry)
+        x, y = float(pos[0]), float(pos[1])
+
+    c  = color or "#4477aa"
+    fc = "#1a2a3a"
+    sw = PROP_DEFAULTS["stroke_width"]
+
+    hw       = width / 2
+    panel_w  = hw - 0.02          # each panel fills just under half the opening
+    top_y    = y + height
+    center_y = y + height / 2
+
+    # ── door frame (two vertical posts + top bar) ─────────────────────────
+    post_kw = dict(color="#334455", stroke_width=sw + 0.5)
+    left_post  = Line(np.array([x - hw, y,     0]),
+                      np.array([x - hw, top_y, 0]), **post_kw)
+    right_post = Line(np.array([x + hw, y,     0]),
+                      np.array([x + hw, top_y, 0]), **post_kw)
+    top_bar    = Line(np.array([x - hw, top_y, 0]),
+                      np.array([x + hw, top_y, 0]), **post_kw)
+    floor_bar  = Line(np.array([x - hw, y,     0]),
+                      np.array([x + hw, y,     0]), **post_kw)
+
+    frame_group = VGroup(left_post, right_post, top_bar, floor_bar)
+
+    # ── door panels — meet at center seam when closed ─────────────────────
+    panel_fc = "#1e3045"
+    left_panel = Rectangle(
+        width=panel_w, height=height,
+        color=c, fill_color=panel_fc, fill_opacity=0.85, stroke_width=sw,
+    ).move_to(np.array([x - panel_w / 2 - 0.01, center_y, 0]))
+
+    right_panel = Rectangle(
+        width=panel_w, height=height,
+        color=c, fill_color=panel_fc, fill_opacity=0.85, stroke_width=sw,
+    ).move_to(np.array([x + panel_w / 2 + 0.01, center_y, 0]))
+
+    # Centre seam — the visible vertical line between the two panels
+    seam = Line(
+        np.array([x, y,     0]),
+        np.array([x, top_y, 0]),
+        color="#7799bb", stroke_width=sw - 0.5,
+    )
+
+    # ── wall sign (above the doors) ───────────────────────────────────────
+    sign_w, sign_h = width + 0.20, 0.28
+    sign_y = top_y + sign_h / 2 + 0.06
+    sign = Rectangle(
+        width=sign_w, height=sign_h,
+        color=c, fill_color=fc, fill_opacity=0.90, stroke_width=sw,
+    ).move_to(np.array([x, sign_y, 0]))
+    sign_text = Text(
+        f"ELEVATOR  ·  Max capacity: {capacity}",
+        font=PROP_DEFAULTS["label_font"],
+        font_size=10,
+        color=PROP_DEFAULTS["label_color"],
+    ).move_to(np.array([x, sign_y, 0]))
+
+    # ── call-button panel (to the right of the sign) ──────────────────────
+    panel_x  = x + hw + 0.30
+    panel_cy = center_y   # RHS was sign_y - 0.06
+    panel_bw = 0.28
+    panel_bh = 0.48
+
+    panel_bg = Rectangle(
+        width=panel_bw, height=panel_bh,
+        color=c, fill_color="#0f1a25", fill_opacity=0.95, stroke_width=sw,
+    ).move_to(np.array([panel_x, panel_cy, 0]))
+
+    btn_kw = dict(radius=0.06, fill_opacity=0.90, stroke_width=1.0)
+    btn_up = Circle(color="#88bbdd", fill_color="#88bbdd", **btn_kw,
+    ).move_to(np.array([panel_x, panel_cy + 0.13, 0]))
+    btn_dn = Circle(color="#556677", fill_color="#334455", **btn_kw,
+    ).move_to(np.array([panel_x, panel_cy - 0.08, 0]))
+
+    arr_kw = dict(color="#aaccee", stroke_width=1.0)
+    arr_up = Line(np.array([panel_x - 0.03, panel_cy + 0.16, 0]),
+                  np.array([panel_x + 0.03, panel_cy + 0.16, 0]), **arr_kw)
+    arr_dn = Line(np.array([panel_x - 0.03, panel_cy - 0.11, 0]),
+                  np.array([panel_x + 0.03, panel_cy - 0.11, 0]), **arr_kw)
+
+    button_panel_group = VGroup(panel_bg, btn_up, btn_dn, arr_up, arr_dn)
+
+    parts = [frame_group, left_panel, right_panel, seam,
+             sign, sign_text, button_panel_group]
+
+    if label:
+        lbl = _make_label(label, x, sign_y + sign_h / 2 + 0.15, color=c)
+        parts.append(lbl)
+
+    group = VGroup(*parts)
+
+    # ── animation state ───────────────────────────────────────────────────
+    # Colors: closed = original panel fill; open = transparent (see-through)
+    _closed_fill   = panel_fc   # e.g. "#1e3045"
+    _closed_stroke = c          # e.g. "#4477aa"
+    _open_fill     = "#000000"  # black — effectively invisible against dark bg
+    _open_opacity  = 0.0        # fully transparent when open
+
+    group.is_open  = False
+    _open_shift    = panel_w * 0.88   # how far each panel slides fully open
+
+    # Closed-position centers — updated by partial_close so open_doors
+    # always animates FROM the current position, not from a stale origin.
+    _left_closed   = np.array([x - panel_w / 2 - 0.01, center_y, 0])
+    _right_closed  = np.array([x + panel_w / 2 + 0.01, center_y, 0])
+
+    # Mutable state dict so nested closures can share current panel centers.
+    _state = {
+        "left_pos":  _left_closed.copy(),
+        "right_pos": _right_closed.copy(),
+        "is_open":   False,
+    }
+
+    def open_doors(scene, run_time=0.6):
+        """Slide panels fully open from wherever they currently are,
+        fade seam out, and transition panels to transparent."""
+        if _state["is_open"]:
+            return
+        left_target  = np.array([x - hw + panel_w * 0.06, center_y, 0])
+        right_target = np.array([x + hw - panel_w * 0.06, center_y, 0])
+        scene.play(
+            left_panel.animate
+                .move_to(left_target)
+                .set_fill(color=_open_fill, opacity=_open_opacity)
+                .set_stroke(color=_closed_stroke, opacity=0.3),
+            right_panel.animate
+                .move_to(right_target)
+                .set_fill(color=_open_fill, opacity=_open_opacity)
+                .set_stroke(color=_closed_stroke, opacity=0.3),
+            FadeOut(seam),
+            run_time=run_time,
+        )
+        _state["left_pos"]  = left_target.copy()
+        _state["right_pos"] = right_target.copy()
+        _state["is_open"]   = True
+        group.is_open = True
+
+    def close_doors(scene, run_time=0.6):
+        """Slide panels fully closed from wherever they currently are,
+        fade seam in, and restore closed color."""
+        scene.play(
+            left_panel.animate
+                .move_to(_left_closed)
+                .set_fill(color=_closed_fill, opacity=0.85)
+                .set_stroke(color=_closed_stroke, opacity=1.0),
+            right_panel.animate
+                .move_to(_right_closed)
+                .set_fill(color=_closed_fill, opacity=0.85)
+                .set_stroke(color=_closed_stroke, opacity=1.0),
+            FadeIn(seam),
+            run_time=run_time,
+        )
+        _state["left_pos"]  = _left_closed.copy()
+        _state["right_pos"] = _right_closed.copy()
+        _state["is_open"]   = False
+        group.is_open = False
+
+    def partial_close(scene, fraction=0.5, run_time=0.4):
+        """Slide panels partway closed — e.g. fraction=0.6 moves them
+        60 % of the way from fully open to fully closed.
+
+        Used to show the doors nearly shutting before Freydoon blocks them.
+        Leaves is_open=False so close_doors / open_doors work correctly
+        afterward.
+
+        Parameters
+        ----------
+        fraction  : 0.0 = stay open, 1.0 = fully closed.  Default 0.5.
+        run_time  : animation duration in seconds.  Default 0.4.
+        """
+        # Start from current panel positions (supports chaining)
+        cur_left  = _state["left_pos"].copy()
+        cur_right = _state["right_pos"].copy()
+
+        # Interpolate: fraction=0 → current pos, fraction=1 → fully closed
+        left_target  = cur_left  + fraction * (_left_closed  - cur_left)
+        right_target = cur_right + fraction * (_right_closed - cur_right)
+
+        # Color: blend toward closed opacity proportionally
+        target_opacity = 0.85 * fraction
+        scene.play(
+            left_panel.animate
+                .move_to(left_target)
+                .set_fill(color=_closed_fill, opacity=target_opacity)
+                .set_stroke(color=_closed_stroke, opacity=min(1.0, fraction + 0.2)),
+            right_panel.animate
+                .move_to(right_target)
+                .set_fill(color=_closed_fill, opacity=target_opacity)
+                .set_stroke(color=_closed_stroke, opacity=min(1.0, fraction + 0.2)),
+            run_time=run_time,
+        )
+        _state["left_pos"]  = left_target.copy()
+        _state["right_pos"] = right_target.copy()
+        _state["is_open"]   = False
+        group.is_open = False
+
+    group.open_doors    = open_doors
+    group.close_doors   = close_doors
+    group.partial_close = partial_close
+
+    # Expose button panel as addressable sub-prop attribute
+    group.pam_button_panel     = button_panel_group
+    group.pam_button_panel_pos = np.array([panel_x, panel_cy, 0])
+
+    _apply_attrs(group, attrs or {})
+    return _attach_pam_attrs(
+        group, name, "elevator", x, y,
+        surface_y=top_y,
+        attachments={
+            "surface":      np.array([x,       top_y,     0]),
+            "floor":        np.array([x,       y,         0]),
+            "threshold":    np.array([x,       y,         0]),
+            "centre":       np.array([x,       center_y,  0]),
+            "left-edge":    np.array([x - hw,  center_y,  0]),
+            "right-edge":   np.array([x + hw,  center_y,  0]),
+            "button_panel": np.array([panel_x, panel_cy,  0]),
+        },
+        parent=parent, attach=attach, attrs=attrs,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  PHONE  (desk landline, wall landline, or cellphone / smartphone)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  style="landline_desk"
+#      Handset (curved rectangle) resting in a cradle (shallow tray).
+#      Sits on a desk surface.  pick_up detaches handset to "rwrist".
+#
+#  style="landline_wall"
+#      Handset in cradle mounted on a wall prop.  Similar geometry,
+#      oriented vertically.  Attach to a wall or building prop.
+#
+#  style="cellphone"
+#      Flat thin rectangle.  Held at arm's length or raised to head node.
+#      Can emit a flash circle (snap_photo action).
+#
+#       landline_desk          cellphone
+#        ┌──┐                  ┌──────┐
+#        │  │  handset         │      │
+#        └──┘                  │      │
+#       ┌────┐  cradle         │  ○   │  ← camera dot
+#       │    │                 └──────┘
+#       └────┘
+
+def build_phone(name: str, x=0.0, y=0.0,
+                style="cellphone",
+                color=None,
+                parent=None, attach=None, attrs=None,
+                prop_registry=None, **kwargs) -> VGroup:
+    """Build a phone prop in one of three styles.
+
+    Parameters
+    ----------
+    name   : registry name.
+    x, y   : position (centre of the prop).
+    style  : ``"cellphone"``     — flat rectangle, held at hand or head;
+             ``"landline_desk"`` — handset + cradle, sits on desk surface;
+             ``"landline_wall"`` — handset + cradle, mounts on wall prop.
+    color  : accent colour.
+             Default dark grey ``"#3a3a3a"`` (landlines) or
+             ``"#223344"`` (cellphone).
+    parent : name of a parent prop or character node, or ``None``.
+    attach : named attachment point on the parent.
+    attrs  : dict of visual overrides — ``"scale"``, ``"inclination"``.
+    prop_registry : live prop dict, needed when *parent* is set.
+
+    Attachment points
+    -----------------
+    All styles expose ``"centre"`` and ``"surface"``.
+    ``"landline_desk"`` also exposes ``"handset"`` (pick-up target) and
+    ``"cradle"`` (hang-up target).
+    ``"cellphone"`` also exposes ``"camera"`` (snap_photo aim point).
+    """
+    _node_stub = {"name": name, "kind": "phone",
+                  "parent": parent, "attach": attach,
+                  "attrs": attrs or {}, "x": x, "y": y}
+    if parent and prop_registry:
+        pos = resolve_position(_node_stub, prop_registry)
+        x, y = float(pos[0]), float(pos[1])
+
+    sw = PROP_DEFAULTS["stroke_width"]
+    parts = []
+    attachments = {}
+
+    # ── CELLPHONE / SMARTPHONE ────────────────────────────────────────────
+    if style == "cellphone":
+        c  = color or "#223344"
+        fc = "#0a1a2a"
+        body_w, body_h = 0.22, 0.38
+        body = Rectangle(
+            width=body_w, height=body_h,
+            color=c, fill_color=fc, fill_opacity=0.95, stroke_width=sw,
+        ).move_to(np.array([x, y, 0]))
+
+        # screen highlight
+        screen = Rectangle(
+            width=body_w - 0.05, height=body_h - 0.10,
+            color="#1af0c4", fill_color="#1af0c4",
+            fill_opacity=0.15, stroke_width=0.5,
+        ).move_to(np.array([x, y + 0.02, 0]))
+
+        # camera dot (top centre)
+        cam_y = y + body_h / 2 - 0.05
+        camera = Circle(
+            radius=0.025,
+            color="#aaaaaa", fill_color="#333333",
+            fill_opacity=1.0, stroke_width=0.5,
+        ).move_to(np.array([x, cam_y, 0]))
+
+        parts = [body, screen, camera]
+        top_y = y + body_h / 2
+        attachments = {
+            "surface": np.array([x, top_y,  0]),
+            "centre":  np.array([x, y,      0]),
+            "camera":  np.array([x, cam_y,  0]),
+            "floor":   np.array([x, y - body_h / 2, 0]),
+        }
+        ptype = "phone"
+
+    # ── LANDLINE DESK ─────────────────────────────────────────────────────
+    elif style == "landline_desk":
+        c  = color or "#3a3a3a"
+        fc = "#1a1a1a"
+
+        # cradle — wide shallow tray
+        cradle_w, cradle_h = 0.52, 0.12
+        cradle = Rectangle(
+            width=cradle_w, height=cradle_h,
+            color=c, fill_color=fc, fill_opacity=0.90, stroke_width=sw,
+        ).move_to(np.array([x, y, 0]))
+
+        # handset — narrow rounded rectangle sitting in the cradle
+        hs_w, hs_h = 0.18, 0.38
+        hs_y = y + cradle_h / 2 + hs_h / 2 - 0.04   # slightly overlapping
+        handset = Rectangle(
+            width=hs_w, height=hs_h,
+            color=c, fill_color="#2a2a2a", fill_opacity=0.95,
+            stroke_width=sw,
+        ).move_to(np.array([x - 0.08, hs_y, 0]))
+
+        # earpiece / mouthpiece dots
+        ear = Circle(radius=0.035, color="#555555", fill_color="#555555",
+                     fill_opacity=1, stroke_width=0.4,
+                     ).move_to(np.array([x - 0.08, hs_y + 0.13, 0]))
+        mouth = Circle(radius=0.035, color="#555555", fill_color="#555555",
+                       fill_opacity=1, stroke_width=0.4,
+                       ).move_to(np.array([x - 0.08, hs_y - 0.13, 0]))
+
+        # keypad dots on cradle body
+        for row in range(3):
+            for col in range(3):
+                kx = (x + 0.06) + (col - 1) * 0.09
+                ky = y + (row - 1) * 0.025
+                dot = Circle(radius=0.018, color="#445566",
+                             fill_color="#334455", fill_opacity=0.8,
+                             stroke_width=0.3,
+                             ).move_to(np.array([kx, ky, 0]))
+                parts.append(dot)
+
+        handset_centre = np.array([x - 0.08, hs_y, 0])
+        top_y = hs_y + hs_h / 2
+
+        parts = [cradle, handset, ear, mouth] + parts
+        attachments = {
+            "surface":  np.array([x, top_y, 0]),
+            "centre":   np.array([x, y,     0]),
+            "handset":  handset_centre,
+            "cradle":   np.array([x, y,     0]),
+            "floor":    np.array([x, y - cradle_h / 2, 0]),
+        }
+        ptype = "phone"
+
+    # ── LANDLINE WALL ─────────────────────────────────────────────────────
+    else:   # "landline_wall"
+        c  = color or "#3a3a3a"
+        fc = "#1a1a1a"
+
+        # Wall mount body — taller, narrower than desk version
+        body_w, body_h = 0.28, 0.50
+        body = Rectangle(
+            width=body_w, height=body_h,
+            color=c, fill_color=fc, fill_opacity=0.90, stroke_width=sw,
+        ).move_to(np.array([x, y, 0]))
+
+        # Handset — horizontal across the body
+        hs_w, hs_h = 0.40, 0.12
+        hs_y = y + 0.14
+        handset = Rectangle(
+            width=hs_w, height=hs_h,
+            color=c, fill_color="#2a2a2a", fill_opacity=0.95,
+            stroke_width=sw,
+        ).move_to(np.array([x, hs_y, 0]))
+
+        # Speaker grille dots
+        for col in range(3):
+            gx = x + (col - 1) * 0.06
+            gy = y - 0.08
+            dot = Circle(radius=0.016, color="#445566",
+                         fill_color="#334455", fill_opacity=0.8,
+                         stroke_width=0.3,
+                         ).move_to(np.array([gx, gy, 0]))
+            parts.append(dot)
+
+        top_y = y + body_h / 2
+        handset_centre = np.array([x, hs_y, 0])
+
+        parts = [body, handset] + parts
+        attachments = {
+            "surface":  np.array([x, top_y, 0]),
+            "centre":   np.array([x, y,     0]),
+            "handset":  handset_centre,
+            "cradle":   np.array([x, y,     0]),
+            "floor":    np.array([x, y - body_h / 2, 0]),
+        }
+        ptype = "phone"
+
+    group = VGroup(*parts)
+    group.pam_phone_style = style   # queryable by player / actions
+
+    _apply_attrs(group, attrs or {})
+    return _attach_pam_attrs(
+        group, name, ptype, x, y,
+        surface_y=attachments["surface"][1],
+        attachments=attachments,
+        parent=parent, attach=attach, attrs=attrs,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  BRIEFCASE  (carried at side — low arm position)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#       ┌──┐         ← handle arc
+#       ████████     ← body rectangle
+#       ████████
+#       └──────┘
+#
+# Held at the character's side (low hand position).
+# carry_position="side" governs where the player attaches it.
+
+def build_briefcase(name: str, x=0.0, y=0.0,
+                    color=None, label=None,
+                    parent=None, attach=None, attrs=None,
+                    prop_registry=None, **kwargs) -> VGroup:
+    """Build a briefcase prop (carried at side).
+
+    Parameters
+    ----------
+    name    : registry name.
+    x, y    : centre of the briefcase body.
+    color   : body colour.  Default dark tan ``"#6b4c2a"``.
+    label   : optional initials / label on the face.
+    parent  : name of a parent prop or character node (e.g. ``"rwrist"``).
+    attach  : named attachment point on the parent.
+    attrs   : dict of visual overrides — ``"scale"``, ``"inclination"``.
+    prop_registry : live prop dict, needed when *parent* is set.
+
+    Notes
+    -----
+    Set ``carry_position="side"`` in the screenplay action so the player
+    keeps the briefcase at low-arm height while the character walks.
+    """
+    _node_stub = {"name": name, "kind": "briefcase",
+                  "parent": parent, "attach": attach,
+                  "attrs": attrs or {}, "x": x, "y": y}
+    if parent and prop_registry:
+        pos = resolve_position(_node_stub, prop_registry)
+        x, y = float(pos[0]), float(pos[1])
+
+    c  = color or "#6b4c2a"
+    fc = color or "#3d2a14"
+    sw = PROP_DEFAULTS["stroke_width"]
+
+    body_w, body_h = 0.50, 0.32
+    top_y    = y + body_h / 2
+    bottom_y = y - body_h / 2
+
+    body = Rectangle(
+        width=body_w, height=body_h,
+        color=c, fill_color=fc, fill_opacity=0.92, stroke_width=sw,
+    ).move_to(np.array([x, y, 0]))
+
+    # Clasp — small rectangle centred on the body
+    clasp = Rectangle(
+        width=0.09, height=0.06,
+        color="#aaaaaa", fill_color="#888888", fill_opacity=1.0,
+        stroke_width=0.8,
+    ).move_to(np.array([x, y, 0]))
+
+    # Handle — arc approximated by a thin rectangle above the body
+    handle_w = 0.22
+    handle = Rectangle(
+        width=handle_w, height=0.06,
+        color=c, fill_color=fc, fill_opacity=0.90, stroke_width=sw - 0.3,
+    ).move_to(np.array([x, top_y + 0.05, 0]))
+
+    # Handle posts — two short vertical lines
+    for hx in [x - handle_w / 2 + 0.02, x + handle_w / 2 - 0.02]:
+        post = Line(
+            np.array([hx, top_y, 0]),
+            np.array([hx, top_y + 0.05, 0]),
+            color=c, stroke_width=sw - 0.3,
+        )
+
+    parts = [body, clasp, handle]
+
+    if label:
+        lbl = _make_label(label, x, y, color="#ccaa88", font_size=9)
+        parts.append(lbl)
+
+    group = VGroup(*parts)
+    _apply_attrs(group, attrs or {})
+    return _attach_pam_attrs(
+        group, name, "briefcase", x, y,
+        surface_y=top_y,
+        attachments={
+            "surface":    np.array([x, top_y,    0]),
+            "handle":     np.array([x, top_y + 0.08, 0]),
+            "centre":     np.array([x, y,        0]),
+            "floor":      np.array([x, bottom_y, 0]),
+            "left-edge":  np.array([x - body_w / 2, y, 0]),
+            "right-edge": np.array([x + body_w / 2, y, 0]),
+        },
+        parent=parent, attach=attach, attrs=attrs,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  FOLDER  (flat carried prop — thin rectangle held in one hand)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_folder(name: str, x=0.0, y=0.0,
+                 color=None, label=None,
+                 parent=None, attach=None, attrs=None,
+                 prop_registry=None, **kwargs) -> VGroup:
+    """Build a manila folder prop (thin rectangle, held in one hand).
+
+    Parameters
+    ----------
+    name    : registry name.
+    x, y    : centre of the folder.
+    color   : folder colour.  Default manila ``"#c8a850"``.
+    label   : optional label on the folder face (file name / case number).
+    parent  : name of a parent prop or character wrist node.
+    attach  : named attachment point on the parent.
+    attrs   : dict of visual overrides — ``"scale"``, ``"inclination"``.
+    prop_registry : live prop dict, needed when *parent* is set.
+    """
+    _node_stub = {"name": name, "kind": "folder",
+                  "parent": parent, "attach": attach,
+                  "attrs": attrs or {}, "x": x, "y": y}
+    if parent and prop_registry:
+        pos = resolve_position(_node_stub, prop_registry)
+        x, y = float(pos[0]), float(pos[1])
+
+    c  = color or "#c8a850"
+    fc = color or "#a07830"
+    sw = PROP_DEFAULTS["stroke_width"]
+
+    body_w, body_h = 0.42, 0.54
+    top_y    = y + body_h / 2
+    bottom_y = y - body_h / 2
+
+    body = Rectangle(
+        width=body_w, height=body_h,
+        color=c, fill_color=fc, fill_opacity=0.88, stroke_width=sw,
+    ).move_to(np.array([x, y, 0]))
+
+    # Tab — small rectangle at the top-left corner
+    tab = Rectangle(
+        width=0.14, height=0.06,
+        color=c, fill_color=c, fill_opacity=1.0, stroke_width=sw - 0.5,
+    ).move_to(np.array([x - body_w / 2 + 0.09, top_y + 0.03, 0]))
+
+    # Fold line — thin horizontal line across the body
+    fold = Line(
+        np.array([x - body_w / 2, y + 0.05, 0]),
+        np.array([x + body_w / 2, y + 0.05, 0]),
+        color=c, stroke_width=0.6,
+    )
+
+    parts = [body, tab, fold]
+
+    if label:
+        lbl = _make_label(label, x, y - 0.05, color="#ffe0a0", font_size=9)
+        parts.append(lbl)
+
+    group = VGroup(*parts)
+    _apply_attrs(group, attrs or {})
+    return _attach_pam_attrs(
+        group, name, "folder", x, y,
+        surface_y=top_y,
+        attachments={
+            "surface":    np.array([x, top_y,    0]),
+            "centre":     np.array([x, y,        0]),
+            "floor":      np.array([x, bottom_y, 0]),
+            "left-edge":  np.array([x - body_w / 2, y, 0]),
+            "right-edge": np.array([x + body_w / 2, y, 0]),
+        },
+        parent=parent, attach=attach, attrs=attrs,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  DESK LAMP  (furniture sub-prop — L-shaped gooseneck; bug-placement target)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#         ──────   ← shade (angled rectangle)
+#        /
+#       │           ← arm (vertical segment)
+#       │
+#    ───────        ← base (horizontal rectangle)
+#
+# Typically placed on a desk surface via parent/attach.
+# The shade is the primary target for stick_to (audio_video_bug).
+
+def build_desk_lamp(name: str, x=0.0, y=0.0,
+                    color=None, label=None,
+                    parent=None, attach=None, attrs=None,
+                    prop_registry=None, **kwargs) -> VGroup:
+    """Build a desk lamp (base + arm + angled shade).
+
+    Parameters
+    ----------
+    name    : registry name.
+    x, y    : base centre position.
+    color   : lamp colour.  Default warm grey ``"#7a7a6a"``.
+    label   : optional label on the shade.
+    parent  : name of a parent prop (typically a desk surface).
+    attach  : named attachment point on the parent.
+    attrs   : dict of visual overrides — ``"scale"``, ``"inclination"``.
+    prop_registry : live prop dict, needed when *parent* is set.
+
+    Attachment points
+    -----------------
+    ``"shade"``
+        Centre of the lamp shade — primary target for ``stick_to``
+        (audio_video_bug) and ``move_aside`` actions.
+    ``"surface"``
+        Top of the shade (for stacking).
+    ``"base"``
+        Centre of the base rectangle.
+    """
+    _node_stub = {"name": name, "kind": "desk_lamp",
+                  "parent": parent, "attach": attach,
+                  "attrs": attrs or {}, "x": x, "y": y}
+    if parent and prop_registry:
+        pos = resolve_position(_node_stub, prop_registry)
+        x, y = float(pos[0]), float(pos[1])
+
+    c  = color or "#7a7a6a"
+    fc = color or "#4a4a3a"
+    sw = PROP_DEFAULTS["stroke_width"]
+
+    # Base
+    base = Rectangle(
+        width=0.32, height=0.06,
+        color=c, fill_color=fc, fill_opacity=0.90, stroke_width=sw,
+    ).move_to(np.array([x, y + 0.03, 0]))
+
+    # Vertical arm
+    arm_h = 0.55
+    arm = Line(
+        np.array([x, y + 0.06, 0]),
+        np.array([x, y + 0.06 + arm_h, 0]),
+        color=c, stroke_width=sw + 0.3,
+    )
+
+    # Elbow / neck — short diagonal
+    neck_tip = np.array([x + 0.18, y + 0.06 + arm_h + 0.14, 0])
+    neck = Line(
+        np.array([x, y + 0.06 + arm_h, 0]),
+        neck_tip,
+        color=c, stroke_width=sw + 0.3,
+    )
+
+    # Shade — angled rectangle at the neck tip
+    shade_w, shade_h = 0.30, 0.11
+    shade_centre = neck_tip + np.array([shade_w / 2 - 0.04, 0.0, 0])
+    shade = Rectangle(
+        width=shade_w, height=shade_h,
+        color=c, fill_color="#fffde0", fill_opacity=0.70, stroke_width=sw,
+    ).move_to(shade_centre).rotate(np.radians(-25))
+
+    top_y     = float(shade_centre[1]) + shade_h / 2 + 0.05
+    shade_ctr = shade_centre
+
+    parts = [base, arm, neck, shade]
+
+    if label:
+        lbl = _make_label(label, float(shade_centre[0]),
+                          float(shade_centre[1]),
+                          color=c, font_size=8)
+        parts.append(lbl)
+
+    group = VGroup(*parts)
+    _apply_attrs(group, attrs or {})
+    return _attach_pam_attrs(
+        group, name, "desk_lamp", x, y,
+        surface_y=top_y,
+        attachments={
+            "surface":    np.array([float(shade_ctr[0]), top_y, 0]),
+            "shade":      np.array([float(shade_ctr[0]),
+                                    float(shade_ctr[1]), 0]),
+            "base":       np.array([x, y + 0.03, 0]),
+            "centre":     np.array([x, y + arm_h / 2, 0]),
+            "floor":      np.array([x, y, 0]),
+        },
+        parent=parent, attach=attach, attrs=attrs,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  AUDIO / VIDEO BUG  (tiny surveillance dot)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  A single small filled circle.  Peeled from a character's palm
+#  (peel_from_hand action) and stuck to a target prop (stick_to action).
+#  Primary target is desk_lamp "shade" attachment point.
+#
+#  At PAM's typical zoom level this is near-invisible — which is the point.
+#  It becomes prominent only in INSERT framing.
+
+def build_audio_video_bug(name: str, x=0.0, y=0.0,
+                           color=None,
+                           parent=None, attach=None, attrs=None,
+                           prop_registry=None, **kwargs) -> VGroup:
+    """Build a tiny surveillance bug (filled dot).
+
+    Parameters
+    ----------
+    name    : registry name.
+    x, y    : position of the dot centre.
+    color   : dot colour.  Default dark grey ``"#222222"``.
+    parent  : name of a parent prop (e.g. a lamp shade) or character node.
+    attach  : named attachment point on the parent.
+    attrs   : dict of visual overrides — ``"scale"``, ``"inclination"``.
+    prop_registry : live prop dict, needed when *parent* is set.
+
+    Notes
+    -----
+    The bug is near-invisible at normal PAM scale.  To make it legible
+    use ``FRAMING=insert`` in the Fountain+ CAMERA annotation, which
+    instructs ``pam_player.py`` to zoom into the ``"shade"`` attachment
+    point of the target lamp.
+    """
+    _node_stub = {"name": name, "kind": "audio_video_bug",
+                  "parent": parent, "attach": attach,
+                  "attrs": attrs or {}, "x": x, "y": y}
+    if parent and prop_registry:
+        pos = resolve_position(_node_stub, prop_registry)
+        x, y = float(pos[0]), float(pos[1])
+
+    c = color or "#222222"
+
+    dot = Circle(
+        radius=0.04,
+        color=c, fill_color=c, fill_opacity=1.0, stroke_width=0.5,
+    ).move_to(np.array([x, y, 0]))
+
+    # Faint ring to make it findable in wide shots during authoring
+    ring = Circle(
+        radius=0.07,
+        color="#884444", fill_opacity=0.0, stroke_width=0.4,
+    ).move_to(np.array([x, y, 0]))
+
+    group = VGroup(dot, ring)
+    _apply_attrs(group, attrs or {})
+    return _attach_pam_attrs(
+        group, name, "audio_video_bug", x, y,
+        surface_y=y + 0.04,
+        attachments={
+            "surface": np.array([x, y + 0.04, 0]),
+            "centre":  np.array([x, y,        0]),
+            "floor":   np.array([x, y - 0.04, 0]),
+        },
+        parent=parent, attach=attach, attrs=attrs,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CHARACTER ACCESSORIES
+#  Props that attach to a figure's head or torso node.
+#  Spawn via pam_player spawn_prop with on_head_of / on_torso_of.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_name_tag(name: str, x=0.0, y=0.0, color=None, text="",
+                   parent=None, attach=None, attrs=None,
+                   prop_registry=None, **kwargs) -> VGroup:
+    """Small rectangular badge worn on a character's chest."""
+    _node_stub = {"name": name, "kind": "name_tag",
+                  "parent": parent, "attach": attach,
+                  "attrs": attrs or {}, "x": x, "y": y}
+    if parent and prop_registry:
+        pos = resolve_position(_node_stub, prop_registry)
+        x, y = float(pos[0]), float(pos[1])
+
+    c   = color or "#e8e8d0"
+    fc  = "#1a2a1a"
+    sw  = PROP_DEFAULTS["stroke_width"]
+    bw, bh = 0.55, 0.22
+
+    badge = RoundedRectangle(
+        width=bw, height=bh, corner_radius=0.04,
+        color=c, fill_color=fc, fill_opacity=0.92, stroke_width=sw,
+    ).move_to(np.array([x, y, 0]))
+
+    parts = [badge]
+    display = (text[:16] + "…") if len(text) > 17 else text
+    if display:
+        lbl = Text(display, font=PROP_DEFAULTS["label_font"],
+                   font_size=8, color=c).move_to(np.array([x, y, 0]))
+        parts.append(lbl)
+    pin = Dot(point=np.array([x, y + bh / 2, 0]),
+              radius=0.025, color=c, fill_opacity=0.9)
+    parts.append(pin)
+
+    group = VGroup(*parts)
+    _apply_attrs(group, attrs or {})
+    return _attach_pam_attrs(group, name, "name_tag", x, y,
+        surface_y=y + bh / 2,
+        attachments={"surface": np.array([x, y + bh / 2, 0]),
+                     "floor":   np.array([x, y - bh / 2, 0])},
+        parent=parent, attach=attach, attrs=attrs)
+
+
+def build_delivery_cap(name: str, x=0.0, y=0.0, color=None, label=None,
+                        parent=None, attach=None, attrs=None,
+                        prop_registry=None, **kwargs) -> VGroup:
+    """Flat-brim delivery/baseball cap worn on a character's head."""
+    _node_stub = {"name": name, "kind": "delivery_cap",
+                  "parent": parent, "attach": attach,
+                  "attrs": attrs or {}, "x": x, "y": y}
+    if parent and prop_registry:
+        pos = resolve_position(_node_stub, prop_registry)
+        x, y = float(pos[0]), float(pos[1])
+
+    c  = color or "#1a2a4a"
+    fc = color or "#0a1428"
+    sw = PROP_DEFAULTS["stroke_width"]
+    brim_y    = y
+    crown_top = y + 0.18
+
+    brim = Line(np.array([x - 0.22, brim_y, 0]),
+                np.array([x + 0.30, brim_y, 0]),
+                color=c, stroke_width=sw + 1)
+    crown = Polygon(
+        np.array([x - 0.18, brim_y, 0]),
+        np.array([x - 0.14, crown_top, 0]),
+        np.array([x + 0.14, crown_top, 0]),
+        np.array([x + 0.18, brim_y, 0]),
+        color=c, fill_color=fc, fill_opacity=0.92, stroke_width=sw)
+    shadow = Line(np.array([x - 0.22, brim_y - 0.02, 0]),
+                  np.array([x + 0.30, brim_y - 0.02, 0]),
+                  color=c, stroke_width=1.0, stroke_opacity=0.5)
+    parts = [shadow, brim, crown]
+    if label:
+        parts.append(_make_label(label, x + 0.02, brim_y + 0.08,
+                                 color=c, font_size=9))
+    group = VGroup(*parts)
+    _apply_attrs(group, attrs or {})
+    return _attach_pam_attrs(group, name, "delivery_cap", x, y,
+        surface_y=crown_top,
+        attachments={"surface":    np.array([x, crown_top, 0]),
+                     "brim":       np.array([x, brim_y,    0]),
+                     "left-edge":  np.array([x - 0.22, brim_y, 0]),
+                     "right-edge": np.array([x + 0.30, brim_y, 0]),
+                     "floor":      np.array([x, brim_y - 0.02, 0])},
+        parent=parent, attach=attach, attrs=attrs)
+
+
+def build_cheap_suit(name: str, x=0.0, y=0.0, color=None, label=None,
+                     parent=None, attach=None, attrs=None,
+                     prop_registry=None, **kwargs) -> VGroup:
+    """Simple jacket silhouette drawn over a character's torso."""
+    _node_stub = {"name": name, "kind": "cheap_suit",
+                  "parent": parent, "attach": attach,
+                  "attrs": attrs or {}, "x": x, "y": y}
+    if parent and prop_registry:
+        pos = resolve_position(_node_stub, prop_registry)
+        x, y = float(pos[0]), float(pos[1])
+
+    c  = color or "#2a2a2a"
+    fc = color or "#1a1a1a"
+    sw = PROP_DEFAULTS["stroke_width"]
+    body_h, body_w = 0.80, 0.38
+    hem_y    = y - body_h / 2
+    collar_y = y + body_h / 2
+
+    body = Rectangle(width=body_w, height=body_h,
+                     color=c, fill_color=fc,
+                     fill_opacity=0.85, stroke_width=sw
+                     ).move_to(np.array([x, y, 0]))
+    lapel_l = Polygon(
+        np.array([x,              collar_y,        0]),
+        np.array([x - body_w / 2, collar_y - 0.18, 0]),
+        np.array([x - 0.06,       y + 0.10,        0]),
+        color=c, fill_color=fc, fill_opacity=0.95, stroke_width=sw * 0.8)
+    lapel_r = Polygon(
+        np.array([x,              collar_y,        0]),
+        np.array([x + body_w / 2, collar_y - 0.18, 0]),
+        np.array([x + 0.06,       y + 0.10,        0]),
+        color=c, fill_color=fc, fill_opacity=0.95, stroke_width=sw * 0.8)
+    notch = VMobject(color="#888888", stroke_width=1.2)
+    notch.set_points_as_corners([
+        np.array([x - 0.06, y + 0.10, 0]),
+        np.array([x,         collar_y - 0.08, 0]),
+        np.array([x + 0.06, y + 0.10, 0]),
+    ])
+    parts = [body, lapel_l, lapel_r, notch]
+    if label:
+        parts.append(_make_label(label, x + body_w / 2 - 0.10, y + 0.08,
+                                 color="#aaaaaa", font_size=7))
+    group = VGroup(*parts)
+    _apply_attrs(group, attrs or {})
+    return _attach_pam_attrs(group, name, "cheap_suit", x, y,
+        surface_y=collar_y,
+        attachments={"surface": np.array([x, collar_y, 0]),
+                     "floor":   np.array([x, hem_y,    0])},
+        parent=parent, attach=attach, attrs=attrs)
+
+
+def build_silver_hair(name: str, x=0.0, y=0.0, color=None, label=None,
+                      parent=None, attach=None, attrs=None,
+                      prop_registry=None, **kwargs) -> VGroup:
+    """Silver hair arc drawn over a character's head node."""
+    _node_stub = {"name": name, "kind": "silver_hair",
+                  "parent": parent, "attach": attach,
+                  "attrs": attrs or {}, "x": x, "y": y}
+    if parent and prop_registry:
+        pos = resolve_position(_node_stub, prop_registry)
+        x, y = float(pos[0]), float(pos[1])
+
+    c  = color or "#c8c8d8"
+    sw = 3.5
+    r  = 0.30
+
+    hair_arc = Arc(radius=r, start_angle=np.radians(20),
+                   angle=np.radians(220),
+                   color=c, stroke_width=sw,
+                   ).move_arc_center_to(np.array([x, y, 0]))
+    fringe_x = x + r * np.cos(np.radians(20))
+    fringe_y = y + r * np.sin(np.radians(20))
+    fringe = Line(np.array([fringe_x, fringe_y, 0]),
+                  np.array([fringe_x + 0.08, fringe_y - 0.10, 0]),
+                  color=c, stroke_width=sw * 0.7)
+
+    group = VGroup(hair_arc, fringe)
+    _apply_attrs(group, attrs or {})
+    return _attach_pam_attrs(group, name, "silver_hair", x, y,
+        surface_y=y + r,
+        attachments={"surface": np.array([x, y + r,       0]),
+                     "floor":   np.array([x, y - r * 0.6, 0])},
+        parent=parent, attach=attach, attrs=attrs)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  REGISTRY
 # ─────────────────────────────────────────────────────────────────────────────
 
 PROP_TYPES = {
-    "chair":         build_chair,
-    "desk":          build_desk,
-    "table":         build_desk,       # alias
-    "console":       build_desk,       # alias
-    "computer":      build_desk,       # alias
-    "workstation":   build_desk,       # alias
-    "terminal":      build_desk,       # alias
-    "hat":           build_hat,
-    "door":          build_door,
-    "dodecahedron":  build_dodecahedron,
-    "building":      build_building,
-    "flower":        build_flower,
-    "sun":           build_sun,
-    "moon":          build_moon,
+    # ── furniture / scene ─────────────────────────────────────────────────
+    "chair":               build_chair,
+    "desk":                build_desk,
+    "table":               build_desk,           # alias
+    "console":             build_desk,           # alias
+    "computer":            build_desk,           # alias
+    "workstation":         build_desk,           # alias
+    "terminal":            build_desk,           # alias
+    "door":                build_door,           # static panel (legacy)
+    "pocket_door":         build_pocket_door,    # animated sliding door
+    "elevator":            build_elevator,       # wall sign + button panel
+    "desk_lamp":           build_desk_lamp,      # L-shaped gooseneck lamp
+    # ── carried / held props ─────────────────────────────────────────────
+    "hat":                 build_hat,
+    "briefcase":           build_briefcase,      # carried at side
+    "folder":              build_folder,         # flat, held in one hand
+    "phone":               build_phone,          # style= cellphone / landline_desk / landline_wall
+    "cellphone":           build_phone,          # alias → style="cellphone"
+    "smartphone":          build_phone,          # alias → style="cellphone"
+    "landline_desk":       build_phone,          # alias → style="landline_desk"
+    "landline_wall":       build_phone,          # alias → style="landline_wall"
+    "audio_video_bug":     build_audio_video_bug,
+    "bug":                 build_audio_video_bug,  # alias
+    # ── flora ─────────────────────────────────────────────────────────────
+    "flower":              build_flower,
+    "floral_arrangement":  build_floral_arrangement,
+    "bouquet":             build_floral_arrangement,  # alias
+    # ── background / environment ──────────────────────────────────────────
+    "dodecahedron":        build_dodecahedron,
+    "building":            build_building,
+    "sun":                 build_sun,
+    "moon":                build_moon,
+    # ── character accessories ─────────────────────────────────────────────
+    "name_tag":            build_name_tag,
+    "delivery_cap":        build_delivery_cap,
+    "cheap_suit":          build_cheap_suit,
+    "silver_hair":         build_silver_hair,
 }
 
 
@@ -1218,18 +2593,50 @@ def build_prop(name: str, type: str, **kwargs) -> VGroup:
     name : str
         Unique registry name (e.g. ``"alice_chair"``).
     type : str
-        One of: ``"chair"``, ``"desk"`` (aliases: ``"table"``,
-        ``"console"``, ``"computer"``, ``"workstation"``, ``"terminal"``),
-        ``"hat"``, ``"door"``, ``"dodecahedron"``, ``"building"``,
-        ``"flower"``, ``"sun"``, ``"moon"``.
+        One of the keys in ``PROP_TYPES``.  Current types:
+
+        Furniture / scene
+            ``"chair"``, ``"desk"`` (aliases: ``"table"``, ``"console"``,
+            ``"computer"``, ``"workstation"``, ``"terminal"``),
+            ``"door"`` (static, legacy), ``"pocket_door"`` (animated
+            sliding panels), ``"elevator"`` (wall sign + button panel),
+            ``"desk_lamp"`` (L-shaped gooseneck).
+
+        Carried / held
+            ``"hat"``, ``"briefcase"``, ``"folder"``,
+            ``"phone"`` (pass ``style=`` kwarg — see below),
+            ``"cellphone"`` / ``"smartphone"`` (alias → style="cellphone"),
+            ``"landline_desk"`` (alias → style="landline_desk"),
+            ``"landline_wall"`` (alias → style="landline_wall"),
+            ``"audio_video_bug"`` / ``"bug"``.
+
+        Flora
+            ``"flower"``, ``"floral_arrangement"`` / ``"bouquet"``
+            (pass ``size="carry"`` or ``size="large"``).
+
+        Background / environment
+            ``"dodecahedron"``, ``"building"``, ``"sun"``, ``"moon"``.
+
     **kwargs
         Passed to the type's factory function.  Common keys:
 
         Positional
             ``x``, ``y``, ``color``, ``label``
-        Type-specific
-            ``accent``, ``radius``, ``animate``  (dodecahedron)
-            ``width``, ``monitor``, ``monitor_color``  (desk)
+        Phone-specific
+            ``style``  — ``"cellphone"`` (default), ``"landline_desk"``,
+                         ``"landline_wall"``
+        Floral-arrangement-specific
+            ``size``   — ``"carry"`` (default) or ``"large"``
+            ``tag``    — string label for large variant (e.g.
+                         ``"Sorry I Missed You"``)
+        Pocket-door-specific
+            ``width``, ``height``  (door opening size)
+        Elevator-specific
+            ``capacity``  — max occupancy shown on sign (default ``4``)
+        Dodecahedron-specific
+            ``accent``, ``radius``, ``animate``
+        Desk-specific
+            ``width``, ``monitor``, ``monitor_color``
         Scene-graph
             ``parent``        — name of parent prop in *prop_registry*
             ``attach``        — named attachment point on parent
@@ -1254,16 +2661,43 @@ def build_prop(name: str, type: str, **kwargs) -> VGroup:
     --------
     ::
 
-        # Simple prop at world coordinates
-        chair = build_prop("chair_1", type="chair", x=-2.0,
-                           color="#ff9999", label="A")
+        # Animated pocket door
+        door = build_prop("lobby_door", type="pocket_door", x=0.0)
+        door.open_doors(scene)
 
-        # Tilted monitor sitting on a desk surface
+        # Elevator sign + button panel
+        elev = build_prop("elev1", type="elevator", x=2.0, capacity=6)
+
+        # Cellphone held at character wrist
+        phone = build_prop("nona_phone", type="cellphone",
+                           parent="nona", attach="rwrist",
+                           prop_registry=prop_reg)
+
+        # Landline on a desk surface
         desk  = build_prop("d1", type="desk", x=0.0)
-        mon   = build_prop("mon1", type="dodecahedron", radius=0.12,
+        phone = build_prop("desk_phone", type="landline_desk",
                            parent="d1", attach="surface",
-                           attrs={"inclination": 10},
                            prop_registry={"d1": desk})
+
+        # Carried floral arrangement (bouquet)
+        flowers = build_prop("chava_flowers", type="floral_arrangement",
+                             size="carry", color="#e87878",
+                             parent="chava", attach="rwrist",
+                             prop_registry=prop_reg)
+
+        # Large set-down arrangement with tag
+        vase = build_prop("vase1", type="floral_arrangement",
+                          size="large", tag="Sorry I Missed You",
+                          parent="desk1", attach="surface",
+                          prop_registry=prop_reg)
+
+        # Briefcase at side
+        case = build_prop("lenny_case", type="briefcase",
+                          parent="lenny", attach="rwrist",
+                          prop_registry=prop_reg)
+
+        # Audio/video bug — placed on lamp shade via stick_to action
+        bug = build_prop("bug1", type="bug", x=0.0, y=0.0)
 
         # Spinning dodecahedron
         dodeca = build_prop("gem", type="dodecahedron", x=0.0, y=1.5,
@@ -1276,4 +2710,14 @@ def build_prop(name: str, type: str, **kwargs) -> VGroup:
             f"Unknown prop type '{type}'.  "
             f"Available: {sorted(set(PROP_TYPES.keys()))}"
         )
+    # For phone type-aliases, inject the matching style kwarg if not set
+    _phone_style_map = {
+        "cellphone":     "cellphone",
+        "smartphone":    "cellphone",
+        "landline_desk": "landline_desk",
+        "landline_wall": "landline_wall",
+    }
+    if key in _phone_style_map and "style" not in kwargs:
+        kwargs["style"] = _phone_style_map[key]
+
     return PROP_TYPES[key](name=name, **kwargs)
