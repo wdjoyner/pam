@@ -1,6 +1,8 @@
 """
 PAM — Pose And Motion library for the humanoid skeleton graph.
 
+version 0.9.8
+
 actions.py
 ~~~~~~~~~~
 Action handlers extracted from pam_player.py's ``_dispatch_one``.
@@ -45,7 +47,20 @@ from copy import deepcopy
 import numpy as np
 from manim import *
 
+# rush_from_start / rush_into_start are not exported by manim.utils.rate_functions
+# in v0.20.1 — define them locally.
+def rush_from_start(t: float) -> float:
+    """Ease-out quadratic: fast start, decelerating to stop."""
+    return 1 - (1 - t) ** 2
+
+def rush_into_start(t: float) -> float:
+    """Ease-in quadratic: slow start, accelerating."""
+    return t ** 2
+
 from pam.poses import _v, scale_pose, STANDING_FRONT
+from pam.actions_interactions import (
+    act_kiss, act_hold_hands, act_hand_to, act_pat_head,
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  INTERNAL HELPERS
@@ -56,7 +71,7 @@ _CANNOT_PARALLEL = frozenset({
     "carry", "exit_through", "exit_through_doors",
     "rush_to", "rush_out", "squeeze_through", "jump_up",
     "pat", "search_drawers", "pick_up_phone", "hang_up",
-    "grab", "punch_button",
+    "grab", "punch_button", "reach_character",
     "peel_from_hand", "group_translate",
 })
 
@@ -71,6 +86,44 @@ def _get_prop(props, prop_name: str):
         print(f"PAMPlayer: action needs props registry but none was passed.")
         return None
     return props.get(prop_name)
+
+
+def _drag_attached_props(fig, name: str, props, scene) -> None:
+    """Move any props that are attached to character *name* to follow fig.
+
+    Called after every walk/run so that hats, accessories, and carried props
+    stay on the character.  Props opt in by having two attributes set at
+    spawn time (by pam_player's spawn_prop handler):
+
+        pam_follows      : str  — character key this prop tracks
+        pam_attach_type  : str  — "head" | "torso"
+    """
+    if props is None:
+        return
+    store = getattr(props, "_store", {})
+    for pname, prop in store.items():
+        if getattr(prop, "pam_follows", None) != name:
+            continue
+        attach_type = getattr(prop, "pam_attach_type", "head")
+        sp = fig._apply_scale(fig.pose)
+        if attach_type == "head":
+            hpos     = sp["head"] + fig.offset
+            head_r   = fig.style.get("head_radius", 0.28) * fig._scale_sy
+            ptype    = getattr(prop, "pam_type", "")
+            if ptype in ("hat", "delivery_cap", "silver_hair"):
+                tx = float(hpos[0])
+                ty = float(hpos[1]) + head_r + 0.03
+            else:
+                tx = float(hpos[0])
+                ty = float(hpos[1])
+        else:  # torso
+            spos  = sp.get("lshoulder", sp.get("head", np.array([0, 0.5, 0]))) + fig.offset
+            hpos2 = sp.get("lhip",      sp.get("head", np.array([0, -0.5, 0]))) + fig.offset
+            tx = float(fig.offset[0])
+            ty = float((spos[1] + hpos2[1]) / 2)
+        prop.move_to(np.array([tx, ty, 0]))
+        prop.pam_x = tx
+        prop.pam_y = ty
 
 
 def _resolve_pose(name_or_none, default=None, fig=None):
@@ -154,6 +207,7 @@ def act_walk_to(fig, step, scene, name="I.G. NoreMe", *,
     if step.get("_collect_anims"):
         _warn_parallel("walk_to", name)
     fig.walk_to(step["x"], scene)
+    _drag_attached_props(fig, name, props, scene)
     return None
 
 
@@ -163,6 +217,7 @@ def act_run_to(fig, step, scene, name="I.G. NoreMe", *,
     if step.get("_collect_anims"):
         _warn_parallel("run_to", name)
     fig.run_to(step["x"], scene)
+    _drag_attached_props(fig, name, props, scene)
     return None
 
 
@@ -242,6 +297,7 @@ def act_walk_to_prop(fig, step, scene, name="I.G. NoreMe", *,
     prop = _get_prop(props, step.get("prop", ""))
     if prop:
         fig.walk_to(prop.pam_x, scene)
+    _drag_attached_props(fig, name, props, scene)
     return None
 
 
@@ -491,23 +547,40 @@ def act_punch_button(fig, step, scene, name="I.G. NoreMe", *,
 
     JSON keys
     ---------
-    target : str   — prop name to jab at
-    arm    : str   — "r" or "l" (default "r")
-    rt     : float — jab speed (default 0.18)
-    hold   : float — contact dwell (default 0.08)
+    target   : str   — prop name to jab at
+    arm      : str   — "r" or "l" (default "r")
+    rt       : float — jab speed (default 0.18)
+    hold     : float — contact dwell (default 0.08)
+    offset_x : float — shift target x from prop.pam_x (default 0.0).
+                       Use a negative value to target the near edge of a
+                       wide prop (e.g. -0.6 moves the jab left of centre).
+    offset_y : float — shift target y from prop.pam_surface_y (default 0.0).
+                       Use a small positive value (e.g. 0.1) to simulate a
+                       raised button above the surface.
+
+    Example
+    -------
+    {"action": "punch_button", "who": "xena", "target": "console",
+     "arm": "r", "rt": 0.18, "offset_x": -0.6, "offset_y": 0.1}
     """
     target_name = step.get("target", "")
-    arm  = step.get("arm", "r")
-    rt   = step.get("rt", 0.18)
-    hold = step.get("hold", 0.08)
+    arm      = step.get("arm", "r")
+    rt       = step.get("rt", 0.18)
+    hold     = step.get("hold", 0.08)
+    offset_x = step.get("offset_x", 0.0)
+    offset_y = step.get("offset_y", 0.0)
     prop = _get_prop(props, target_name)
 
     if prop is not None:
-        tx = prop.pam_x
-        ty = prop.pam_surface_y
+        tx = prop.pam_x         + offset_x
+        ty = prop.pam_surface_y + offset_y
     else:
-        tx = fig.offset[0] + (0.8 if arm == "r" else -0.8)
-        ty = fig.offset[1] + 0.3
+        tx = fig.offset[0] + (0.8 if arm == "r" else -0.8) + offset_x
+        ty = fig.offset[1] + 0.3                            + offset_y
+
+    # Save original pose before the jab — morph_to updates fig.pose as a
+    # side effect, so without this the retract would morph jab → jab (no-op).
+    rest_pose = deepcopy(fig.pose)
 
     sp   = fig._apply_scale(fig.pose)
     shld = sp[f"{arm}shoulder"] + fig.offset
@@ -523,7 +596,81 @@ def act_punch_button(fig, step, scene, name="I.G. NoreMe", *,
 
     fig.morph_to(jab, scene, rt=rt, rate=rush_from_start)
     scene.wait(hold)
-    fig.morph_to(fig.pose, scene, rt=rt * 1.2, rate=smooth)
+    fig.morph_to(rest_pose, scene, rt=rt * 1.2, rate=smooth)
+    return None
+
+
+def act_reach_character(fig, step, scene, name="I.G. NoreMe", *,
+                        props=None, cast=None):
+    """
+    Jab one arm toward a body zone on another cast member, then retract.
+    Same geometry as punch_button but targets a character from the cast
+    registry instead of a prop.
+
+    JSON keys
+    ---------
+    target   : str   — cast member key to reach toward
+    arm      : str   — "r" or "l" (default "r")
+    zone     : str   — body zone on the target: "torso" (default), "head",
+                       "shoulder", "hip"
+    rt       : float — jab speed (default 0.22)
+    hold     : float — contact dwell (default 0.08)
+    offset_x : float — shift target x (default 0.0)
+    offset_y : float — shift target y (default 0.0)
+
+    Example
+    -------
+    {"action": "reach_character", "who": "brad", "target": "freydoon",
+     "arm": "r", "zone": "torso", "rt": 0.22}
+    """
+    target_name = step.get("target", "")
+    arm      = step.get("arm", "r")
+    zone     = step.get("zone", "torso")
+    rt       = step.get("rt", 0.22)
+    hold     = step.get("hold", 0.08)
+    offset_x = step.get("offset_x", 0.0)
+    offset_y = step.get("offset_y", 0.0)
+
+    # Look up live figure — cast[name] is {"fig": HumanGraph, ...}
+    target_entry = (cast or {}).get(target_name)
+    if target_entry is None:
+        print(f"PAMPlayer reach_character: cast member '{target_name}' not found.")
+        return None
+    target_fig = target_entry.get("fig") if isinstance(target_entry, dict) else target_entry
+    if target_fig is None:
+        print(f"PAMPlayer reach_character: '{target_name}' has no live figure yet.")
+        return None
+
+    # Derive world position of the target zone
+    tsp = target_fig._apply_scale(target_fig.pose)
+    zone_joint = {
+        "torso":    "torso",
+        "head":     "head",
+        "shoulder": f"{'r' if arm == 'l' else 'l'}shoulder",
+        "hip":      f"{'r' if arm == 'l' else 'l'}hip",
+    }.get(zone, "torso")
+
+    joint_pos = tsp.get(zone_joint, tsp.get("torso", _v(0.0, 0.0)))
+    tx = joint_pos[0] + target_fig.offset[0] + offset_x
+    ty = joint_pos[1] + target_fig.offset[1] + offset_y
+
+    rest_pose = deepcopy(fig.pose)
+
+    sp   = fig._apply_scale(fig.pose)
+    shld = sp[f"{arm}shoulder"] + fig.offset
+    dx   = tx - shld[0]
+    dy   = ty - shld[1]
+
+    sx_inv = 1.0 / fig._scale_sx if fig.is_scaled else 1.0
+    sy_inv = 1.0 / fig._scale_sy if fig.is_scaled else 1.0
+
+    jab = deepcopy(fig.pose)
+    jab[f"{arm}elbow"] = _v(dx * 0.50 * sx_inv, dy * 0.50 * sy_inv)
+    jab[f"{arm}wrist"] = _v(dx * 0.95 * sx_inv, dy * 0.95 * sy_inv)
+
+    fig.morph_to(jab, scene, rt=rt, rate=rush_from_start)
+    scene.wait(hold)
+    fig.morph_to(rest_pose, scene, rt=rt * 1.2, rate=smooth)
     return None
 
 
@@ -818,6 +965,7 @@ def act_rush_to(fig, step, scene, name="I.G. NoreMe", *,
     fig.morph_to(rush, scene, rt=0.2, rate=rush_from_start)
     fig.run_to(step["x"], scene)
     fig.morph_to(fig._bp["standing_front"], scene, rt=0.25, rate=smooth)
+    _drag_attached_props(fig, name, props, scene)
     return None
 
 
@@ -843,6 +991,7 @@ def act_squeeze_through(fig, step, scene, name="I.G. NoreMe", *,
     fig.morph_to(squeeze, scene, rt=rt, rate=smooth)
     fig.walk_to(step["x"], scene)
     fig.morph_to(fig._bp["standing_front"], scene, rt=rt, rate=smooth)
+    _drag_attached_props(fig, name, props, scene)
     return None
 
 
@@ -1259,6 +1408,7 @@ ACTION_REGISTRY: dict[str, callable] = {
     "reach_for":       act_reach_for,
     "grab":            act_grab,
     "punch_button":    act_punch_button,
+    "reach_character": act_reach_character,
     "place_on":        act_place_on,
     "move_aside":      act_move_aside,
     "stick_to":        act_stick_to,
@@ -1277,6 +1427,11 @@ ACTION_REGISTRY: dict[str, callable] = {
     "express":         act_express,
     "peel_from_hand":  act_peel_from_hand,
     "group_translate": act_group_translate,
+    # ── new v0.9.8 character interactions ──
+    "kiss":            act_kiss,
+    "hold_hands":      act_hold_hands,
+    "hand_to":         act_hand_to,
+    "pat_head":        act_pat_head,
 }
 
 # Convenience set for fountain2pam.py validation
