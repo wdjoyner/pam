@@ -1,7 +1,7 @@
 """
 PAM — Pose And Motion library for the humanoid skeleton graph.
 
-version 0.9.6
+version 0.9.8
 
 figure.py
 ~~~~~~~~~
@@ -251,6 +251,7 @@ class HumanGraph:
                  height=1.0, color=None, torso_color=None, gender=None,
                  scale_sx=1.0, scale_sy=1.0, scale_anchor="lankle"):
         # ── apply gender preset (lowest priority — explicit kwargs win) ──
+        gender = gender or None
         if gender is not None:
             key = gender.lower()
             if key not in GENDER_DEFAULTS:
@@ -569,7 +570,11 @@ class HumanGraph:
                         color=None, width=3.5, rt=0.2):
         """Recolour every edge touching any of the named joints."""
         color = color or self.style["highlight_color"]
-        keys = [(a, b) for (a, b) in EDGES
+        # Use the build-specific edge list so AlienGraph (which replaces the
+        # single 'torso' node with 'torso_left'/'torso_right') doesn't try
+        # to look up edges that don't exist in self.lines.
+        _edges = self._bp.get("edges", EDGES)
+        keys = [(a, b) for (a, b) in _edges
                 if a in joint_names or b in joint_names]
         scene.play(*[
             self.lines[k].animate.set_color(color).set_stroke(width=width)
@@ -688,6 +693,11 @@ class HumanGraph:
         """
         Wave an arm (front-facing).
 
+        Raises the arm, wags for *cycles* oscillations, then returns the
+        figure to whatever pose it was in before the wave — so the method
+        works correctly whether the character is standing, sitting, or in
+        any other pose.
+
         Parameters
         ----------
         cycles  : number of full wag oscillations.
@@ -695,6 +705,9 @@ class HumanGraph:
         rt_wag  : run time for each wag keyframe.
         hand    : ``"right"`` (default) or ``"left"``.
         """
+        import copy
+        prior_pose = copy.deepcopy(self.pose)   # snapshot — return here after wave
+
         if hand == "left":
             wave_joints = ["lshoulder", "lelbow", "lwrist"]
             up_pose     = self._bp["lwave_up"]
@@ -714,8 +727,8 @@ class HumanGraph:
             for kf in cycle_poses:
                 self.morph_to(kf, scene, rt=rt_wag, rate=smooth)
 
-        # lower arm back to standing front
-        self.morph_to(self._bp["standing_front"], scene, rt=rt_lift, rate=smooth)
+        # return to whatever pose we started from (sitting, standing, etc.)
+        self.morph_to(prior_pose, scene, rt=rt_lift, rate=smooth)
         self.unhighlight_edges(keys, scene)
 
     # ── choreography: carry ──────────────────────────────────────────────────
@@ -1527,9 +1540,10 @@ class GovernorGraph:
         """
         Pop a speech bubble beside the dodecahedron, hold, then dismiss.
 
-        The Governor has no mouth — the bubble appears beside the shape
-        with no pointer tail.  ``bubble_style`` is accepted for signature
-        parity with HumanGraph.say() but is not rendered differently here.
+        The bubble has a triangular tail pointing toward the dodecahedron's
+        centre, consistent with HumanGraph.say().  ``bubble_style`` is
+        accepted for signature parity with HumanGraph.say() but is not
+        rendered differently here.
         """
         char_w = 0.113 * (font_size / 20)
         pad = 0.32
@@ -1559,7 +1573,18 @@ class GovernorGraph:
         ).move_to(np.array([bx, by, 0]))
         txt.move_to(box.get_center())
 
-        bubble = VGroup(box, txt)
+        # Triangular tail pointing toward the dodecahedron centre.
+        # The tip aims at self._x; the base sits on the near edge of the box.
+        tail_x = np.clip(self._x, bx - bw / 2 + 0.3, bx + bw / 2 - 0.3)
+        tail = Polygon(
+            np.array([tail_x - 0.12, by - bh / 2,        0]),
+            np.array([tail_x + 0.12, by - bh / 2,        0]),
+            np.array([tail_x,        by - bh / 2 - 0.28, 0]),
+            color=self._color_gold, fill_color="#0d2340",
+            fill_opacity=0.95, stroke_width=1.5,
+        )
+
+        bubble = VGroup(box, tail, txt)
 
         if self._style == "schlegel":
             fade_anims = [FadeIn(bubble, scale=0.88),
