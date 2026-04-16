@@ -1,5 +1,42 @@
+---
+title: "Fountain+ Annotation Manual"
+subtitle: "fountain2pam.py — v0.9.8"
+author: "David Joyner"
+date: 2026
+geometry: margin=1in
+monofont: "Courier"
+header-includes: |
+  \usepackage{xcolor}
+  \definecolor{codegray}{gray}{0.30}
+  \let\oldtexttt\texttt
+  \renewcommand{\texttt}[1]{\oldtexttt{\color{codegray}#1}}
+  \usepackage{fancyvrb}
+  \DefineVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\},formatcom=\color{codegray}}
+---
+
+<!--
+  PDF conversion note
+  ~~~~~~~~~~~~~~~~~~~
+  This markdown is designed for conversion with pandoc:
+
+      pandoc fountain2pam-manual.md -o fountain2pam-manual.pdf \
+        --pdf-engine=xelatex
+
+  The YAML front-matter sets code/monospace text to Courier in a dark
+  gray (30% black) so code blocks print cleanly on black-and-white
+  printers.  If converting with a different tool, add equivalent CSS:
+
+      code, pre { font-family: Courier, monospace; color: #4d4d4d; }
+-->
+
+<style>
+/* For HTML renderers (GitHub, Marked, grip, etc.) */
+code, pre, code span { font-family: Courier, "Courier New", monospace; color: #4d4d4d; }
+pre { background: #f5f5f5; padding: 0.8em; border-radius: 4px; }
+</style>
+
 # Fountain+ Annotation Manual
-## fountain2pam.py — v0.9.6
+## fountain2pam.py — v0.9.8
 
 **Fountain+** is the annotation layer that sits on top of standard Fountain
 syntax.  Annotations are written as Fountain notes — `[[ KEY: value ]]` —
@@ -24,16 +61,19 @@ but are read by `fountain2pam.py` during conversion.
    - [CAPTION](#caption--beat-scoped)
    - [SOUND](#sound--beat-scoped)
    - [PHONE](#phone--beat-scoped)
+   - [FOCUS](#focus--beat-scoped) *(new in v0.9.7)*
    - [PRODUCTION NOTE](#production-note--file-level)
    - [ZONE (dot-slug)](#zone-sub-location-dot-slugs)
 5. [CAMERA sub-key vocabulary](#5-camera-sub-key-vocabulary)
 6. [LIGHTING vocabulary](#6-lighting-vocabulary)
 7. [Action interpreter](#7-action-interpreter)
-8. [Command-line reference](#8-command-line-reference)
-9. [Output files](#9-output-files)
-10. [Character registry](#10-character-registry)
-11. [Validation](#11-validation)
-12. [Complete example](#12-complete-example)
+8. [Implied prop inference](#8-implied-prop-inference)
+9. [Command-line reference](#9-command-line-reference)
+10. [Output files](#10-output-files)
+11. [Character registry](#11-character-registry)
+12. [Validation and patch guide](#12-validation-and-patch-guide)
+13. [Complete example](#13-complete-example)
+14. [Changelog](#14-changelog)
 
 ---
 
@@ -51,7 +91,7 @@ to screenplain, so they never interfere with dialogue or action parsing.
 - The value runs to the closing `]]`.
 - Notes may span multiple lines — whitespace is normalized to a single space.
 - Notes placed **before the first scene heading** are ignored (except
-  `KIND` and `CHARACTER`, which are file-level).
+  `KIND`, `CHARACTER`, and `PRODUCTION NOTE`, which are file-level).
 
 Multi-line example:
 
@@ -79,6 +119,8 @@ Multi-line example:
 | `[[ CAPTION: TEXT=Venus City \| POSITION=top \| DURATION=4.0 \| STYLE=bold ]]` | Beat | Structured caption |
 | `[[ SOUND: RING! ]]` | Beat | Diegetic sound cue flash |
 | `[[ PHONE: on ]]` / `[[ PHONE: off ]]` | Beat | Intercut telephone mode |
+| `[[ FOCUS: ON=Thalia,Bevers \| DIM=all_others \| OPACITY=0.25 ]]` | Beat | Attention focus / dim *(v0.9.7)* |
+| `[[ FOCUS: RESET ]]` | Beat | Restore full brightness *(v0.9.7)* |
 | `[[ PRODUCTION NOTE: Sidel's accent is mid-Atlantic. ]]` | File | Non-rendering note |
 | `.Secretary's pod` | Scene | Sub-location zone shift |
 
@@ -246,7 +288,16 @@ SERGEANT SIDEL [Kind: Venusian] — compact, mid-40s, blue uniform.
 ```
 
 The `[Kind: ...]` tag is stripped from the action text before display.
-Multiple KIND templates may be defined in a single file.
+
+Multiple KIND templates may be defined in a single file.  KIND names
+are also used to infer figure type and build via the `_KIND_PROP_MAP`
+and `_KIND_BUILD_MAP` tables in the converter:
+
+| KIND name | Effect |
+|---|---|
+| `Venusian` / `alien` | `build=alien` (AlienGraph proportions) |
+| `Dog` / `robot dog` | `figure_type=dog` (DogGraph) |
+| `Dodecahedron` / `Governor` | `figure_type=dodecahedron` (prop character) |
 
 ---
 
@@ -276,6 +327,11 @@ new names are appended.
 | `style` | — | Type-specific style name (e.g. `schlegel` for dodecahedron) |
 | `scale` | — | Float; stored as `{sy, sx, anchor}` in the cast block |
 
+When `gender` is omitted, the converter defaults to `male` with a warning.
+When `color` is provided, a full six-key palette (`edge_color`, `node_color`,
+`node_stroke`, `head_color`, `head_stroke`, `highlight_color`) is
+automatically derived and placed in the character's `style` dict.
+
 Full cast declaration example:
 
 ```fountain
@@ -294,7 +350,7 @@ python fountain2pam.py tntd.fountain
 manim -pqh --save_last_frame character_gallery.py CharacterGallery
 ```
 
-See [§10 Character registry](#10-character-registry) for how `CHARACTER`
+See [§11 Character registry](#11-character-registry) for how `CHARACTER`
 annotations interact with `characters.json`.
 
 ---
@@ -371,6 +427,51 @@ I can barely hear you.
 - `on` activates phone mode; `off` deactivates it.
 - Phone mode also resets automatically at each new scene heading.
 - Pairs well with standard Fountain `(V.O.)` and `(O.S.)` parentheticals.
+
+---
+
+### FOCUS — beat-scoped *(new in v0.9.7)*
+
+Dims or brightens characters to direct viewer attention.  When active,
+named characters stay at full brightness while everyone else fades to a
+reduced opacity.
+
+**Structured format:**
+
+```fountain
+[[ FOCUS: ON=Thalia,Bevers | DIM=all_others | OPACITY=0.25 | BRIGHT=1.0 | RT=0.4 ]]
+```
+
+| Sub-key | Default | Values |
+|---|---|---|
+| `ON` | *(required)* | Comma-separated character names, or `all` / `everyone` (triggers reset) |
+| `DIM` | `all_others` | `all_others` (dims everyone not in ON list), or comma-separated names |
+| `OPACITY` | `0.30` | Float (0.0–1.0) — opacity for dimmed characters |
+| `BRIGHT` | `1.0` | Float — opacity for focused characters |
+| `RT` | `0.4` | Float seconds — transition duration |
+
+**Reset** — restore all characters to full brightness:
+
+```fountain
+[[ FOCUS: RESET ]]
+[[ FOCUS: off ]]
+[[ FOCUS: ON=all ]]
+```
+
+All three forms emit the same `focus_reset` action.
+
+PAM output (focus):
+
+```json
+{"action": "focus", "on": ["thalia", "bevers"],
+ "dim": "all_others", "opacity": 0.25, "bright": 1.0, "rt": 0.4}
+```
+
+PAM output (reset):
+
+```json
+{"action": "focus_reset", "rt": 0.4}
+```
 
 ---
 
@@ -535,7 +636,8 @@ flagged as `# REVIEW` comments in the PAM JSON for manual editing.
 
 The converter recognizes the following action phrases (case-insensitive).
 Where a prop name is needed, it uses fuzzy matching against the prop
-registry.
+registry, stripping common adjectives (small, large, golden, floating, etc.)
+to find the core noun.
 
 | Pattern | PAM action |
 |---|---|
@@ -565,23 +667,29 @@ registry.
 | *"dodges / sidesteps"* | `walk_to` with `style=dodge` + REVIEW hint for x |
 | *"searches / rummages through the drawers"* | `search_drawers` |
 | *"pats the \<prop\>"* | `pat` |
-| *"carrying / holding \<prop\>"* alongside locomotion | adds `carrying=<prop_id>` to the loco action |
+| *"carrying / holding \<prop\>"* alongside locomotion | adds `carrying=<prop_id>` to the locomotion action |
 | *"goes gold / turns red / pulses orange"* | `prop_color` |
 | *"stares at / looks at / gazes"* | `wait` (0.8 s) |
 | *"a beat"* | `wait` (1.0 s) |
 | *"starts working / works on"* | `wait` (1.0 s) |
 | *"vanishes / disappears"* | `remove_prop` (if prop named) or `fade_out` |
 
-### Implied props
+### Prop characters
 
-When action verbs imply a prop that has not been explicitly named, the
-converter infers it at three confidence levels:
+Characters whose "body" is a prop rather than a HumanGraph stick figure
+are defined in the `PROP_CHARACTER_TYPES` table.  These characters
+(e.g. the Governor, a dog) skip stick-figure creation; their dialogue
+is routed to `prop_say` actions instead of `say`.
 
-| Tier | Behavior | Example trigger |
-|---|---|---|
-| 1 — High | Prop added automatically; hint emitted | *"sits down"* → chair inferred |
-| 2 — Medium | Prop added with confirm-needed hint | *"answers the phone"* → desk placeholder |
-| 3 — Low | Hint only; no prop added | *"turns on the lights"* → ambiguous |
+The current prop-character mappings:
+
+| Character cue | Prop type |
+|---|---|
+| `GOVERNOR` | `dodecahedron` |
+| `DOG` | `dog` (DogGraph) |
+
+KIND tags also drive prop-character detection: a `[Kind: Dog]` tag on a
+character introduction automatically routes that character to DogGraph.
 
 ### Seats
 
@@ -595,7 +703,17 @@ ownership.
 
 When an action line describes two or more characters moving simultaneously
 ("Nona and Sidel walk to the right"), the converter wraps the locomotion
-actions in a `parallel` block automatically.
+actions in a `parallel` block automatically.  The converter also detects
+dog-alongside-human patterns (e.g. "Ramis trots alongside Lucy") and
+folds the `trot_to` into the same parallel block.
+
+### Filler stubs for unresolved movement
+
+When the converter detects a movement line it cannot fully resolve (e.g.
+missing destination), it emits a filler `walk_to` or `run_to` with
+`x=0.01` and a `_hint` comment containing a ready-to-paste replacement
+template with the correct action verb, parallel wrapping (if multi-
+character), and directional guidance.
 
 ### REVIEW flags
 
@@ -610,7 +728,31 @@ PAM JSON directly to replace them with the correct actions.
 
 ---
 
-## 8. Command-line reference
+## 8. Implied prop inference
+
+Screenplays frequently describe actions that *imply* a prop without
+naming one.  "Lucy sits down" implies a seat; "Lenny types at the
+computer" implies a desk.  The converter infers these props at three
+confidence tiers:
+
+| Tier | Behavior | Example trigger |
+|---|---|---|
+| 1 — High | Prop added automatically; hint emitted | *"sits down"* → chair inferred |
+| | | *"types at the computer"* → desk inferred |
+| | | *"exits"* → door inferred |
+| 2 — Medium | Prop added with confirm-needed hint | *"answers the phone"* → desk placeholder |
+| | | *"pours"* → desk placeholder (no vessel prop type yet) |
+| 3 — Low | Hint only; no prop added | *"turns on the lights"* → ambiguous |
+| | | *"picks up"* → object unspecified |
+| | | *"hands X to Y"* → object unspecified |
+
+Tier 1 and 2 inferences add the prop to the `props` block only if that
+prop type is not already declared in the scene.  All tiers emit `_hint`
+comments in the PAM JSON explaining the inference.
+
+---
+
+## 9. Command-line reference
 
 ```
 python fountain2pam.py <fountain_file> [options]
@@ -620,7 +762,7 @@ python fountain2pam.py <fountain_file> [options]
 |---|---|---|
 | `-o <file>` | `<stem>.json` | PAM JSON output path |
 | `--prompts <file>` | `<stem>_prompts.json` | Prompts output path |
-| `--characters <file>` | `characters.json` (same dir) | Character registry path |
+| `--characters <file>` | `characters.json` (same dir) | Character registry path (JSON) |
 | `--scale <float>` | `0.7` | Character height scale |
 | `--clip-mode` | `per-speaker` | `per-speaker` or `timed` |
 | `--prompts-only` | off | Write prompts only; skip PAM JSON |
@@ -642,7 +784,7 @@ may span multiple speakers.
 
 ---
 
-## 9. Output files
+## 10. Output files
 
 ### `screenplay.json` (PAM JSON)
 
@@ -684,10 +826,13 @@ A list of action dicts consumed by `pam_player.py`.  Key action types:
 | `exit_through` | Walk to door + disappear |
 | `elevator_open` | Slide elevator doors fully open |
 | `elevator_close` | Slide elevator doors closed; `fraction` key for partial close |
+| `focus` / `focus_reset` | Dim/brighten characters *(v0.9.7)* |
 | `_subscene_marker` | Camera-mode sync point (for `pam_player --camera-mode`) |
 
 Entries prefixed with `_comment` or `_hint` are editorial notes; they
 carry no animation weight and can be stripped with `--no-comments`.
+`_subscene_marker` entries are always preserved regardless of
+`--no-comments` — they are required by `pam_player --camera-mode`.
 
 ### `prompts.json`
 
@@ -743,7 +888,7 @@ One row per subscene.  Columns: `shot_label`, `shot_number`, `subscene_id`,
 
 ---
 
-## 10. Character registry
+## 11. Character registry
 
 ### Overview
 
@@ -790,6 +935,24 @@ On every conversion run:
 Individual scenes may still override `scale` freely — a character can
 appear full-size in one scene and miniaturized in another.
 
+### Color authority *(v0.9.8 fix)*
+
+The `characters.json` file is authoritative for color.  When a character
+has a `color` field stored in the registry, the converter re-derives the
+full six-key palette from it and stamps it into the character's `style`
+dict, overwriting any round-robin palette that was assigned during
+conversion.
+
+A `[[ CHARACTER: color=... ]]` annotation in the Fountain file is applied
+during conversion *before* the registry is consulted, but if its color
+differs from the stored color, the stored color prevails.  This is the
+desired behavior when `tntd_characters.json` is the canonical palette
+file — it ensures that characters like Freydoon, Brad, and Mrs. Bosch
+always render with their designated colors regardless of which scene file
+is being converted.
+
+To change a character's canonical color, edit `characters.json` directly.
+
 ### Example `characters.json`
 
 ```json
@@ -827,18 +990,20 @@ By default the registry is written to `characters.json` in the same
 directory as the `.fountain` file.  Override with `--characters`:
 
 ```
-python fountain2pam.py scene_b.fountain --characters ~/tntd/characters.json
+python fountain2pam.py scene_b.fountain --characters ~/tntd/tntd_characters.json
 ```
 
 ---
 
-## 11. Validation
+## 12. Validation and patch guide
+
+### Validation
 
 After each conversion, `fountain2pam.py` runs a validation pass over the
 generated PAM JSON and prints any warnings to the console.  Warnings do
 not stop the conversion — they are advisory.
 
-### Checks performed
+#### Checks performed
 
 | Check | Example warning |
 |---|---|
@@ -846,8 +1011,9 @@ not stop the conversion — they are advisory.
 | Prop referenced but never declared | `prop 'laptop' used in 'remove_prop' but never declared` |
 | `parent` key references unknown name | `parent=brad not found in cast or props` |
 | `remove_prop` targets undeclared prop | `remove_prop 'chava_cap' was never declared or spawned` |
+| Prop action references undeclared prop | Various prop actions (`elevator_open`, `elevator_close`, etc.) checked |
 
-### Example output
+#### Example output
 
 ```
 ────────────────────────────────────────────────────
@@ -858,7 +1024,7 @@ VALIDATION WARNINGS
 ────────────────────────────────────────────────────
 ```
 
-### Suppressing validation
+#### Suppressing validation
 
 Pass `--no-validate` to skip the validation pass entirely — useful during
 rapid iterative editing when you know warnings are expected:
@@ -867,9 +1033,45 @@ rapid iterative editing when you know warnings are expected:
 python fountain2pam.py scene.fountain --no-validate
 ```
 
+### Patch guide *(new in v0.9.7)*
+
+After validation, the converter runs a **patch guide** that checks for
+common issues requiring manual edits.  The guide prints to the console and
+also appends `_comment` entries at the bottom of the PAM JSON.
+
+Patch guide checks include:
+
+| Check | Category |
+|---|---|
+| Prop-character (dog, dodecahedron) has no `spawn_prop` | `PATCH` |
+| Prop-character `spawn_prop` appears after first `prop_say` | `PATCH` |
+| Dog spawn at `x=0.0` (likely needs repositioning) | `PATCH` |
+| Movement lines needing manual x targets | `PATCH` |
+| Palette mismatch heuristics (Lucy, Lenny color checks) | `PATCH` |
+| Character using CLI default scale 0.7 | `PATCH (optional)` |
+| `pan-up` markers missing tilt parameters | `PATCH` |
+| Camera markers reference buildings but no `scene_objects` block | `PATCH` |
+| Costume accessories mentioned but no spawn generated | `PATCH` |
+| Spurious wide/static shot before a `pan-up` | `PATCH` |
+
+Example output:
+
+```
+──────────────────────────────────────────────────────────
+PATCH GUIDE  (manual edits needed in PAM JSON)
+──────────────────────────────────────────────────────────
+  ⚠  'dog' (dog) has no spawn_prop — add one after fade_in.
+  ⚠  2 movement line(s) need manual x targets — replace
+     # REVIEW comments with walk_to / run_to / trot_to.
+  ℹ  'brad' uses CLI default scale 0.7 — add scale=<float>
+     to CHARACTER annotation for a per-character override.
+──────────────────────────────────────────────────────────
+(Hints also written as _comment entries at bottom of JSON.)
+```
+
 ---
 
-## 12. Complete example
+## 13. Complete example
 
 ```fountain
 Title: Too Nice to Die
@@ -923,8 +1125,12 @@ NONA SONNOF [Kind: Venusian] sweeps in through the blast doors.
 NONA
 Why is my city still on forty percent power?
 
+[[ FOCUS: ON=Nona | DIM=all_others | OPACITY=0.25 ]]
+
 [[ CAMERA: FRAMING=insert | SUBJECT=dodecahedron | MOVE=push | TRANSITION=hold ]]
 The dodecahedron dims to amber-orange.
+
+[[ FOCUS: RESET ]]
 
 [[ SCENE POPULATION: Sidel, Nona only. Governor exits here. ]]
 [[ NEGATIVE: No dodecahedron. No geometric objects. No additional figures. ]]
@@ -950,4 +1156,78 @@ repeating the full `CHARACTER` annotation.
 
 ---
 
-*fountain2pam.py v0.9.6 — PAM / TNTD project*
+## 14. Changelog
+
+### v0.9.8
+
+- **Color authority fix** — `characters.json` is now authoritative for
+  character colors.  When a stored record carries a `color` field, the
+  palette is re-derived and stamped into the entry's `style` dict,
+  overwriting any round-robin fallback color.  This ensures consistent
+  palettes across multi-scene projects when using a canonical
+  `tntd_characters.json`.
+
+### v0.9.7
+
+- **FOCUS annotation** — new beat-scoped `[[ FOCUS: ... ]]` note to
+  dim/brighten characters for attention direction.  Supports structured
+  `ON=` / `DIM=` / `OPACITY=` / `BRIGHT=` / `RT=` sub-keys and
+  shorthand reset (`RESET`, `off`, `clear`, `all`).
+- **Patch guide** — post-conversion patch guide prints actionable
+  warnings and appends `_comment` entries to the PAM JSON.  Covers
+  missing prop-character spawns, dog positioning, movement x-targets,
+  palette mismatches, default scale, pan-up tilt parameters, missing
+  scene_objects, costume accessories, and spurious wide shots.
+- **Filler stubs** — unresolved movement lines now emit a filler
+  `walk_to`/`run_to` with `x=0.01` and a `_hint` containing a
+  ready-to-paste replacement template.
+
+### v0.9.6
+
+- **CAPTION annotation** — on-screen caption/subtitle support with
+  shorthand and structured (`TEXT=`, `POSITION=`, `DURATION=`, `STYLE=`)
+  formats.
+- **SOUND annotation** — diegetic sound cue labels (`RING!`, `KNOCK`,
+  `DING!`) flashed by `pam_player.py`.
+- **PHONE annotation** — intercut telephone mode sets `os_bubble: true`
+  on subsequent `say`/`prop_say` actions for dashed speech bubbles.
+- **PRODUCTION NOTE annotation** — non-rendering metadata notes for
+  performance/dubbing guidance.
+- **ZONE (dot-slug)** — sub-location headings (`.Secretary's pod`)
+  emit `zone_shift` actions instead of full scene breaks.
+- **`pan-down` camera move** — tilts down from signage to character.
+- New action patterns: `jump_up`, `dodge`, `search_drawers`, `pat`.
+
+### v0.9.5
+
+- Tiered implied prop inference (3-tier system for seats, desks, doors,
+  phones, vessels, lights, etc.).
+- Character description extractor with `[Kind]` tag stripping.
+
+### v0.9.3–v0.9.4
+
+- **CHARACTER annotation** — declare characters in Fountain and sync to
+  `characters.txt` and `characters.json`.
+- `characters.json` registry with canonical vs. scene-specific field
+  separation.
+- Automatic palette derivation from `color=` hex value.
+- `torso_color` support for uniforms and jackets.
+
+### v0.9.2
+
+- **LIGHTING annotation** — standalone and embedded sub-key with
+  exposure/contrast register and source type vocabulary.
+- Lighting prose generation for `[SHOT / CAMERA]` and
+  `[SETTING / ATMOSPHERE]` paragraphs.
+
+### v0.9.1
+
+- **CAMERA annotation** — structured (`FRAMING=`, `SUBJECT=`, `MOVE=`,
+  `TRANSITION=`) and freeform formats.
+- Shot-count system (`--shot-count`, `--csv`).
+- `per-speaker` clip mode (default).
+- `_subscene_marker` entries for `pam_player --camera-mode`.
+
+---
+
+*fountain2pam.py v0.9.8 — PAM / TNTD project*
