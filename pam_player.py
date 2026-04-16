@@ -1,7 +1,7 @@
 """
 PAM Player — animate humanoid and non-humanoid graphs from a JSON screenplay.
 
-version 0.9.6
+version 0.9.8
 
 Usage
 -----
@@ -37,6 +37,19 @@ scrubbing through the video.  Do not use it for final renders.
 Screenplay format
 -----------------
 A JSON array of action objects.  See README.md for the full reference.
+
+Key additions in v0.9.7 — focus / dim
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  • ``"focus"`` action — animate one or more cast members to full (or custom)
+    opacity while dimming the rest, directing audience attention during busy
+    ensemble scenes.  Parsed from Fountain+ ``FOCUS:`` keys by fountain2pam.py.
+    Sub-keys: ``on`` (list of character keys or ``["all"]`` for reset),
+    ``dim`` (list or ``"all_others"``), ``opacity`` (float, default 0.30),
+    ``bright`` (float, default 1.0), ``rt`` (seconds, default 0.4).
+
+  • ``"focus_reset"`` action — restore every active cast member to full
+    opacity in one animated step.  Equivalent to ``focus`` with ``on=["all"]``.
+    Sub-keys: ``rt`` (seconds, default 0.4).
 
 Key additions in v0.9.6 — spatial / caption / sound
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -180,9 +193,11 @@ parent so position resolution always succeeds.
 Parallel limitations
 ~~~~~~~~~~~~~~~~~~~~
 ``parallel`` works with *single-step* actions that resolve to one
-``scene.play()`` call: ``morph``, ``turn``, ``scale``, ``fade_out``,
-``say``.  Multi-step choreography (``walk_to``, ``run_to``, ``wave``,
-``sit_down``, ``stand_up``, ``carry``) cannot yet be parallelised and
+``scene.play()`` call: ``morph``, ``turn``, ``scale``, ``fade_out``.
+``say`` is **not** parallel-safe — its handler always calls ``fig.say()``
+directly and returns ``None``, so it fires sequentially regardless of
+context.  Multi-step choreography (``walk_to``, ``run_to``, ``wave``,
+``sit_down``, ``stand_up``, ``carry``) also cannot be parallelised and
 will fall back to sequential execution with a warning.
 """
 
@@ -256,7 +271,7 @@ def _resolve_pose(name: str | None, default=None, fig=None):
 # centre_y is where the camera vertically centres — mid-body for dialogue shots.
 _FRAMING_CAMERA: dict[str, tuple] = {
     "wide":         (14.2, -0.5),   # full stage
-    "medium":       (10.0,  -0.2),   # waist-up
+    "medium":       (11.0,  -0.2),   # waist-up
     "medium-close": (8.0,   0.3),   # chest-up
     "close":        (7.0,   0.9),   # face and shoulders
     "ots-left":     (8.5,   0.0),   # OTS — slightly wider than medium
@@ -276,6 +291,8 @@ _MOVE_RT: dict[str, float] = {
     "drift":      1.5,
     "pan-up":     2.5,    # v0.9.4: tilt up — slow reveal
     "pan-down":   2.5,    # v0.9.6: tilt down — reveal floor-level action
+    "descend":    None,   # v0.9.6: long vertical camera travel — rt from meta
+    "push-into":  None,   # v0.9.6: zoom into a prop sign, then flash-cut
 }
 
 
@@ -585,6 +602,188 @@ def _execute_pan_down(meta: dict, scene: "MovingCameraScene",
     print(f"  CAM pan-down travel={travel:.2f} end_cy={end_cy:.2f} rt={rt:.1f}s")
 
 
+def _execute_descend(meta: dict, scene: "MovingCameraScene") -> None:
+    """
+    Smoothly move the camera frame downward (or upward) through a tall
+    scene laid out on a single vertical coordinate axis.
+
+    Unlike ``pan-up`` / ``pan-down`` — which tilt within a single stage
+    frame — ``descend`` is a long continuous travel designed for scenes
+    where the entire world is stacked vertically: sky at high y, surface
+    at y=0, underground at negative y.  The camera frame width and x are
+    not changed.
+
+    Parameters (from shot_meta dict)
+    ----------------------------------
+    from_y : float
+        Starting camera centre-y.  Set this at scene start to position
+        the frame on the sky/sun band before the descent begins.
+        Default: 4.0.
+    to_y   : float
+        Ending camera centre-y (bottom of the descent).  Default: -6.0.
+    rt     : float
+        Total travel duration in seconds.  Default: 10.0.
+    rate   : str
+        Manim rate function name.  Options:
+            ``"smooth"``    (default) — ease in / ease out
+            ``"linear"``   — constant speed
+            ``"rush_into"`` — accelerates toward the end (good for the
+                              final plunge into Venus City)
+            ``"ease_in"``  — starts slow, ends fast (Manim: slow_into)
+            ``"ease_out"`` — starts fast, slows at end (Manim: rush_from)
+    bg_color : str | None
+        If supplied, the scene background color is set to this hex value
+        at the moment the descend begins.  Use for the initial sky color.
+
+    JSON example
+    ------------
+    ::
+
+        {"action": "_subscene_marker",
+         "id": "venus-descent",
+         "bg_color": "#1a3a6a",
+         "shot_meta": {
+           "move":    "descend",
+           "from_y":  7.0,
+           "to_y":   -5.5,
+           "rt":      10.0,
+           "rate":    "smooth"
+         }}
+    """
+    frame = getattr(getattr(scene, "camera", None), "frame", None)
+    if frame is None:
+        return
+
+    from_y = float(meta.get("from_y", 4.0))
+    to_y   = float(meta.get("to_y",  -6.0))
+    rt     = float(meta.get("rt",    10.0))
+    rate_name = meta.get("rate", "smooth")
+
+    _rate_map = {
+        "smooth":    smooth,       # ease in + ease out (default)
+        "linear":    linear,       # constant speed
+        "rush_into": rush_into,    # accelerates toward the end
+        "ease_in":   slow_into,    # starts slow, ends fast
+        "ease_out":  rush_from,    # starts fast, slows at end
+    }
+    rate_fn = _rate_map.get(rate_name, smooth)
+
+    # Optional background color at descent start
+    if meta.get("bg_color"):
+        scene.camera.background_color = meta["bg_color"]
+
+    # Snap frame centre-y to from_y instantly, then animate to to_y
+    cur_x = float(frame.get_center()[0])
+    frame.move_to(np.array([cur_x, from_y, 0]))
+
+    scene.play(
+        frame.animate.move_to(np.array([cur_x, to_y, 0])),
+        run_time=rt,
+        rate_func=rate_fn,
+    )
+    print(f"  CAM descend from_y={from_y:.1f} to_y={to_y:.1f} "
+          f"rt={rt:.1f}s rate={rate_name}")
+
+
+def _execute_push_into(meta: dict, scene: "MovingCameraScene",
+                       props: "PropRegistry",
+                       scene_objects: dict | None = None) -> None:
+    """
+    Slow cinematic push-in toward a named prop (typically a building),
+    zooming until the prop's sign/label fills the frame, then cutting
+    with a white flash.
+
+    This is Option C from the design discussion: the camera zooms in
+    until the "Avatar Control HQ" rooftop sign text fills the screen
+    edge-to-edge, then a brief white flash ends the scene.  The flash
+    conveys passing through solid matter without requiring any 3-D
+    penetration geometry.
+
+    Parameters (from shot_meta dict)
+    ----------------------------------
+    subject   : str
+        Name of the target prop in scene_objects or the prop registry.
+    rt        : float
+        Push-in duration in seconds.  Default: 3.0.
+    zoom_to_w : float
+        Final camera frame width in PAM units.  Smaller = more zoomed.
+        Default: 3.5 (fills the frame with the sign text).
+    flash     : bool
+        If True (default), fire a white flash at the end of the push.
+    rt_flash_in  : float   Flash fade-in time.  Default: 0.15 s.
+    rt_flash_out : float   Flash fade-out time.  Default: 0.20 s.
+
+    JSON example
+    ------------
+    ::
+
+        {"action": "_subscene_marker",
+         "id": "push-into-achq",
+         "shot_meta": {
+           "move":       "push-into",
+           "subject":    "achq",
+           "rt":          3.0,
+           "zoom_to_w":   3.5,
+           "flash":       true
+         }}
+    """
+    frame = getattr(getattr(scene, "camera", None), "frame", None)
+    if frame is None:
+        return
+
+    rt           = float(meta.get("rt",         3.0))
+    zoom_to_w    = float(meta.get("zoom_to_w",  3.5))
+    do_flash     = bool(meta.get("flash",       True))
+    rt_flash_in  = float(meta.get("rt_flash_in",  0.15))
+    rt_flash_out = float(meta.get("rt_flash_out", 0.20))
+    subject      = (meta.get("subject") or "").lower()
+
+    # ── locate the subject prop ───────────────────────────────────────────
+    target_x = 0.0
+    target_y = 0.0
+
+    mob = None
+    if scene_objects and subject in scene_objects:
+        mob = scene_objects[subject]["mob"]
+    elif props:
+        mob = props.get_raw(subject)
+
+    if mob is not None:
+        target_x = float(getattr(mob, "pam_x", mob.get_center()[0]))
+        # Aim at the upper portion of the building where the sign lives
+        prop_y      = float(getattr(mob, "pam_y",      mob.get_center()[1]))
+        prop_height = float(getattr(mob, "pam_height", 4.0))
+        target_y = prop_y + prop_height * 0.80
+    else:
+        print(f"  CAM push-into: subject '{subject}' not found — "
+              f"using current frame centre.")
+        target_y = float(frame.get_center()[1])
+
+    # ── slow push (zoom + reframe) ────────────────────────────────────────
+    scene.play(
+        frame.animate
+            .set_width(zoom_to_w)
+            .move_to(np.array([target_x, target_y, 0])),
+        run_time=rt,
+        rate_func=slow_into,    # starts slow, accelerates into the sign
+    )
+    print(f"  CAM push-into '{subject}' target=({target_x:.1f},{target_y:.1f}) "
+          f"zoom_w={zoom_to_w:.1f} rt={rt:.1f}s")
+
+    # ── white flash — conveys passing through solid matter ────────────────
+    if do_flash:
+        flash_rect = Rectangle(
+            width=zoom_to_w * 2,
+            height=zoom_to_w * 2,
+            fill_color=WHITE,
+            fill_opacity=1.0,
+            stroke_width=0,
+        ).move_to(np.array([target_x, target_y, 0]))
+
+        scene.play(FadeIn(flash_rect),  run_time=rt_flash_in)
+        scene.play(FadeOut(flash_rect), run_time=rt_flash_out)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  PROP REGISTRY  (v0.9.3)
 #
@@ -769,13 +968,20 @@ def _build_prop_items(items: dict, registry: PropRegistry,
     children = {k: v for k, v in items.items() if v.get("parent")}
 
     for pname, spec in {**roots, **children}.items():
-        spec  = dict(spec)               # copy — never mutate loaded JSON
-        ptype = spec.pop("type", "desk")
+        spec   = dict(spec)              # copy — never mutate loaded JSON
+        ptype  = spec.pop("type", "desk")
+        hidden = spec.pop("hidden", False)   # consumed here; never reaches build_prop
         # Inject the live registry so child props can resolve parent position
-        prop  = build_prop(pname, type=ptype,
-                           prop_registry=registry._store, **spec)
+        prop   = build_prop(pname, type=ptype,
+                            prop_registry=registry._store, **spec)
         registry.add(pname, prop)
-        scene.play(FadeIn(prop), run_time=rt)
+        if hidden:
+            # Register the prop (so parents/children can resolve it) but
+            # keep it invisible until a spawn_prop action reveals it.
+            prop.set_opacity(0)
+            scene.add(prop)
+        else:
+            scene.play(FadeIn(prop), run_time=rt)
 
 
 class PAMPlayer(MovingCameraScene):
@@ -875,7 +1081,7 @@ class PAMPlayer(MovingCameraScene):
     FRAMING          Frame width  Description
     ===============  ===========  ====================================
     ``wide``         14.2         Full stage — default
-    ``medium``       10.0         Waist-up
+    ``medium``       11.0         Waist-up
     ``medium-close``  8.0         Chest-up
     ``close``         7.0         Face and shoulders
     ``ots-left``      8.5         Over-the-shoulder (camera left)
@@ -1005,7 +1211,7 @@ class PAMPlayer(MovingCameraScene):
             title_mob = Text(
                 td.get("text", "PAM"), font="Courier New",
                 font_size=22, color=LABEL_COLOR,
-            ).to_edge(UP, buff=0.3)
+            ).to_edge(UP, buff=td.get("y_offset", 0.3))
             parts = [FadeIn(title_mob)]
             st = td.get("subtitle", "")
             if st:
@@ -1015,6 +1221,54 @@ class PAMPlayer(MovingCameraScene):
                 ).next_to(title_mob, DOWN, buff=0.1)
                 parts.append(FadeIn(subtitle_mob))
             self.play(*parts, run_time=0.7)
+
+        # ── persistent caption (PAM_CAPTION / "persistent_caption" action) ──
+        # A static lower-third bar that stays on screen for the entire scene.
+        # Triggered by the first {"action": "persistent_caption", "text": "..."}
+        # step found in the action list (consumed and removed like "title").
+        # JSON keys:
+        #   "text"     — caption text (required)
+        #   "position" — "bottom" (default) | "lower-third" | "top"
+        #   "style"    — "normal" | "italic" | "bold" (default "italic")
+        #   "font_size"— default 16
+        pcap_mob = None
+        _pcap_idx = next(
+            (i for i, s in enumerate(actions)
+             if s.get("action") == "persistent_caption"),
+            None,
+        )
+        if _pcap_idx is not None:
+            pcd = actions.pop(_pcap_idx)
+            pcap_text = pcd.get("text", "")
+            pcap_pos   = pcd.get("position", "bottom").lower()
+            pcap_style = pcd.get("style", "italic").lower()
+            pcap_fs    = pcd.get("font_size", 16)
+            if pcap_text:
+                _pw = BOLD   if pcap_style == "bold"   else NORMAL
+                _ps = ITALIC if pcap_style == "italic" else NORMAL
+                pcap_txt = Text(
+                    pcap_text, font="Courier New",
+                    font_size=pcap_fs, color="#e8e8e8",
+                    weight=_pw, slant=_ps,
+                )
+                pcap_bar = Rectangle(
+                    width=14.2,
+                    height=pcap_txt.height + 0.28,
+                    color="#000000",
+                    fill_color="#000000",
+                    fill_opacity=0.72,
+                    stroke_width=0,
+                )
+                pcap_mob = VGroup(pcap_bar, pcap_txt)
+                if pcap_pos == "top":
+                    pcap_mob.to_edge(UP, buff=0.15)
+                elif pcap_pos == "lower-third":
+                    pcap_mob.to_edge(DOWN, buff=1.0)
+                else:
+                    pcap_mob.to_edge(DOWN, buff=0.15)
+                pcap_txt.move_to(pcap_bar.get_center())
+                self.add(pcap_mob)   # no fade-in animation — just appears
+                self.wait(0.001)         # force Manim to commit mob before first play()
 
         # ── render-time clock (PAM_SHOW_CLOCK=1) ────────────────────────
         # Displays elapsed scene time as M:SS.ss in the upper-right corner,
@@ -1128,7 +1382,7 @@ class PAMPlayer(MovingCameraScene):
                     figure_type  = step.get("figure_type",
                                             spec.get("figure_type", "human"))
                     scale_spec   = step.get("scale", spec.get("scale"))
-                    gender       = step.get("gender", spec.get("gender"))
+                    gender       = step.get("gender", spec.get("gender")) or None
                     torso_color  = step.get("torso_color", spec.get("torso_color"))
                 else:
                     pose_name    = step.get("pose")
@@ -1137,7 +1391,7 @@ class PAMPlayer(MovingCameraScene):
                     build        = step.get("build", "default")
                     figure_type  = step.get("figure_type", "human")
                     scale_spec   = step.get("scale")
-                    gender       = step.get("gender")
+                    gender       = step.get("gender") or None
                     torso_color  = step.get("torso_color")
                     if name not in cast:
                         cast[name] = {"fig": None, "figure_type": figure_type,
@@ -1171,7 +1425,18 @@ class PAMPlayer(MovingCameraScene):
                     fig.set_pose(pose)
                     fig.pose = pose
 
-                fig.fade_in(self)
+                rt = step.get("duration", step.get("rt"))
+                if figure_type == "dog":
+                    if rt is not None:
+                        fig.fade_in(self, rt_edges=rt, rt_dots=rt * 0.7)
+                    else:
+                        fig.fade_in(self)
+                else:
+                    # HumanGraph and AlienGraph share the same fade_in signature
+                    if rt is not None:
+                        fig.fade_in(self, rt_edges=rt, rt_dots=rt * 0.7)
+                    else:
+                        fig.fade_in(self)
                 cast[name]["fig"] = fig
                 return None
 
@@ -1243,6 +1508,25 @@ class PAMPlayer(MovingCameraScene):
                 step = {**step, "_collect_anims": True}
             return handler(fig, step, self, name, props=props, cast=cast)
 
+        # ── initial camera reset ─────────────────────────────────────────
+        # Force the camera to wide/ensemble at the very start of every scene
+        # so it never inherits a zoomed or off-centre state from a prior scene.
+        # This fires unconditionally before any action is processed.
+        if _camera_mode:
+            _init_frame = getattr(getattr(self, "camera", None), "frame", None)
+            if _init_frame is not None:
+                _init_frame.width = 14.2
+                _init_frame.move_to(np.array([0.0, -0.5, 0]))
+
+        # ── initial camera reset ─────────────────────────────────────────
+        # Force the camera to wide/ensemble at scene start so it never
+        # inherits a zoomed or off-centre state from a prior scene.
+        if _camera_mode:
+            _init_frame = getattr(getattr(self, "camera", None), "frame", None)
+            if _init_frame is not None:
+                _init_frame.width = 14.2
+                _init_frame.move_to(np.array([0.0, -0.5, 0]))
+
         # ── main dispatch loop ───────────────────────────────────────────
         for step in actions:
             if "_comment" in step or "_hint" in step:   # skip annotations
@@ -1253,6 +1537,10 @@ class PAMPlayer(MovingCameraScene):
                 if _camera_mode:
                     sid  = step["_subscene_marker"]
                     meta = _subscene_index.get(sid) or step.get("_shot_meta") or {}
+                    # Top-level bg_color: set background before the camera move
+                    bg_color = step.get("bg_color") or meta.get("bg_color")
+                    if bg_color:
+                        self.camera.background_color = bg_color
                     # Build a live x-position snapshot from current cast and props
                     char_x = {}
                     for ckey, cspec in cast.items():
@@ -1291,6 +1579,15 @@ class PAMPlayer(MovingCameraScene):
                         # Pan-down owns its own scene.play() — execute immediately
                         _execute_pan_down(meta, self, char_x)
                         _pending_camera.clear()
+                    elif move == "descend":
+                        # Long vertical camera travel — owns its own scene.play()
+                        _execute_descend(meta, self)
+                        _pending_camera.clear()
+                    elif move == "push-into":
+                        # Zoom to prop sign + white flash — owns its own scene.play()
+                        _execute_push_into(meta, self, props,
+                                           scene_objects=_scene_objects)
+                        _pending_camera.clear()
                     elif _MOVE_RT.get(move, 0.0) == 0.0:
                         _apply_camera(meta, self, char_x)
                         _pending_camera.clear()
@@ -1316,7 +1613,7 @@ class PAMPlayer(MovingCameraScene):
                         "scale":       spec.get("scale"),
                         "color":       spec.get("color"),
                         "torso_color": spec.get("torso_color"),
-                        "gender":      spec.get("gender"),
+                        "gender":      spec.get("gender") or None,
                         # prop-characters carry spawn coords in cast block
                         "spawn":       spec.get("spawn", {}),
                     }
@@ -1353,9 +1650,17 @@ class PAMPlayer(MovingCameraScene):
                     ox    = spec.get("x", 0.0)
                     prop  = build_prop(oname, type=otype,
                                        prop_registry=props._store, **spec)
-                    # Add to scene then push behind all existing mobjects
+                    # Backdrops go behind everything; all other scene
+                    # objects go in front of any backdrops already placed.
                     self.add(prop)
-                    self.bring_to_back(prop)
+                    if otype == "backdrop":
+                        self.bring_to_back(prop)
+                    else:
+                        # Push behind characters/props but in front of backdrops
+                        self.bring_to_back(prop)
+                        for bname, bdata in _scene_objects.items():
+                            if getattr(bdata["mob"], "pam_type", "") == "backdrop":
+                                self.bring_to_back(bdata["mob"])
                     self.play(FadeIn(prop), run_time=rt)
                     _scene_objects[oname] = {"mob": prop, "x": ox}
                 continue
@@ -1487,6 +1792,12 @@ class PAMPlayer(MovingCameraScene):
 
                 owner_torso = step.get("on_torso_of")   # for chest accessories
 
+                # If the prop was pre-registered as hidden, just reveal it.
+                if pname in props._store:
+                    prop = props.get(pname)
+                    self.play(FadeIn(prop), run_time=rt)
+                    continue
+
                 if owner:
                     # on_head_of — position relative to head joint
                     fig = _get_fig(owner)
@@ -1549,6 +1860,85 @@ class PAMPlayer(MovingCameraScene):
                         node["attach"] = None
                 continue
 
+
+            # ── flash ────────────────────────────────────────────────────
+            # Briefly recolor a prop, character, or both to a flash color,
+            # hold for a duration, then animate back to the original colors.
+            # Works on standard props, avatar_pod, and HumanGraph/AlienGraph
+            # figures.  Does NOT affect GovernorGraph (use prop_color instead).
+            #
+            # JSON keys:
+            #   "prop"     — registry name of a prop to flash (optional)
+            #   "who"      — character name to flash (optional)
+            #   "color"    — flash color hex (default "#44aaff" — bright blue)
+            #   "duration" — hold time at flash color in seconds (default 0.2)
+            #   "rt"       — fade-in and fade-out time each (default 0.1)
+            #
+            # Either "prop", "who", or both may be supplied.  If both are
+            # given they flash simultaneously.
+            #
+            # Examples:
+            #   {"action": "flash", "prop": "pod",  "color": "#44aaff", "duration": 0.2}
+            #   {"action": "flash", "who": "xena",  "color": "#44aaff", "duration": 0.3}
+            #   {"action": "flash", "prop": "pod", "who": "bevers", "color": "#44aaff"}
+            if act == "flash":
+                flash_color = step.get("color", "#44aaff")
+                duration    = step.get("duration", 0.2)
+                frt         = step.get("rt", 0.1)
+
+                # ── collect targets: list of (mobject, stroke_snap, fill_snap, fill_opacity_snap)
+                targets = []
+
+                # prop target
+                _fpname = step.get("prop")
+                _fprop  = _get_prop(_fpname) if _fpname else None
+                if _fprop is not None:
+                    gov = getattr(_fprop, "pam_governor", None)
+                    if gov is None:
+                        for mob in _fprop.submobjects:
+                            try:
+                                sc = mob.get_stroke_color()
+                                fc = mob.get_fill_color()
+                                fo = mob.get_fill_opacity()
+                            except Exception:
+                                sc = fc = flash_color
+                                fo = 0.85
+                            targets.append((mob, sc, fc, fo))
+
+                # character target
+                _fwho = step.get("who")
+                _ffig = cast.get(_fwho, {}).get("fig") if _fwho else None
+                if _ffig is not None and hasattr(_ffig, "group"):
+                    for mob in _ffig.group.submobjects:
+                        try:
+                            sc = mob.get_stroke_color()
+                            fc = mob.get_fill_color()
+                            fo = mob.get_fill_opacity()
+                        except Exception:
+                            sc = fc = flash_color
+                            fo = 0.85
+                        targets.append((mob, sc, fc, fo))
+
+                if targets:
+                    # ── flash in ─────────────────────────────────────────
+                    anims_in = [
+                        mob.animate.set_color(flash_color)
+                                   .set_fill(flash_color, opacity=fo)
+                        for mob, sc, fc, fo in targets
+                    ]
+                    self.play(*anims_in, run_time=frt)
+                    self.wait(duration)
+                    # ── flash out (restore) ───────────────────────────────
+                    anims_out = [
+                        mob.animate.set_color(sc)
+                                   .set_fill(fc, opacity=fo)
+                        for mob, sc, fc, fo in targets
+                    ]
+                    self.play(*anims_out, run_time=frt)
+                else:
+                    print(f"PAMPlayer flash: no valid prop or character found "
+                          f"(prop={step.get('prop')!r}, who={step.get('who')!r}).")
+                continue
 
             if act == "prop_color":
                 pname = step.get("prop")
@@ -1622,6 +2012,45 @@ class PAMPlayer(MovingCameraScene):
                               f"found or has no close_doors / partial_close method.")
                 continue
 
+
+            # ── open_lid ─────────────────────────────────────────────────
+            # Rotate an avatar_pod lid open around its head-end hinge.
+            # JSON keys:
+            #   "prop" — registry name of the avatar_pod (required)
+            #   "rt"   — animation duration in seconds (default 0.6)
+            #
+            # Example:
+            #   {"action": "open_lid", "prop": "pod", "rt": 0.6}
+            if act == "open_lid":
+                pname = step.get("prop")
+                prop  = _get_prop(pname)
+                rt    = step.get("run_time", step.get("rt", 0.6))
+                if prop and hasattr(prop, "open_lid"):
+                    prop.open_lid(self, run_time=rt)
+                else:
+                    print(f"PAMPlayer open_lid: prop '{pname}' not found "
+                          f"or has no open_lid method.")
+                continue
+
+            # ── close_lid ────────────────────────────────────────────────
+            # Rotate an avatar_pod lid closed around its head-end hinge.
+            # JSON keys:
+            #   "prop" — registry name of the avatar_pod (required)
+            #   "rt"   — animation duration in seconds (default 0.6)
+            #
+            # Example:
+            #   {"action": "close_lid", "prop": "pod", "rt": 0.6}
+            if act == "close_lid":
+                pname = step.get("prop")
+                prop  = _get_prop(pname)
+                rt    = step.get("run_time", step.get("rt", 0.6))
+                if prop and hasattr(prop, "close_lid"):
+                    prop.close_lid(self, run_time=rt)
+                else:
+                    print(f"PAMPlayer close_lid: prop '{pname}' not found "
+                          f"or has no close_lid method.")
+                continue
+
             # ── prop_say ─────────────────────────────────────────────────
             if act == "prop_say":
                 pname     = step.get("prop")
@@ -1661,8 +2090,15 @@ class PAMPlayer(MovingCameraScene):
                     continue
 
                 # ── Generic prop: manual speech bubble ────────────────────
-                px = prop.pam_x
-                py = prop.pam_y
+                # Use PropRegistry.world_pos() to safely resolve position,
+                # avoiding AttributeError when the VGroup lacks pam_x/pam_y.
+                _wpos = props.world_pos(pname)
+                px = _wpos[0]
+                # Use the top surface y if available so the bubble appears
+                # above the prop rather than at its base coordinate.
+                py = getattr(prop, "pam_surface_y",
+                             getattr(prop, "pam_y", _wpos[1]))
+                _prop_os = step.get("style", "").lower() == "os"
 
                 txt = Text(
                     text, font="Courier New",
@@ -1687,13 +2123,28 @@ class PAMPlayer(MovingCameraScene):
                     bx = np.clip(px, x_min, x_max)
                 bx = np.clip(bx, x_min, x_max)
 
-                box = RoundedRectangle(
+                _solid_box = RoundedRectangle(
                     width=bw, height=bh,
                     corner_radius=0.12,
                     color="#f0d060", fill_color="#2a1a00",
-                    fill_opacity=0.95, stroke_width=2,
+                    fill_opacity=0.95, stroke_width=0 if _prop_os else 2,
                 ).move_to(np.array([bx, by, 0]))
-                txt.move_to(box.get_center())
+                if _prop_os:
+                    # dashed border for O.S. / phone bubbles
+                    box = VGroup(
+                        _solid_box,
+                        DashedVMobject(
+                            RoundedRectangle(
+                                width=bw, height=bh,
+                                corner_radius=0.12,
+                                color="#f0d060", stroke_width=2,
+                            ).move_to(np.array([bx, by, 0])),
+                            num_dashes=22, dashed_ratio=0.5,
+                        ),
+                    )
+                else:
+                    box = _solid_box
+                txt.move_to(_solid_box.get_center())
 
                 tail_x = np.clip(px, bx - bw / 2 + 0.3, bx + bw / 2 - 0.3)
                 tail = Polygon(
@@ -1758,6 +2209,7 @@ class PAMPlayer(MovingCameraScene):
                 cap_pos  = step.get("position", "bottom").lower()
                 cap_dur  = step.get("duration", 3.0)
                 cap_style = step.get("style", "normal").lower()
+                cap_color = step.get("color", "#e8e8e8")
                 rt_in    = step.get("rt_in",  0.3)
                 rt_out   = step.get("rt_out", 0.25)
 
@@ -1768,8 +2220,9 @@ class PAMPlayer(MovingCameraScene):
 
                     cap_mob = Text(
                         cap_text, font="Courier New",
-                        font_size=18, color="#e8e8e8",
+                        font_size=18, color=cap_color,
                         weight=weight, slant=slant,
+                        width=13.5,
                     )
                     # Dark backing bar, full-width tinted strip
                     bar = Rectangle(
@@ -1782,18 +2235,120 @@ class PAMPlayer(MovingCameraScene):
                     )
                     cap_card = VGroup(bar, cap_mob)
 
-                    # Position
+                    # Position using explicit PAM-frame coordinates:
+                    # frame centre y=-0.5, height=14.2*(9/16)=7.99
+                    # bottom edge ≈ y=-4.5, top edge ≈ y=3.5
+                    _frame_cy = -0.5
+                    _frame_h  = 14.2 * 9 / 16
+                    _bar_h    = cap_mob.height + 0.28
                     if cap_pos == "top":
-                        cap_card.to_edge(UP, buff=0.15)
+                        _bar_cy = _frame_cy + _frame_h / 2 - _bar_h / 2 - 0.15
                     elif cap_pos == "lower-third":
-                        cap_card.to_edge(DOWN, buff=1.0)
+                        _bar_cy = _frame_cy - _frame_h / 2 + _bar_h / 2 + 1.0
                     else:   # "bottom" default
-                        cap_card.to_edge(DOWN, buff=0.15)
+                        _bar_cy = _frame_cy - _frame_h / 2 + _bar_h / 2 + 0.15
+                    cap_card.move_to(np.array([0.0, _bar_cy, 0]))
                     cap_mob.move_to(bar.get_center())
 
                     self.play(FadeIn(cap_card), run_time=rt_in)
                     self.wait(cap_dur)
                     self.play(FadeOut(cap_card), run_time=rt_out)
+                continue
+
+            # ── overlay_caption ───────────────────────────────────────────
+            # Non-blocking caption: added to the scene via an opacity
+            # updater so the action loop continues uninterrupted while
+            # the caption fades in, holds, and fades out in the background.
+            #
+            # JSON keys (same as "caption" plus one new flag):
+            #   "text"     — caption text (required)
+            #   "position" — "bottom" (default) | "top" | "lower-third"
+            #   "duration" — total visible time in seconds (default 4.0);
+            #                includes fade-in and fade-out time
+            #   "style"    — "normal" | "italic" | "bold" (default "italic")
+            #   "color"    — text color (default "#e8e8e8")
+            #   "rt_in"    — fade-in portion of duration (default 0.4)
+            #   "rt_out"   — fade-out portion of duration (default 0.4)
+            #
+            # The caption is driven entirely by a Manim updater — no
+            # self.play() or self.wait() calls are made, so the next
+            # action in the screenplay fires immediately.
+            if act == "overlay_caption":
+                cap_text  = step.get("text", "")
+                cap_pos   = step.get("position", "bottom").lower()
+                cap_dur   = float(step.get("duration", 4.0))
+                cap_style = step.get("style", "italic").lower()
+                cap_color = step.get("color", "#e8e8e8")
+                rt_in     = float(step.get("rt_in",  0.4))
+                rt_out    = float(step.get("rt_out", 0.4))
+
+                if cap_text:
+                    weight = BOLD   if cap_style == "bold"   else NORMAL
+                    slant  = ITALIC if cap_style == "italic" else NORMAL
+
+                    _oc_txt = Text(
+                        cap_text, font="Courier New",
+                        font_size=18, color=cap_color,
+                        weight=weight, slant=slant,
+                    )
+                    _oc_bar = Rectangle(
+                        width=14.2,
+                        height=_oc_txt.height + 0.28,
+                        color="#000000",
+                        fill_color="#000000",
+                        fill_opacity=0.72,
+                        stroke_width=0,
+                    )
+                    _oc_card = VGroup(_oc_bar, _oc_txt)
+
+                    _frame_cy = -0.5
+                    _frame_h  = 14.2 * 9 / 16
+                    _bar_h    = _oc_txt.height + 0.28
+                    if cap_pos == "top":
+                        _bar_cy = _frame_cy + _frame_h / 2 - _bar_h / 2 - 0.15
+                    elif cap_pos == "lower-third":
+                        _bar_cy = _frame_cy - _frame_h / 2 + _bar_h / 2 + 1.0
+                    else:
+                        _bar_cy = _frame_cy - _frame_h / 2 + _bar_h / 2 + 0.15
+                    _oc_card.move_to(np.array([0.0, _bar_cy, 0]))
+                    _oc_txt.move_to(_oc_bar.get_center())
+
+                    # Start fully transparent
+                    _oc_card.set_opacity(0.0)
+                    self.add(_oc_card)
+
+                    # Updater: drive opacity as a piecewise function of
+                    # elapsed time.  Uses a closure over a single-element
+                    # list so the nested function can mutate the counter.
+                    _oc_elapsed = [0.0]
+                    _oc_done    = [False]
+
+                    def _oc_updater(mob, dt,
+                                    _elapsed=_oc_elapsed,
+                                    _done=_oc_done,
+                                    _total=cap_dur,
+                                    _ri=rt_in, _ro=rt_out):
+                        if _done[0]:
+                            return
+                        _elapsed[0] += dt
+                        t = _elapsed[0]
+                        if t < _ri:
+                            opacity = t / _ri
+                        elif t < _total - _ro:
+                            opacity = 1.0
+                        elif t < _total:
+                            opacity = (_total - t) / _ro
+                        else:
+                            opacity = 0.0
+                            mob.remove_updater(_oc_updater)
+                            # Schedule removal on the next frame via a
+                            # one-shot updater on the scene itself so we
+                            # don't mutate the scene mobject list mid-frame.
+                            _done[0] = True
+
+                        mob.set_opacity(opacity)
+
+                    _oc_card.add_updater(_oc_updater)
                 continue
 
             # ── sound_cue ────────────────────────────────────────────────
@@ -1828,6 +2383,66 @@ class PAMPlayer(MovingCameraScene):
                     self.play(FadeOut(cue_txt, scale=0.85), run_time=rt_out)
                 continue
 
+
+            # ── focus / focus_reset ───────────────────────────────────────
+            # Dim background characters and/or brighten foreground ones to
+            # direct audience attention.  Parsed from Fountain+ FOCUS: keys
+            # by fountain2pam.py.
+            #
+            # JSON keys (focus):
+            #   "on"      — list of character keys to keep bright, OR ["all"]
+            #               to restore everyone (equivalent to focus_reset).
+            #   "dim"     — list of character keys to dim, OR the string
+            #               "all_others" to dim every cast member not in "on".
+            #   "opacity" — target opacity for dimmed characters (default 0.30)
+            #   "bright"  — target opacity for focused characters (default 1.0)
+            #   "rt"      — animation run time in seconds (default 0.4)
+            #
+            # JSON keys (focus_reset):
+            #   "rt"      — restore run time in seconds (default 0.4)
+            #
+            # Both actions store the current opacity on cast[name]["opacity"]
+            # so subsequent focus calls can diff against it.
+            if act in ("focus", "focus_reset"):
+                rt             = float(step.get("rt",      0.4))
+                dim_opacity    = float(step.get("opacity", 0.30))
+                bright_opacity = float(step.get("bright",  1.0))
+                on_names  = step.get("on",  [])
+                dim_names = step.get("dim", [])
+
+                if act == "focus_reset" or on_names == ["all"]:
+                    anims = []
+                    for cname, cspec in cast.items():
+                        fig = cspec.get("fig")
+                        if fig is not None and hasattr(fig, "group"):
+                            anims.append(fig.group.animate.set_opacity(1.0))
+                        cspec["opacity"] = 1.0
+                    if anims:
+                        self.play(*anims, run_time=rt, rate_func=smooth)
+                    print(f"  FOCUS reset → all figures full opacity")
+                else:
+                    if dim_names == "all_others":
+                        dim_names = [n for n in cast if n not in on_names]
+                    anims = []
+                    for cname in on_names:
+                        fig = _get_fig(cname)
+                        if fig is not None and hasattr(fig, "group"):
+                            anims.append(
+                                fig.group.animate.set_opacity(bright_opacity))
+                        if cname in cast:
+                            cast[cname]["opacity"] = bright_opacity
+                    for cname in dim_names:
+                        fig = _get_fig(cname)
+                        if fig is not None and hasattr(fig, "group"):
+                            anims.append(
+                                fig.group.animate.set_opacity(dim_opacity))
+                        if cname in cast:
+                            cast[cname]["opacity"] = dim_opacity
+                    if anims:
+                        self.play(*anims, run_time=rt, rate_func=smooth)
+                    print(f"  FOCUS on={on_names} dim={dim_names} "
+                          f"opacity={dim_opacity} rt={rt}s")
+                continue
 
             # ── parallel ─────────────────────────────────────────────────
             if act == "parallel":
@@ -1954,7 +2569,9 @@ class PAMPlayer(MovingCameraScene):
             for name in targets:
                 _dispatch_one(step, name)
 
-        # ── clean up title and clock ─────────────────────────────────────
+        # ── clean up title, clock, and persistent caption ──────────────────
+        if pcap_mob:
+            self.play(FadeOut(pcap_mob), run_time=0.5)
         if title_mob or clock_mob:
             parts = []
             if title_mob:
