@@ -1,5 +1,5 @@
 # PAM — Pose And Motion
-### Stick-figure animation library for Manim · v0.9.5
+### Stick-figure animation library for Manim · v0.9.8
 
 PAM is a Manim-based toolkit for animating stick-figure characters as
 mathematical graphs.  Poses are plain Python dictionaries mapping joint names
@@ -10,10 +10,10 @@ animations in Python, or drive them from a JSON screenplay on the command line.
 
 ### Credits
 
-PAM was developed by David Joyner with AI assistance from Claude Sonnet 4.6
-(Anthropic), which co-authored the majority of the codebase — including the
-JSON screenplay player, the Fountain-to-PAM converter, the prop system, speech
-bubble layout, the character registry system, and this documentation.
+PAM was developed by David Joyner with AI assistance from Claude (Anthropic),
+which co-authored the majority of the codebase across the 0.9.x series —
+including the JSON screenplay player, the Fountain-to-PAM converter, the prop
+system, speech bubble layout, the character registry system, and this documentation.
 
 ---
 
@@ -73,13 +73,17 @@ On top of this foundation PAM provides:
   suggesting a uniform or shirt without extra geometry.
 - **Props** — chair, desk, hat, door, dodecahedron, building, flower, sun,
   moon, elevator, briefcase, folder, phone/landline/smartphone, audio/video bug,
-  floral arrangement — placed via a JSON declaration and spawnable mid-scene.
+  floral arrangement, backpack, laptop, avatar pod, letter graphs — placed via a
+  JSON declaration and spawnable mid-scene.
 - **Character accessories** — `name_tag`, `delivery_cap`, `cheap_suit`,
   `silver_hair` — props that attach to a figure's head or torso node.
 - **Speech bubbles** that size themselves to the text and stay within screen
   margins.  An O.S. / phone variant uses a dashed border and cooler palette.
 - **Expressions** — reaction glyphs (`smirk`, `roll_eyes`) that flash above
   a character's head via the `express` action.
+- **Person-to-person interaction actions** — `kiss`, `hold_hands`, `hand_to`,
+  `pat_head` — implemented in `actions_interactions.py` for interpersonal beat
+  choreography.
 - **A character registry** (`characters.txt`) listing every cast member with
   type, gender, color, and label.  Populated by hand or automatically from
   Fountain+ `CHARACTER` annotations.
@@ -93,7 +97,7 @@ On top of this foundation PAM provides:
 - **A Fountain converter** (`fountain2pam.py`) that turns a standard Fountain
   screenplay into a PAM JSON file and per-subscene AI video prompts, with
   support for Fountain+ metadata notes including `CHARACTER`, `CAMERA`,
-  `LIGHTING`, and `TORSO_COLOR`.
+  `LIGHTING`, `FOCUS`, and `TORSO_COLOR`.
 - **A Blender exporter** (`pam2blender.py`) that converts a PAM JSON screenplay
   to a self-contained Blender Python script — camera keyframes, lights, prop
   placeholders, character stubs, and timeline markers — with no PAM dependency.
@@ -104,20 +108,31 @@ On top of this foundation PAM provides:
 
 ```
 your-project/
-  pam/                    ← the library (a Python package)
-    __init__.py           ← re-exports everything; version string
-    poses.py              ← joint list, edge list, pose registry,
-                            keyframe cycles, pose helper functions
-    figure.py             ← HumanGraph, AlienGraph, DogGraph,
-                            GovernorGraph class definitions
-    builds.py             ← body-type presets (proportions + palette)
-    props.py              ← stage prop builders (chair, desk, building, …)
-  pam_player.py           ← JSON screenplay player (top-level script)
-  fountain2pam.py         ← Fountain → PAM JSON + AI prompt converter
-  pam2blender.py          ← PAM JSON → Blender Python script exporter
-  character_gallery.py    ← renders characters.txt as a Manim gallery page
-  characters.txt          ← character registry (hand-edited or auto-synced)
-  pam-render              ← shell wrapper around pam_player.py
+  pam/                      ← the library (a Python package)
+    __init__.py             ← re-exports everything; version string
+    poses.py                ← joint list, edge list, pose registry,
+                              keyframe cycles, pose helper functions
+    figure.py               ← HumanGraph, AlienGraph, DogGraph,
+                              GovernorGraph class definitions
+    builds.py               ← body-type presets (proportions + palette)
+    props.py                ← stage prop builders — public entry point
+                              (re-exports from sub-modules below)
+    props_core.py           ← core prop infrastructure and metadata
+    props_furniture.py      ← furniture and fixtures (chair, desk, door, …)
+    props_carried.py        ← hand props (phone, briefcase, backpack, laptop, …)
+    props_flora.py          ← flora props (flower, floral arrangement, …)
+    props_environment.py    ← environment and background (building, sun, moon,
+                              avatar pod, tv monitor, …)
+    props_accessories.py    ← character accessories (name_tag, cheap_suit, …)
+    props_letters.py        ← letter graph props
+    actions.py              ← action handlers and ACTION_REGISTRY
+    actions_interactions.py ← person-to-person interaction actions (v0.9.8)
+  pam_player.py             ← JSON screenplay player (top-level script)
+  fountain2pam.py           ← Fountain → PAM JSON + AI prompt converter
+  pam2blender.py            ← PAM JSON → Blender Python script exporter
+  character_gallery.py      ← renders characters.txt as a Manim gallery page
+  characters.txt            ← character registry (hand-edited or auto-synced)
+  pam-render                ← shell wrapper around pam_player.py
 ```
 
 The `pam/` directory is a Python package — keep it as a subdirectory.  The
@@ -682,9 +697,17 @@ gov.fade_out(self)
 Use `"schlegel"` for the graph-theory aesthetic and character gallery.
 Use `"spin"` for animated scenes where the kinetic read is needed.
 
-**Color states** (used with `prop_color` or `set_state`):
+**Named states** (used with `set_state`):
 
-| Hex | State |
+| State | Color | Description |
+|---|---|---|
+| `"gold"` | `#e8c547` | Active / speaking (default) |
+| `"amber"` | `#e87a1a` | Low power / listening |
+| `"dark"` | — | Effectively powered down |
+
+**Color states** (used with `prop_color` for arbitrary hex values):
+
+| Hex | Description |
 |---|---|
 | `#e8c547` | Gold — speaking (default) |
 | `#e87a1a` | Amber-orange — low power / paused |
@@ -758,6 +781,9 @@ from pam import (
     build_building, build_flower, build_sun, build_moon,
     build_name_tag, build_delivery_cap,               # v0.9.5 accessories
     build_cheap_suit, build_silver_hair,              # v0.9.5 accessories
+    build_backpack, build_laptop,                     # v0.9.7 props
+    build_avatar_pod,                                 # v0.9.7 props
+    build_letter_graph,                               # v0.9.7 letter prop
 )
 ```
 
@@ -804,14 +830,22 @@ self.play(FadeIn(building))
 | `desk_lamp` | — | L-shaped gooseneck lamp |
 | `briefcase` | — | Carried at side (side-carry poses) |
 | `folder` | — | Flat thin rectangle, held in one hand |
-| `phone` | `cellphone` · `smartphone` · `landline_desk` · `landline_wall` | Phone handset in three styles |
+| `phone` | `cellphone` · `smartphone` · `landline_desk` · `landline_wall` · `landline_flat` | Phone handset in multiple styles |
 | `audio_video_bug` | `bug` | Tiny dot — planted via `peel_from_hand` + `stick_to` |
+| `backpack` | — | Shoulder bag; includes `reveal_laptop(scene, laptop_prop)` animation (v0.9.7) |
+| `laptop` | — | Flat clamshell prop, shown open or closed (v0.9.7) |
 | `floral_arrangement` | `bouquet` | Cluster of colored circles on stems |
 | `dodecahedron` | — | Stylised 12-sided polygon (GovernorGraph prop) |
 | `building` | — | Tall rectangle with window grid — pan-up target |
 | `flower` | — | Stem + leaves + radial petals |
 | `sun` | — | Disc + rays + optional horizon line |
 | `moon` | — | Crescent or half-moon, two-circle mask |
+| `tv_monitor` | `monitor` | Wall-mounted or desk display (v0.9.7) |
+| `solar_panel` | — | Flat panel (v0.9.7) |
+| `wire` | — | Connecting line between props (v0.9.7) |
+| `backdrop` | — | Full-width background rectangle (v0.9.7) |
+| `avatar_pod` | `pod` | Pod object with `open_lid(...)` / `close_lid(...)` animations; occupied/unoccupied styling (v0.9.7) |
+| `letter_graph` | — | Graph-shaped letter on a normalised 3×5 grid; useful for title cards (v0.9.7) |
 
 ---
 
@@ -856,6 +890,25 @@ figure's joint data.
 - Accessories follow `spawn_prop` rules: they are added to the prop registry and can be removed with `remove_prop`.
 - `cheap_suit` renders *over* the skeleton lines — spawn it after `fade_in` for the cleanest layering.
 - For alien characters pass `attrs={"scale": 1.2}` on `silver_hair` to match the wider head.
+
+### Notable special props
+
+#### Backpack + laptop
+
+`backpack` is a shoulder-bag prop that includes a `reveal_laptop(scene, laptop_prop)`
+animation method.  The laptop prop slides out of the top of the bag — useful
+for desk-setup sequences or presentation beats.
+
+#### Avatar pod
+
+`avatar_pod` exposes `open_lid(scene)` and `close_lid(scene)` animations and
+maintains occupied vs. unoccupied styling.  Suitable for pod-bay or teleport
+sequences.
+
+#### Letter graphs
+
+`letter_graph` creates a graph-shaped letter rendered on a normalised 3×5 node
+grid.  Useful for title cards and graph-theory-flavored branding sequences.
 
 ### building parameters (v0.9.4)
 
@@ -1199,9 +1252,11 @@ Converts a `.fountain` screenplay to PAM JSON and AI video prompts, and syncs
 |---|---|---|
 | `-o, --output PATH` | `<stem>.json` | PAM screenplay output |
 | `--prompts PATH` | `<stem>_prompts.json` | AI prompts output |
+| `--characters PATH` | `characters.json` (same dir) | Character registry path |
 | `--scale FLOAT` | 0.7 | Scale factor for all characters |
 | `--title TEXT` | (from Fountain header) | Override the title card |
 | `--no-comments` | off | Strip `# REVIEW` comments from output |
+| `--no-validate` | off | Skip post-conversion validation checks |
 | `--prompts-only` | off | Skip PAM JSON; write prompts only |
 | `--clip-mode` | `per-speaker` | Clip splitting strategy |
 | `--shot-count` | off | Add shot labels to subscenes |
@@ -1245,6 +1300,7 @@ Fade In) — and are parsed before `screenplain` sees the file.
 | `PHONE` | Beat-scoped | Marks an intercut telephone conversation; triggers O.S. bubble style (v0.9.5) |
 | `PRODUCTION NOTE` | File-level | Non-rendering dubbing/performance annotation; stored as metadata only (v0.9.5) |
 | `ZONE` | Beat-scoped | Named spatial sub-region shift; camera x-range clamped to zone bounds (v0.9.5) |
+| `FOCUS` | Beat-scoped | Dim all figures except named subjects; `FOCUS: RESET` restores full brightness (v0.9.7) |
 
 "Beat-scoped" means the note takes effect where it appears and persists until
 replaced by another note of the same key.
@@ -1335,6 +1391,28 @@ x-range is clamped to the zone's bounds without a full scene break.
 
 Zones must first be declared in the PAM JSON via `{"action": "zones", ...}`.
 
+**`FOCUS` key (v0.9.7):**
+
+Dims all figures except the named subjects to draw visual attention.
+
+```fountain
+[[ FOCUS: ON=Thalia,Bevers | DIM=all_others | OPACITY=0.25 ]]
+```
+
+Reset to full brightness:
+
+```fountain
+[[ FOCUS: RESET ]]
+```
+
+| Sub-key | Default | Values |
+|---|---|---|
+| `ON` | — | Comma-separated character names to keep at full brightness |
+| `DIM` | `all_others` | `all_others`, or a comma-separated list of names |
+| `OPACITY` | `0.25` | Float 0–1 for the dimmed figures |
+
+Emitted as `{"action": "focus", "on": [...], "dim": "all_others", "opacity": 0.25}`.
+
 **CHARACTER key (v0.9.3):**
 
 ```fountain
@@ -1367,6 +1445,7 @@ Sets the torso zone to a second color — suggests a uniform or shirt.  Omitting
 | Prop color change | color · animation change · narrative meaning |
 | Population change | `[[ SCENE POPULATION: ]]` + `[[ NEGATIVE: ]]` pair |
 | Camera change | `[[ CAMERA: FRAMING=... \| SUBJECT=... ]]` before the beat |
+| Focus shift | `[[ FOCUS: ON=... ]]` before the beat; `[[ FOCUS: RESET ]]` after |
 
 ### pam2blender.py (v0.9.4)
 
@@ -1408,7 +1487,8 @@ blender --python screenplay_blender.py
 | Characters | One named `Empty` per cast member at their starting offset.  Custom properties record `pam_figure_type`, `pam_build`, `pam_color`, `pam_torso_color`, `pam_gender`. |
 | Timeline markers | One marker per `_subscene_marker` entry, labelled with subscene ID and framing/move suffix. |
 
-Character armatures, deformable geometry, and action strips are deferred to v0.9.5.
+Character armatures, deformable geometry, and action strips are deferred to a
+future version.
 
 **PAM → Blender coordinate mapping:**
 
@@ -1692,6 +1772,21 @@ Accepts any named pose or a raw joint dict.
 | `smirk` | `〜` | Wry satisfaction |
 | `roll_eyes` | `ಠ_ಠ` | Exasperation |
 
+**focus** (v0.9.7) — dim all figures except named subjects.
+
+```json
+{"action": "focus",
+ "on": ["thalia", "bevers"],
+ "dim": "all_others",
+ "opacity": 0.25}
+```
+
+Reset to full brightness:
+
+```json
+{"action": "focus", "reset": true}
+```
+
 **reach_for** — extend one arm toward a prop, hold briefly, retract.
 
 ```json
@@ -1823,6 +1918,23 @@ subsequent actions start from the correct post-translate position.
  "sy": 0.7, "sx": 0.7, "anchor": "lankle"}
 ```
 
+**Interaction actions** (v0.9.8) — person-to-person choreography implemented
+in `actions_interactions.py`.  All four are sequential-only (not parallel-safe).
+
+```json
+{"action": "kiss",       "who": "alice", "target": "bob"}
+{"action": "hold_hands", "who": "alice", "target": "bob"}
+{"action": "hand_to",    "who": "alice", "target": "bob",  "prop": "folder"}
+{"action": "pat_head",   "who": "alice", "target": "bob"}
+```
+
+| Action | Description |
+|---|---|
+| `kiss` | Brief forward-lean approach and retract between two characters |
+| `hold_hands` | Both characters extend arms toward each other and hold |
+| `hand_to` | Pass a held prop from one character to another |
+| `pat_head` | One character reaches and taps the top of another's head |
+
 ### The props declaration
 
 ```json
@@ -1887,7 +1999,8 @@ render behind all characters.
 
 Only locomotion (`walk_to`, `run_to`, `trot_to`, `walk_to_prop`, `run_to_prop`)
 and single-step pose actions (`morph`, `turn`, `scale`, `fade_out`) may appear
-in `do`.  Multi-step choreography (`sit_down`, `wave`, `rush_to`) falls back to
+in `do`.  Multi-step choreography (`sit_down`, `wave`, `rush_to`) and all
+interaction actions (`kiss`, `hold_hands`, `hand_to`, `pat_head`) fall back to
 sequential with a console warning.
 
 ### Annotation entries
@@ -1987,6 +2100,10 @@ and they are automatically available to the `express` action.
 triggered by parenthetical alone — `fountain2pam.py` must inject the `style`
 key, or you can set it manually in hand-written JSON.
 
+**Interaction actions are sequential-only.**  `kiss`, `hold_hands`, `hand_to`,
+and `pat_head` each involve multi-step choreography and cannot be placed inside
+a `parallel` block.
+
 **Freeform `[[ CAMERA: ]]` tags** (no `=` sign) pass through unchanged and
 are fully backward compatible with v0.9.0.
 
@@ -2006,7 +2123,56 @@ change the font in `builds.py` to `"Liberation Mono"` or `"DejaVu Sans Mono"`.
 
 ## Major changes by version
 
-### 0.9.5 (current)
+### 0.9.8 (current)
+
+**Interaction actions (`actions_interactions.py`)**
+
+- New module `actions_interactions.py` adds four person-to-person interaction
+  handlers, all registered into `ACTION_REGISTRY`:
+  - `kiss` — brief forward-lean approach and retract between two characters.
+  - `hold_hands` — both characters extend arms toward each other and hold.
+  - `hand_to` — pass a held prop from one character's grip to another.
+  - `pat_head` — one character reaches and taps the top of another's head.
+- None of the four are safe for parallel collection; each requires sequential
+  execution.
+
+---
+
+### 0.9.7
+
+**Props module refactor and new props**
+
+- `props.py` refactored into sub-modules: `props_core.py`,
+  `props_furniture.py`, `props_carried.py`, `props_flora.py`,
+  `props_environment.py`, `props_accessories.py`, `props_letters.py`.
+  `props.py` remains the public-facing entry point and re-exports everything.
+- New carried props:
+  - `backpack` — shoulder bag with `reveal_laptop(scene, laptop_prop)`
+    animation method.
+  - `laptop` — clamshell prop shown open or closed.
+- New environment props:
+  - `avatar_pod` — pod object with `open_lid(scene)` and `close_lid(scene)`
+    animations; maintains occupied vs. unoccupied styling.
+  - `tv_monitor` (`monitor`) — wall-mounted or desk display.
+  - `solar_panel` — flat panel.
+  - `wire` — connecting line between props.
+  - `backdrop` — full-width background rectangle.
+- New letter prop:
+  - `letter_graph` — graph-shaped letter on a normalised 3×5 node grid;
+    useful for title cards and graph-theory branding.
+- All new types registered in `PROP_TYPES`.
+
+**FOCUS annotation (`fountain2pam.py`)**
+
+- New `FOCUS` beat-scoped key: dims all figures except named subjects.
+  - `[[ FOCUS: ON=Name1,Name2 | DIM=all_others | OPACITY=0.25 ]]`
+  - `[[ FOCUS: RESET ]]` restores full brightness.
+- Emitted as `{"action": "focus", ...}` in PAM JSON.
+- `OPACITY` defaults to `0.25`; `DIM` defaults to `all_others`.
+
+---
+
+### 0.9.5
 
 **Character accessories (props.py)**
 
@@ -2293,5 +2459,5 @@ scene layout, AI video generation, and Final Cut Pro X assembly.
 
 ---
 
-*PAM v0.9.5 · fountain2pam v0.9.5 · pam2blender v0.9.5*
-*Co-authored by David Joyner and Claude Sonnet 4.6 (Anthropic)*
+*PAM v0.9.8 · fountain2pam v0.9.8 · pam2blender v0.9.4*
+*Co-authored by David Joyner and Claude (Anthropic)*
