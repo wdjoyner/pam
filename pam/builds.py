@@ -1,7 +1,7 @@
 """
 PAM — Pose And Motion library for the humanoid skeleton graph.
 
-version 0.9.6
+version 0.9.8
 
 builds.py
 ~~~~~~~~~
