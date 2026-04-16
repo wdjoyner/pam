@@ -49,7 +49,7 @@ Requirements
 
 Version
 -------
-  0.9.5
+  0.9.8
 
 Fountain+ Notes
 ---------------
@@ -468,6 +468,10 @@ CHARACTER_BUILD_MAP: dict[str, str] = {
     "VENUSIAN": "alien",
     "SIDEL":    "alien",    # Sergeant Sidel is a Venusian
     "NONA":     "alien",    # Nona Sonnof is a Venusian
+    "XENA":     "alien",    # Tech Xena Xanner is a Venusian
+    "FACTOR":   "alien",    # Professor Factor Sonnof is a Venusian
+    "THALIA":   "alien",    # Cadet Thalia Ridel is a Venusian
+    "BEVERS":   "alien",    # Cadet Bevers Sonnof is a Venusian
     "LUCY":     "narrow",
     "LENNY":    "broad",
     # add more as needed, e.g. "TITAN": "broad"
@@ -843,6 +847,104 @@ def parse_caption_tag(raw: str) -> dict:
     return result
 
 
+def parse_focus_tag(raw: str) -> dict | None:
+    """
+    Parse a ``[[ FOCUS: ... ]]`` note into a PAM ``focus`` or ``focus_reset``
+    action dict.
+
+    Two formats are accepted:
+
+    **Structured** (contains ``=``)::
+
+        "ON=Thalia,Bevers | DIM=all_others | OPACITY=0.25 | RT=0.4"
+        "ON=all"                   → focus_reset (restore everyone)
+        "RESET"                    → focus_reset (bare keyword)
+
+    **Shorthand** (no ``=``) — treated as focus_reset if the value is
+    ``reset``, ``off``, ``clear``, or ``all``; otherwise a warning is
+    printed and None is returned.
+
+    Returns a PAM action dict::
+
+        {"action": "focus",
+         "on":  ["thalia", "bevers"],
+         "dim": "all_others",
+         "opacity": 0.25,
+         "rt": 0.4}
+
+    or::
+
+        {"action": "focus_reset", "rt": 0.4}
+    """
+    raw = raw.strip()
+
+    # Bare reset keyword
+    if raw.lower() in ("reset", "off", "clear", "all", "none"):
+        return {"action": "focus_reset", "rt": 0.4}
+
+    if "=" not in raw:
+        print(f"  [FOCUS] warning: unrecognised shorthand {raw!r} — "
+              f"use FOCUS: RESET or structured ON=/DIM= format", file=sys.stderr)
+        return None
+
+    result: dict = {
+        "action":  "focus",
+        "on":      [],
+        "dim":     "all_others",
+        "opacity": 0.30,
+        "bright":  1.0,
+        "rt":      0.4,
+    }
+
+    for part in raw.split("|"):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        key, _, val = part.partition("=")
+        key = key.strip().lower()
+        val = val.strip()
+
+        if key == "on":
+            if val.lower() in ("all", "everyone"):
+                # ON=all → focus_reset
+                return {"action": "focus_reset", "rt": result["rt"]}
+            result["on"] = [v.strip().lower() for v in val.split(",") if v.strip()]
+        elif key == "dim":
+            if val.lower() in ("all_others", "others", "rest", "everyone_else"):
+                result["dim"] = "all_others"
+            else:
+                result["dim"] = [v.strip().lower() for v in val.split(",")
+                                  if v.strip()]
+        elif key == "opacity":
+            try:
+                result["opacity"] = float(val)
+            except ValueError:
+                print(f"  [FOCUS] warning: OPACITY {val!r} is not a number — "
+                      f"using 0.30", file=sys.stderr)
+        elif key == "bright":
+            try:
+                result["bright"] = float(val)
+            except ValueError:
+                print(f"  [FOCUS] warning: BRIGHT {val!r} is not a number — "
+                      f"using 1.0", file=sys.stderr)
+        elif key == "rt":
+            try:
+                result["rt"] = float(val)
+            except ValueError:
+                print(f"  [FOCUS] warning: RT {val!r} is not a number — "
+                      f"using 0.4", file=sys.stderr)
+        else:
+            print(f"  [FOCUS] warning: unrecognised sub-key {key!r} — ignored",
+                  file=sys.stderr)
+
+    if not result["on"]:
+        print(f"  [FOCUS] warning: no ON= targets specified — "
+              f"treating as focus_reset", file=sys.stderr)
+        return {"action": "focus_reset", "rt": result["rt"]}
+
+    return result
+
+
 def parse_sound_tag(raw: str) -> dict:
     """
     Parse a ``[[ SOUND: label ]]`` note into a PAM ``sound_cue`` action dict.
@@ -1059,6 +1161,7 @@ _KNOWN_NOTE_KEYS = {
     "sound":            "sound",            # diegetic sound cue label (v0.9.6)
     "phone":            "phone",            # intercut telephone mode flag (v0.9.6)
     "production note":  "production_note",  # metadata-only annotation (v0.9.6)
+    "focus":            "focus",            # attention focus / dim effect (v0.9.7)
 }
 
 # Regex to parse [[ KIND: name | description ]] — pipe separates name from desc
@@ -1222,6 +1325,7 @@ def _extract_fountain_notes(raw_text: str) -> dict:
             caption_val: dict | None = None
             sound_val:   dict | None = None
             phone_val:   dict | None = None
+            focus_val:   dict | None = None
             prod_note_val: str       = ""
 
             if canonical == "camera":
@@ -1234,6 +1338,8 @@ def _extract_fountain_notes(raw_text: str) -> dict:
                 sound_val = parse_sound_tag(value)
             elif canonical == "phone":
                 phone_val = parse_phone_tag(value)
+            elif canonical == "focus":
+                focus_val = parse_focus_tag(value)
             elif canonical == "production_note":
                 prod_note_val = value   # stored in metadata only
 
@@ -1247,6 +1353,7 @@ def _extract_fountain_notes(raw_text: str) -> dict:
                 "caption":        caption_val    if canonical == "caption"       else None,
                 "sound":          sound_val      if canonical == "sound"         else None,
                 "phone":          phone_val      if canonical == "phone"         else None,
+                "focus":          focus_val      if canonical == "focus"         else None,
                 "production_note": prod_note_val if canonical == "production_note" else "",
             }
             # Merge consecutive events at the same line into one dict
@@ -1266,6 +1373,8 @@ def _extract_fountain_notes(raw_text: str) -> dict:
                     note_events[-1]["sound"] = event["sound"]
                 if event["phone"] is not None:
                     note_events[-1]["phone"] = event["phone"]
+                if event["focus"] is not None:
+                    note_events[-1]["focus"] = event["focus"]
                 if event["production_note"]:
                     note_events[-1]["production_note"] = event["production_note"]
             else:
@@ -3569,7 +3678,55 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
         note_event_index[ev["line_number"]] = ev
 
     import io
-    doc = fountain.parse(io.StringIO(raw_text))
+
+    # ── Blank-line guard: ensure [[ ]] notes are never on the line
+    # immediately above a character cue.
+    #
+    # Fountain spec: a note block on the line directly above an all-caps cue
+    # (with no intervening blank line) is absorbed into the dialogue element
+    # rather than parsed as a standalone note.  This causes the character cue
+    # to be swallowed and the subsequent dialogue to be misattributed.
+    #
+    # Fix: scan the raw lines and insert a blank line whenever a [[ ... ]]
+    # note block (which may span multiple lines) is immediately followed by
+    # what looks like a character cue (all-caps, optionally with parentheticals
+    # like "(V.O.)" or "(CONT'D)").
+    #
+    # A "note block" ends on the line containing "]]".
+    # A "character cue" is a non-empty line that is all-caps (after stripping
+    # parentheticals and common suffixes) and does not start with "[["
+    # (which would itself be a note, not a cue).
+    _CHAR_CUE_RE = re.compile(
+        r'^[A-Z][A-Z0-9 \t]*(?:\s*\([^)]*\))?\s*$'
+    )
+    _raw_lines_for_fix = raw_text.splitlines(keepends=True)
+    _fixed_lines: list[str] = []
+    _in_note  = False
+    _note_just_ended = False
+    for _ln in _raw_lines_for_fix:
+        _stripped = _ln.rstrip('\n').rstrip('\r')
+        # Track whether we are inside a [[ ]] block
+        if '[[' in _stripped:
+            _in_note = True
+        if _in_note and ']]' in _stripped:
+            _in_note = False
+            _note_just_ended = True
+            _fixed_lines.append(_ln)
+            continue
+        if _in_note:
+            _fixed_lines.append(_ln)
+            continue
+        # We are outside a note block
+        if _note_just_ended:
+            _note_just_ended = False
+            # If the very next non-empty line is a character cue, insert blank
+            if _stripped.strip() and _CHAR_CUE_RE.match(_stripped.strip()):
+                _fixed_lines.append('\n')   # blank line guard
+            # If the next line is itself blank, no guard needed
+        _fixed_lines.append(_ln)
+    _screenplain_text = ''.join(_fixed_lines)
+
+    doc = fountain.parse(io.StringIO(_screenplain_text))
 
     actions = []
 
@@ -3659,7 +3816,13 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                         snippet = text[idx:idx + 80]
                         km = _KIND_TAG_RE.search(snippet)
                         if km:
-                            char_kinds[cname] = km.group(1).strip()
+                            # Tag content is e.g. "Kind: Venusian" or
+                            # "Venusian" — strip the optional "Kind:" prefix
+                            # so _KIND_BUILD_MAP can look up the bare name.
+                            raw_kind = km.group(1).strip()
+                            raw_kind = re.sub(r'^kind\s*:\s*', '', raw_kind,
+                                              flags=re.IGNORECASE)
+                            char_kinds[cname] = raw_kind
 
         elif isinstance(elem, (Dialog, DualDialog)):
             # Also scan dialogue text for prop mentions (e.g. "two chairs!")
@@ -4042,6 +4205,7 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
         - CAMERA / LIGHTING / SCENE POPULATION / NEGATIVE → update_notes()
         - CAPTION  → emit a caption action into the PAM JSON
         - SOUND    → emit a sound_cue action into the PAM JSON
+        - FOCUS    → emit a focus / focus_reset action into the PAM JSON
         - PHONE    → toggle _phone_mode state
         - PRODUCTION NOTE → stored in prompts metadata; not emitted to PAM JSON
         """
@@ -4069,6 +4233,11 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
             if sound is not None:
                 actions.append(sound)
                 current_scene.add_pam_action(sound)
+            # ── FOCUS ─────────────────────────────────────────────────────
+            focus = ev.get("focus")
+            if focus is not None:
+                actions.append(focus)
+                current_scene.add_pam_action(focus)
             # ── PHONE ─────────────────────────────────────────────────────
             phone = ev.get("phone")
             if phone is not None:
@@ -4762,6 +4931,20 @@ def load_characters_json(path: str, cast_spec: dict) -> None:
 
     Scene-specific keys (offset, scale, pose) are never overwritten —
     the scene always wins.  Only missing canonical fields are backfilled.
+
+    Color handling (v0.9.8 fix):
+        ``style`` is always present in cast_spec entries because it is built
+        during conversion — either from a ``[[CHARACTER: color=…]]`` annotation
+        or from the round-robin ``_PALETTES`` fallback.  To ensure
+        characters.json is authoritative for color, when a stored record
+        carries a ``color`` field the palette is re-derived from it and
+        stamped into the entry's ``style`` dict, overwriting whatever
+        round-robin color was assigned.  A ``[[CHARACTER: color=…]]``
+        annotation in the Fountain file still wins because it was already
+        applied in ``convert_fountain()`` *before* this function is called —
+        but only if the annotation color matches the stored color (i.e. the
+        two sources are in sync).  If they differ the stored color prevails,
+        which is the desired behavior when tntd_characters.json is canonical.
     """
     from pathlib import Path
     import json
@@ -4778,13 +4961,23 @@ def load_characters_json(path: str, cast_spec: dict) -> None:
     for key, entry in cast_spec.items():
         if key not in stored:
             continue
-        for field, value in stored[key].items():
+        stored_rec = stored[key]
+        for field, value in stored_rec.items():
             if field == "default_scale":
                 # Only use stored default_scale if the scene didn't set one
                 if "scale" not in entry:
                     entry["scale"] = value
             elif field not in _SCENE_SPECIFIC and field not in entry:
                 entry[field] = value
+
+        # Re-derive the full palette from the stored color so that
+        # tntd_characters.json is authoritative, overriding any round-robin
+        # color that was assigned during conversion.
+        stored_color = stored_rec.get("color")
+        if stored_color and "style" in entry:
+            derived_palette = _palette_from_color(stored_color)
+            entry["style"].update(derived_palette)
+            entry["color"] = stored_color
 
 
 def _validate(actions: list, cast_spec: dict) -> list[str]:
