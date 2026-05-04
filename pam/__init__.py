@@ -1,7 +1,7 @@
 """
 PAM — Pose And Motion library for the humanoid skeleton graph.
 
-version 0.9.8
+version 0.9.13
 
 A manim-based toolkit for animating stick-figure characters as graphs.
 
@@ -59,6 +59,7 @@ from .poses import (                      # noqa: F401 — public API
     REACH_SIDE_R_LOW, REACH_SIDE_L_LOW,
     RUSH_LEAN, SQUEEZE, DODGE_R, DODGE_L,
     SIDE_CARRY_R, PAT_A, PAT_B,
+    STUMBLE, FALL_CATCH, ON_HANDS_KNEES, FALL_CYCLE,
     # keyframe cycles (default build)
     WALK_CYCLE, RUN_CYCLE, WAVE_CYCLE,
     SIT_CYCLE, STAND_CYCLE,
@@ -85,11 +86,18 @@ from .figure import (                     # noqa: F401
 from .props import (                      # noqa: F401
     build_prop, PROP_TYPES, PROP_DEFAULTS,
     build_chair, build_desk, build_hat, build_door, build_dodecahedron,
-    build_backpack, build_laptop,
+    build_backpack, build_laptop, build_potted_plant,
 )
 
 from .actions import (                    # noqa: F401
     ACTION_REGISTRY, KNOWN_ACTIONS,
 )
 
-__version__ = "0.9.7"
+from .paired_poses import (               # noqa: F401
+    paired_pose_steps,
+    PAIRED_POSE_TEMPLATES,
+    list_templates as list_paired_templates,
+    describe_template as describe_paired_template,
+)
+
+__version__ = "0.9.13"
