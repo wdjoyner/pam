@@ -1,7 +1,7 @@
 """
 PAM actions_interactions.py
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Character-to-character interaction actions for PAM v0.9.8.
+Character-to-character interaction actions for PAM v0.9.13.
 
 New actions
 -----------
@@ -538,6 +538,294 @@ def act_pat_head(fig, step, scene, name="I.G. NoreMe", *,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  GRAB ARM
+# ─────────────────────────────────────────────────────────────────────────────
+
+def act_grab_arm(fig, step, scene, name="I.G. NoreMe", *,
+                 props=None, cast=None):
+    """
+    Grab another character's arm from behind: fig reaches forward and
+    seizes the target's wrist, locking that arm in place.
+
+    This action does NOT restore either character to their rest pose at
+    the end — the constraint persists until ``release_arm`` is called.
+    The target's seized arm is recorded on ``target_fig._restrained_arm``
+    so other actions can check and skip it.
+
+    JSON keys
+    ---------
+    target : str   — cast member whose arm is grabbed
+    arm    : str   — which of the *target's* arms to seize:
+                     "r", "l", or "auto" (default "auto" — picks the arm
+                     on the side closest to fig)
+    rt     : float — morph speed for the grab (default 0.3)
+
+    Example
+    -------
+    ::
+
+        {"action": "grab_arm", "who": "chava", "target": "brad", "arm": "r"}
+    """
+    target_name = step.get("target", "")
+    arm         = step.get("arm", "auto")
+    rt          = step.get("rt", 0.3)
+
+    target_fig = _get_cast_fig(cast, target_name)
+    if target_fig is None:
+        return None
+
+    # Auto-select: grab the target arm on the side where fig is standing.
+    # If fig is to the right of target, grab target's right arm (closer to fig).
+    if arm == "auto":
+        arm = "r" if fig.offset[0] >= target_fig.offset[0] else "l"
+
+    # Guard: don't grab an already-restrained arm.
+    already = getattr(target_fig, "_restrained_arm", None)
+    if already is not None:
+        print(f"PAMPlayer grab_arm: '{target_name}' arm '{already}' already "
+              f"restrained — release_arm first.")
+        return None
+
+    sx_inv_a = 1.0 / fig._scale_sx if fig.is_scaled else 1.0
+    sy_inv_a = 1.0 / fig._scale_sy if fig.is_scaled else 1.0
+    sx_inv_b = 1.0 / target_fig._scale_sx if target_fig.is_scaled else 1.0
+    sy_inv_b = 1.0 / target_fig._scale_sy if target_fig.is_scaled else 1.0
+
+    sp_a = fig._apply_scale(fig.pose)
+    sp_b = target_fig._apply_scale(target_fig.pose)
+
+    # World position of the target's wrist — fig's hand reaches here.
+    target_wrist_world = sp_b[f"{arm}wrist"] + target_fig.offset
+
+    # Fig reaches forward with the arm on the side facing the target.
+    # Since fig approaches from behind, use whichever of fig's arms is
+    # on the same side as the seized arm.
+    fig_arm = arm  # mirror: grab right arm with right hand
+
+    fig_shld = sp_a[f"{fig_arm}shoulder"] + fig.offset
+    adx = (target_wrist_world[0] - fig_shld[0]) * sx_inv_a
+    ady = (target_wrist_world[1] - fig_shld[1]) * sy_inv_a
+
+    # Fig: reach to target's wrist
+    grab_pose_a = deepcopy(fig.pose)
+    grab_pose_a[f"{fig_arm}elbow"] = _v(adx * 0.5, ady * 0.5)
+    grab_pose_a[f"{fig_arm}wrist"] = _v(adx * 0.92, ady * 0.92)
+
+    # Target: arm lifts slightly as it's snagged (wrist tugs upward a little)
+    grabbed_pose_b = deepcopy(target_fig.pose)
+    tug_y = (sp_b[f"{arm}wrist"][1] + 0.08) * sy_inv_b
+    grabbed_pose_b[f"{arm}wrist"] = _v(
+        sp_b[f"{arm}wrist"][0] * sx_inv_b,
+        tug_y,
+    )
+
+    anims = fig._pose_anims(grab_pose_a, fig.offset)
+    anims += target_fig._pose_anims(grabbed_pose_b, target_fig.offset)
+    fig.pose = grab_pose_a
+    target_fig.pose = grabbed_pose_b
+    scene.play(*anims, run_time=rt, rate_func=smooth)
+
+    # Record constraint state on both figures.
+    fig._grabbing_target = target_name
+    fig._grabbing_arm    = fig_arm
+    target_fig._restrained_arm = arm
+
+    # Stash rest poses for release_arm to restore.
+    # Only save once — don't overwrite if a twist deepens the hold.
+    if not hasattr(target_fig, "_pre_grab_rest"):
+        target_fig._pre_grab_rest = deepcopy(sp_b)   # scaled pose snapshot
+    if not hasattr(fig, "_pre_grab_rest_a"):
+        fig._pre_grab_rest_a = deepcopy(sp_a)
+
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  TWIST ARM BEHIND
+# ─────────────────────────────────────────────────────────────────────────────
+
+def act_twist_arm_behind(fig, step, scene, name="I.G. NoreMe", *,
+                         props=None, cast=None):
+    """
+    Escalate a grab into an arm-lock: fold the target's seized arm behind
+    their back and tilt their torso forward under the pressure.
+
+    Must be called *after* ``grab_arm`` on the same target — uses the
+    ``_restrained_arm`` attribute to know which arm to fold.
+
+    JSON keys
+    ---------
+    target  : str   — cast member being restrained (must already be grabbed)
+    tilt    : float — how far the target's torso tilts forward, in unscaled
+                      pose units (default 0.12)
+    rt      : float — morph speed (default 0.35)
+
+    Example
+    -------
+    ::
+
+        {"action": "twist_arm_behind", "who": "chava", "target": "brad",
+         "tilt": 0.15}
+    """
+    target_name = step.get("target", "")
+    tilt        = step.get("tilt", 0.12)
+    rt          = step.get("rt", 0.35)
+
+    target_fig = _get_cast_fig(cast, target_name)
+    if target_fig is None:
+        return None
+
+    arm = getattr(target_fig, "_restrained_arm", None)
+    if arm is None:
+        print(f"PAMPlayer twist_arm_behind: '{target_name}' has no restrained "
+              f"arm — call grab_arm first.")
+        return None
+
+    sx_inv_b = 1.0 / target_fig._scale_sx if target_fig.is_scaled else 1.0
+    sy_inv_b = 1.0 / target_fig._scale_sy if target_fig.is_scaled else 1.0
+    sx_inv_a = 1.0 / fig._scale_sx if fig.is_scaled else 1.0
+    sy_inv_a = 1.0 / fig._scale_sy if fig.is_scaled else 1.0
+
+    sp_b = target_fig._apply_scale(target_fig.pose)
+    sp_a = fig._apply_scale(fig.pose)
+
+    # Target: fold seized arm behind back.
+    # Elbow swings outward and back; wrist ends up behind the torso centerline.
+    dir_sign = 1.0 if arm == "r" else -1.0
+    twist_pose_b = deepcopy(target_fig.pose)
+
+    # Elbow kicks out to the side and slightly back
+    twist_pose_b[f"{arm}elbow"] = _v(
+        dir_sign * 0.18 * sx_inv_b,
+        -0.10 * sy_inv_b,
+    )
+    # Wrist ends up behind the back (negative x relative to torso, low y)
+    twist_pose_b[f"{arm}wrist"] = _v(
+        -dir_sign * 0.08 * sx_inv_b,
+        -0.22 * sy_inv_b,
+    )
+
+    # Torso tilts forward under duress
+    if "torso" in target_fig.pose:
+        twist_pose_b["torso"] = _v(
+            target_fig.pose["torso"][0],
+            target_fig.pose["torso"][1] - tilt * sy_inv_b,
+        )
+    # Head follows torso tilt (droops slightly)
+    twist_pose_b["head"] = _v(
+        target_fig.pose["head"][0],
+        target_fig.pose["head"][1] - (tilt * 0.6) * sy_inv_b,
+    )
+
+    # Fig: follow the wrist as it moves behind the target's back.
+    # Fig's grabbing arm tracks to the new wrist world position.
+    fig_arm = getattr(fig, "_grabbing_arm", arm)
+
+    # Approximate new wrist world pos from twist_pose_b
+    new_wrist_local = twist_pose_b[f"{arm}wrist"]
+    new_wrist_world = new_wrist_local + target_fig.offset
+
+    fig_shld = sp_a[f"{fig_arm}shoulder"] + fig.offset
+    adx = (new_wrist_world[0] - fig_shld[0]) * sx_inv_a
+    ady = (new_wrist_world[1] - fig_shld[1]) * sy_inv_a
+
+    twist_pose_a = deepcopy(fig.pose)
+    twist_pose_a[f"{fig_arm}elbow"] = _v(adx * 0.5, ady * 0.5)
+    twist_pose_a[f"{fig_arm}wrist"] = _v(adx * 0.90, ady * 0.90)
+
+    anims = fig._pose_anims(twist_pose_a, fig.offset)
+    anims += target_fig._pose_anims(twist_pose_b, target_fig.offset)
+    fig.pose = twist_pose_a
+    target_fig.pose = twist_pose_b
+    scene.play(*anims, run_time=rt, rate_func=smooth)
+
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  RELEASE ARM
+# ─────────────────────────────────────────────────────────────────────────────
+
+def act_release_arm(fig, step, scene, name="I.G. NoreMe", *,
+                    props=None, cast=None):
+    """
+    Release a grabbed arm: both characters return to their pre-grab rest
+    poses and constraint state is cleared.
+
+    JSON keys
+    ---------
+    target : str   — cast member to release (must currently be restrained)
+    rt     : float — morph speed for the release (default 0.3)
+
+    Example
+    -------
+    ::
+
+        {"action": "release_arm", "who": "chava", "target": "brad"}
+    """
+    target_name = step.get("target", "")
+    rt          = step.get("rt", 0.3)
+
+    target_fig = _get_cast_fig(cast, target_name)
+    if target_fig is None:
+        return None
+
+    arm = getattr(target_fig, "_restrained_arm", None)
+    if arm is None:
+        print(f"PAMPlayer release_arm: '{target_name}' is not currently "
+              f"restrained — nothing to release.")
+        return None
+
+    # Restore both figures to their pre-grab rest poses.
+    # Fall back to deepcopy of current pose if stash is missing (graceful).
+    rest_b_scaled = getattr(target_fig, "_pre_grab_rest", None)
+    rest_a_scaled = getattr(fig, "_pre_grab_rest_a", None)
+
+    if rest_b_scaled is not None:
+        # _pre_grab_rest is a scaled snapshot; we stored it before grab.
+        # Reconstruct an unscaled pose dict by inverting scale.
+        sx_b = target_fig._scale_sx if target_fig.is_scaled else 1.0
+        sy_b = target_fig._scale_sy if target_fig.is_scaled else 1.0
+        rest_b = {
+            k: _v(v[0] / sx_b, v[1] / sy_b)
+            for k, v in rest_b_scaled.items()
+            if isinstance(v, np.ndarray) and v.shape == (3,)
+        }
+    else:
+        rest_b = deepcopy(target_fig.pose)
+
+    if rest_a_scaled is not None:
+        sx_a = fig._scale_sx if fig.is_scaled else 1.0
+        sy_a = fig._scale_sy if fig.is_scaled else 1.0
+        rest_a = {
+            k: _v(v[0] / sx_a, v[1] / sy_a)
+            for k, v in rest_a_scaled.items()
+            if isinstance(v, np.ndarray) and v.shape == (3,)
+        }
+    else:
+        rest_a = deepcopy(fig.pose)
+
+    anims = fig._pose_anims(rest_a, fig.offset)
+    anims += target_fig._pose_anims(rest_b, target_fig.offset)
+    fig.pose = rest_a
+    target_fig.pose = rest_b
+    scene.play(*anims, run_time=rt, rate_func=smooth)
+
+    # Clear constraint state
+    target_fig._restrained_arm = None
+    fig._grabbing_target = None
+    fig._grabbing_arm    = None
+
+    # Clear stashed rest poses
+    for attr in ("_pre_grab_rest", "_pre_grab_rest_a"):
+        for f in (fig, target_fig):
+            if hasattr(f, attr):
+                delattr(f, attr)
+
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  REGISTRY ADDITIONS
 # ─────────────────────────────────────────────────────────────────────────────
 #
@@ -545,10 +833,14 @@ def act_pat_head(fig, step, scene, name="I.G. NoreMe", *,
 #
 #     from pam.actions_interactions import (
 #         act_kiss, act_hold_hands, act_hand_to, act_pat_head,
+#         act_grab_arm, act_twist_arm_behind, act_release_arm,
 #     )
 #
 #     # In ACTION_REGISTRY dict:
-#     "kiss":          act_kiss,
-#     "hold_hands":    act_hold_hands,
-#     "hand_to":       act_hand_to,
-#     "pat_head":      act_pat_head,
+#     "kiss":               act_kiss,
+#     "hold_hands":         act_hold_hands,
+#     "hand_to":            act_hand_to,
+#     "pat_head":           act_pat_head,
+#     "grab_arm":           act_grab_arm,
+#     "twist_arm_behind":   act_twist_arm_behind,
+#     "release_arm":        act_release_arm,
