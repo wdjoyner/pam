@@ -1,7 +1,7 @@
 """
 PAM — Pose And Motion library for the humanoid skeleton graph.
 
-version 0.9.8
+version 0.9.13
 
 actions.py
 ~~~~~~~~~~
@@ -39,6 +39,50 @@ Adding a new action
 1. Write ``def act_<key>(fig, step, scene, name=..., *, props=None, cast=None)``.
 2. Register it in ``ACTION_REGISTRY`` at the bottom of this file.
 3. That's it — pam_player._dispatch_one will pick it up automatically.
+
+JSON syntax examples
+--------------------
+A few quick examples of the most common actions::
+
+    {"action": "fade_in",  "who": "nona",  "duration": 0.5}
+    {"action": "turn",     "who": "sidel", "pose": "standing_side"}
+    {"action": "walk_to",  "who": "sidel", "x": 1.0,  "t": 1.2}
+    {"action": "say",      "who": "nona",  "text": "Hello.", "hold": 1.5}
+
+Rotate (v0.9.13) — tip a figure on its side, recover from a fall, pose
+a body lying on a stretcher, or rotate a prop (open a pod lid, tilt a
+sign, slam a door on its hinge).  Accepts either ``"who"`` (a character)
+or ``"prop"`` (a prop) — if both are given, ``"prop"`` wins.  Pivot
+defaults to the target's bottom so a 90 degree rotation on a character
+lays them flat on the ground line::
+
+    # Character: lay Freydoon flat on his back
+    {"action": "rotate", "who": "freydoon",
+     "angle_deg": -90, "pivot": "bottom", "rt": 0.6}
+
+    # Character: stand him back up
+    {"action": "rotate", "who": "freydoon",
+     "angle_deg": 90, "pivot": "bottom", "rt": 0.4}
+
+    # Prop: open the avatar pod lid by 70 degrees, hinge at left edge
+    {"action": "rotate", "prop": "bevers_pod",
+     "angle_deg": 70, "pivot": "left", "rt": 0.5}
+
+    # Prop: bumpy stretcher wobble (small angle, fast)
+    {"action": "rotate", "prop": "stretcher",
+     "angle_deg": 4, "rt": 0.15}
+
+Use ``"angle"`` instead of ``"angle_deg"`` to specify radians.  ``"pivot"``
+accepts ``"bottom"`` (default), ``"center"``, ``"top"``, ``"left"``, or
+``"right"``; or pass ``[x, y]`` for an explicit world-space pivot point.
+Pass ``"rt": 0`` for an instant (non-animated) rotation.
+
+Note: for *characters*, rotation does not update the figure's internal
+``pose`` dictionary — a subsequent ``morph``, ``walk``, or other
+pose-changing action will snap the figure back to upright.  Issue a
+counter-rotation first if the character needs to stand again.  *Props*
+do not have this problem; their geometry is rotated permanently and
+subsequent translates compose correctly.
 """
 
 from __future__ import annotations
@@ -60,6 +104,7 @@ def rush_into_start(t: float) -> float:
 from pam.poses import _v, scale_pose, STANDING_FRONT
 from pam.actions_interactions import (
     act_kiss, act_hold_hands, act_hand_to, act_pat_head,
+    act_grab_arm, act_twist_arm_behind, act_release_arm,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -73,6 +118,12 @@ _CANNOT_PARALLEL = frozenset({
     "pat", "search_drawers", "pick_up_phone", "hang_up",
     "grab", "punch_button", "reach_character",
     "peel_from_hand", "group_translate",
+    # v0.9.11 gesture additions — all call morph_to internally
+    "nod", "shake_head", "shrug",
+    # v0.9.12 physical restraint — mutate two figures simultaneously
+    "grab_arm", "twist_arm_behind", "release_arm",
+    # v0.9.13 — Manim Rotate animation, single figure transform
+    "rotate",
 })
 
 def _warn_parallel(action_name: str, name: str) -> None:
@@ -201,6 +252,140 @@ def act_scale(fig, step, scene, name="I.G. NoreMe", *,
     return None
 
 
+def act_rotate(fig, step, scene, name="I.G. NoreMe", *,
+               props=None, cast=None):
+    """
+    Rotate a character or a prop around a chosen pivot point.
+
+    Useful for laying an unconscious character flat on a stretcher,
+    knocking a figure off-balance, falling, somersaulting, opening a
+    pod lid, swinging a door on its hinge, tilting a sign, or any
+    rotational beat on either kind of target.
+
+    Target resolution
+    -----------------
+    The action may be applied to a character (``"who"``) or a prop
+    (``"prop"``).  If both are provided, ``"prop"`` wins.  If neither
+    resolves to a real target, the action is silently skipped with a
+    console warning.
+
+    JSON keys
+    ---------
+    who       : str              — character key (mutually exclusive
+                                   with ``prop``; if both given,
+                                   ``prop`` wins)
+    prop      : str              — prop registry key
+    angle_deg : float            — rotation angle in degrees (preferred)
+    angle     : float            — rotation angle in radians (alternative)
+                                   If both are given, ``angle_deg`` wins.
+    pivot     : str | list[float]
+                                 — ``"bottom"`` (default — the feet
+                                   of a character or the floor line
+                                   of a prop), ``"center"``, ``"top"``,
+                                   ``"left"``, ``"right"``, or an
+                                   explicit ``[x, y]`` world-space
+                                   point.
+    rt        : float            — animation run time in seconds
+                                   (default 0.5).  Pass ``0`` for an
+                                   instant, non-animated rotation.
+
+    Examples
+    --------
+    Lay an unconscious character flat on a stretcher::
+
+        {"action": "rotate", "who": "freydoon",
+         "angle_deg": -90, "pivot": "bottom", "rt": 0.6}
+
+    Stand him back up::
+
+        {"action": "rotate", "who": "freydoon",
+         "angle_deg": 90, "pivot": "bottom", "rt": 0.4}
+
+    Open an avatar pod lid (hinged at the left edge)::
+
+        {"action": "rotate", "prop": "bevers_pod",
+         "angle_deg": 70, "pivot": "left", "rt": 0.5}
+
+    Small bumpy wobble on a wheeled stretcher::
+
+        {"action": "rotate", "prop": "stretcher",
+         "angle_deg": 4, "rt": 0.15}
+
+    Caveat
+    ------
+    For *characters*, rotation is a visual-only transform — the
+    figure's internal ``pose`` and ``offset`` are not updated.  If you
+    ``morph``, ``walk``, or otherwise reanimate a rotated character,
+    the next ``morph_to`` snaps it back to upright.  Issue a
+    counter-rotation first if the character needs to keep acting.
+
+    *Props* do not have this problem.  Their geometry is rotated
+    permanently and subsequent ``move_aside`` / ``group_translate`` /
+    ``remove_prop`` operations compose correctly with the rotation.
+    """
+    if step.get("_collect_anims"):
+        _warn_parallel("rotate", name)
+
+    # ── Resolve target: prop wins if both keys are present ─────────────
+    target = None
+    target_kind = None  # "prop" | "fig" — for warning messages
+
+    if "prop" in step:
+        if props is None:
+            print("PAMPlayer rotate: 'prop' specified but no props "
+                  "registry was passed.")
+            return None
+        target = _get_prop(props, step["prop"])
+        target_kind = "prop"
+        if target is None:
+            return None  # _get_prop already warned
+    elif fig is not None:
+        target = fig
+        target_kind = "fig"
+    else:
+        print("PAMPlayer rotate: needs either 'who' or 'prop'; "
+              "skipping.")
+        return None
+
+    # ── Angle: prefer degrees, fall back to radians ────────────────────
+    if "angle_deg" in step:
+        angle = float(step["angle_deg"]) * np.pi / 180.0
+    else:
+        angle = float(step.get("angle", 0.0))
+
+    if angle == 0.0:
+        return None  # nothing to do
+
+    # ── Pivot point ────────────────────────────────────────────────────
+    pivot_spec = step.get("pivot", "bottom")
+    if isinstance(pivot_spec, (list, tuple)) and len(pivot_spec) >= 2:
+        pivot_pt = np.array([float(pivot_spec[0]),
+                             float(pivot_spec[1]),
+                             0.0])
+    else:
+        pivot_map = {
+            "bottom": target.get_bottom,
+            "center": target.get_center,
+            "top":    target.get_top,
+            "left":   target.get_left,
+            "right":  target.get_right,
+        }
+        getter = pivot_map.get(str(pivot_spec).lower(),
+                               target.get_bottom)
+        pivot_pt = getter()
+
+    rt = float(step.get("rt", 0.5))
+
+    # ── Apply rotation ─────────────────────────────────────────────────
+    if rt > 0:
+        scene.play(Rotate(target, angle=angle, about_point=pivot_pt),
+                   run_time=rt)
+    else:
+        target.rotate(angle, about_point=pivot_pt)
+
+    return None
+
+
 def act_walk_to(fig, step, scene, name="I.G. NoreMe", *,
                 props=None, cast=None):
     """Walk the figure to an x position."""
@@ -248,6 +433,121 @@ def act_wave(fig, step, scene, name="I.G. NoreMe", *,
     return None
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  GESTURE ACTIONS  (v0.9.11)
+#  All three affect a subset of joints and leave the rest of the pose alone.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def act_nod(fig, step, scene, name="I.G. NoreMe", *,
+            props=None, cast=None):
+    """
+    Nod the head up-and-down (affirmative).
+
+    Modifies only the ``head`` joint — the rest of the pose is
+    preserved so a character can nod while sitting, standing,
+    mid-gesture, etc.
+
+    JSON keys
+    ---------
+    cycles      : number of nod oscillations (default 2)
+    amp         : vertical head displacement in world units (default 0.12)
+    rt_per_step : run time per keyframe in seconds (default 0.18)
+
+    Example
+    -------
+    ::
+
+        {"action": "nod", "who": "thalia"}
+        {"action": "nod", "who": "freydoon", "cycles": 3, "amp": 0.15}
+    """
+    if step.get("_collect_anims"):
+        _warn_parallel("nod", name)
+    if fig is None:
+        print(f"PAMPlayer: nod — '{name}' has no live figure, skipping.")
+        return None
+    fig.nod(
+        scene,
+        cycles      = step.get("cycles",      2),
+        amp         = step.get("amp",         0.12),
+        rt_per_step = step.get("rt_per_step", 0.18),
+    )
+    return None
+
+
+def act_shake_head(fig, step, scene, name="I.G. NoreMe", *,
+                   props=None, cast=None):
+    """
+    Shake the head side-to-side (negation).
+
+    Modifies only the ``head`` joint — the rest of the pose is
+    preserved.  Ends with an explicit return to center so the
+    head doesn't end up offset even if ``cycles`` is even.
+
+    JSON keys
+    ---------
+    cycles      : number of shake oscillations (default 2)
+    amp         : horizontal head displacement in world units (default 0.10)
+    rt_per_step : run time per keyframe in seconds (default 0.16)
+
+    Example
+    -------
+    ::
+
+        {"action": "shake_head", "who": "bevers"}
+        {"action": "shake_head", "who": "chekov", "cycles": 3, "amp": 0.12}
+    """
+    if step.get("_collect_anims"):
+        _warn_parallel("shake_head", name)
+    if fig is None:
+        print(f"PAMPlayer: shake_head — '{name}' has no live figure, skipping.")
+        return None
+    fig.shake_head(
+        scene,
+        cycles      = step.get("cycles",      2),
+        amp         = step.get("amp",         0.10),
+        rt_per_step = step.get("rt_per_step", 0.16),
+    )
+    return None
+
+
+def act_shrug(fig, step, scene, name="I.G. NoreMe", *,
+              props=None, cast=None):
+    """
+    Shrug: raise both shoulders (arms follow).
+
+    Lifts both shoulders together, with elbows and wrists rising in
+    proportion so the arms stay structurally coherent (palms-up feel).
+    All other joints — head, hips, legs — are left alone.  Missing
+    upper-body joints in the current pose are silently skipped, so
+    the action is safe on alien / exotic builds.
+
+    JSON keys
+    ---------
+    hold : how long to hold the shrugged pose, in seconds (default 0.35)
+    amp  : shoulder-lift amplitude in world units (default 0.10)
+    rt   : run time for the morph in each direction (default 0.25)
+
+    Example
+    -------
+    ::
+
+        {"action": "shrug", "who": "brad"}
+        {"action": "shrug", "who": "tam", "hold": 0.6, "amp": 0.14}
+    """
+    if step.get("_collect_anims"):
+        _warn_parallel("shrug", name)
+    if fig is None:
+        print(f"PAMPlayer: shrug — '{name}' has no live figure, skipping.")
+        return None
+    fig.shrug(
+        scene,
+        hold = step.get("hold", 0.35),
+        amp  = step.get("amp",  0.10),
+        rt   = step.get("rt",   0.25),
+    )
+    return None
+
+
 def act_carry(fig, step, scene, name="I.G. NoreMe", *,
               props=None, cast=None):
     """Walk while carrying a named prop, with optional head companions.
@@ -272,10 +572,20 @@ def act_carry(fig, step, scene, name="I.G. NoreMe", *,
             if mob is not None:
                 companion_mobs.append(mob)
 
+    # Resolve torso_companions (backpack, laptop — follow torso midpoint)
+    torso_companion_names = step.get("torso_companions", [])
+    torso_companion_mobs  = []
+    if torso_companion_names and props:
+        for cn in torso_companion_names:
+            mob = _get_prop(props, cn)
+            if mob is not None:
+                torso_companion_mobs.append(mob)
+
     if named_prop is not None:
         fig._snap_obj_to_wrists(named_prop)
         fig.carry(named_prop, step["x"], scene,
-                  companions=companion_mobs if companion_mobs else None)
+                  companions=companion_mobs if companion_mobs else None,
+                  torso_companions=torso_companion_mobs if torso_companion_mobs else None)
         fig._snap_obj_to_wrists(named_prop)
     else:
         color  = step.get("color", "#e8c547")
@@ -590,9 +900,13 @@ def act_punch_button(fig, step, scene, name="I.G. NoreMe", *,
     sx_inv = 1.0 / fig._scale_sx if fig.is_scaled else 1.0
     sy_inv = 1.0 / fig._scale_sy if fig.is_scaled else 1.0
 
+    shld_pose = fig.pose[f"{arm}shoulder"]
+
     jab = deepcopy(fig.pose)
-    jab[f"{arm}elbow"] = _v(dx * 0.50 * sx_inv, dy * 0.50 * sy_inv)
-    jab[f"{arm}wrist"] = _v(dx * 0.95 * sx_inv, dy * 0.95 * sy_inv)
+    jab[f"{arm}elbow"] = _v(shld_pose[0] + dx * 0.50 * sx_inv,
+                             shld_pose[1] + dy * 0.50 * sy_inv)
+    jab[f"{arm}wrist"] = _v(shld_pose[0] + dx * 0.95 * sx_inv,
+                             shld_pose[1] + dy * 0.95 * sy_inv)
 
     fig.morph_to(jab, scene, rt=rt, rate=rush_from_start)
     scene.wait(hold)
@@ -664,9 +978,13 @@ def act_reach_character(fig, step, scene, name="I.G. NoreMe", *,
     sx_inv = 1.0 / fig._scale_sx if fig.is_scaled else 1.0
     sy_inv = 1.0 / fig._scale_sy if fig.is_scaled else 1.0
 
+    shld_pose = fig.pose[f"{arm}shoulder"]
+
     jab = deepcopy(fig.pose)
-    jab[f"{arm}elbow"] = _v(dx * 0.50 * sx_inv, dy * 0.50 * sy_inv)
-    jab[f"{arm}wrist"] = _v(dx * 0.95 * sx_inv, dy * 0.95 * sy_inv)
+    jab[f"{arm}elbow"] = _v(shld_pose[0] + dx * 0.50 * sx_inv,
+                             shld_pose[1] + dy * 0.50 * sy_inv)
+    jab[f"{arm}wrist"] = _v(shld_pose[0] + dx * 0.95 * sx_inv,
+                             shld_pose[1] + dy * 0.95 * sy_inv)
 
     fig.morph_to(jab, scene, rt=rt, rate=rush_from_start)
     scene.wait(hold)
@@ -1061,6 +1379,49 @@ def act_jump_up(fig, step, scene, name="I.G. NoreMe", *,
     return None
 
 
+def act_fall_down(fig, step, scene, name="I.G. NoreMe", *,
+                  props=None, cast=None):
+    """Animate a character falling from standing to on-hands-and-knees.
+
+    Morphs through three poses: STUMBLE -> FALL_CATCH -> ON_HANDS_KNEES.
+    The figure ends in on_hands_knees; use stand_up or morph to recover.
+
+    JSON keys
+    ---------
+    ``"rt"``    -- run time per morph step (default 0.22 s).
+    ``"style"`` -- ``"trip"`` (default, abrupt) or ``"slow"`` (graceful,
+                   rt multiplied by 1.8).
+    """
+    if step.get("_collect_anims"):
+        _warn_parallel("fall_down", name)
+
+    rt    = step.get("rt", 0.22)
+    style = step.get("style", "trip")
+    if style == "slow":
+        rt *= 1.8
+
+    bp = fig._bp
+
+    stumble        = bp.get("stumble",        bp["poses"].get("stumble"))
+    fall_catch     = bp.get("fall_catch",     bp["poses"].get("fall_catch"))
+    on_hands_knees = bp.get("on_hands_knees", bp["poses"].get("on_hands_knees"))
+
+    if stumble is None or fall_catch is None or on_hands_knees is None:
+        print(f"PAMPlayer: fall_down poses not found for '{name}', skipping.")
+        return None
+
+    # Turn to side view first if currently in front view
+    standing_side = bp.get("standing_side")
+    if standing_side is not None and fig.pose is fig._bp.get("standing_front"):
+        fig.morph_to(standing_side, scene, rt=rt * 0.8, rate=smooth)
+
+    fig.morph_to(stumble,        scene, rt=rt,       rate=smooth)
+    fig.morph_to(fall_catch,     scene, rt=rt * 1.2, rate=smooth)
+    fig.morph_to(on_hands_knees, scene, rt=rt * 0.9, rate=smooth)
+
+    _drag_attached_props(fig, name, props, scene)
+    return None
+
 def act_pick_up_phone(fig, step, scene, name="I.G. NoreMe", *,
                       props=None, cast=None):
     """
@@ -1421,6 +1782,7 @@ ACTION_REGISTRY: dict[str, callable] = {
     "squeeze_through": act_squeeze_through,
     "dodge":           act_dodge,
     "jump_up":         act_jump_up,
+    "fall_down":       act_fall_down,
     "pick_up_phone":   act_pick_up_phone,
     "hang_up":         act_hang_up,
     # ── new v0.9.6 additions ──
@@ -1428,10 +1790,20 @@ ACTION_REGISTRY: dict[str, callable] = {
     "peel_from_hand":  act_peel_from_hand,
     "group_translate": act_group_translate,
     # ── new v0.9.8 character interactions ──
-    "kiss":            act_kiss,
-    "hold_hands":      act_hold_hands,
-    "hand_to":         act_hand_to,
-    "pat_head":        act_pat_head,
+    "kiss":               act_kiss,
+    "hold_hands":         act_hold_hands,
+    "hand_to":            act_hand_to,
+    "pat_head":           act_pat_head,
+    # ── new v0.9.11 gestures ──
+    "nod":                act_nod,
+    "shake_head":         act_shake_head,
+    "shrug":              act_shrug,
+    # ── new v0.9.12 physical restraint ──
+    "grab_arm":           act_grab_arm,
+    "twist_arm_behind":   act_twist_arm_behind,
+    "release_arm":        act_release_arm,
+    # ── new v0.9.13 transform ──
+    "rotate":             act_rotate,
 }
 
 # Convenience set for fountain2pam.py validation
