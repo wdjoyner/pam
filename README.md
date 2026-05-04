@@ -1,5 +1,5 @@
 # PAM — Pose And Motion
-### Stick-figure animation library for Manim · v0.9.8
+### Stick-figure animation library for Manim · v0.9.13
 
 PAM is a Manim-based toolkit for animating stick-figure characters as
 mathematical graphs.  Poses are plain Python dictionaries mapping joint names
@@ -73,17 +73,19 @@ On top of this foundation PAM provides:
   suggesting a uniform or shirt without extra geometry.
 - **Props** — chair, desk, hat, door, dodecahedron, building, flower, sun,
   moon, elevator, briefcase, folder, phone/landline/smartphone, audio/video bug,
-  floral arrangement, backpack, laptop, avatar pod, letter graphs — placed via a
-  JSON declaration and spawnable mid-scene.
+  floral arrangement, backpack, laptop, avatar pod, solar panel, wire, backdrop,
+  letter graphs — placed via a JSON declaration and spawnable mid-scene.
 - **Character accessories** — `name_tag`, `delivery_cap`, `cheap_suit`,
   `silver_hair` — props that attach to a figure's head or torso node.
 - **Speech bubbles** that size themselves to the text and stay within screen
   margins.  An O.S. / phone variant uses a dashed border and cooler palette.
 - **Expressions** — reaction glyphs (`smirk`, `roll_eyes`) that flash above
   a character's head via the `express` action.
+- **Gesture actions** — `nod`, `shake_head`, `shrug` — single-character
+  body language beats implemented in `actions.py`.
 - **Person-to-person interaction actions** — `kiss`, `hold_hands`, `hand_to`,
-  `pat_head` — implemented in `actions_interactions.py` for interpersonal beat
-  choreography.
+  `pat_head`, `grab_arm`, `twist_arm_behind`, `release_arm` — implemented in
+  `actions_interactions.py` for interpersonal and physical beat choreography.
 - **A character registry** (`characters.txt`) listing every cast member with
   type, gender, color, and label.  Populated by hand or automatically from
   Fountain+ `CHARACTER` annotations.
@@ -122,11 +124,12 @@ your-project/
     props_carried.py        ← hand props (phone, briefcase, backpack, laptop, …)
     props_flora.py          ← flora props (flower, floral arrangement, …)
     props_environment.py    ← environment and background (building, sun, moon,
-                              avatar pod, tv monitor, …)
+                              avatar pod, tv monitor, solar_panel, wire,
+                              backdrop, …)
     props_accessories.py    ← character accessories (name_tag, cheap_suit, …)
     props_letters.py        ← letter graph props
     actions.py              ← action handlers and ACTION_REGISTRY
-    actions_interactions.py ← person-to-person interaction actions (v0.9.8)
+    actions_interactions.py ← person-to-person interaction actions (v0.9.8+)
   pam_player.py             ← JSON screenplay player (top-level script)
   fountain2pam.py           ← Fountain → PAM JSON + AI prompt converter
   pam2blender.py            ← PAM JSON → Blender Python script exporter
@@ -484,9 +487,6 @@ Declare `torso_color` alongside `color` in a `CHARACTER` note:
 name=nona  type=alien  gender=female  color=#4db87a  torso_color=#cc2222  label=N
 ```
 
-The `torso_color` key is optional.  Omitting it leaves the character
-single-colored.
-
 ### JSON cast declaration
 
 ```json
@@ -783,6 +783,7 @@ from pam import (
     build_cheap_suit, build_silver_hair,              # v0.9.5 accessories
     build_backpack, build_laptop,                     # v0.9.7 props
     build_avatar_pod,                                 # v0.9.7 props
+    build_solar_panel, build_wire, build_backdrop,    # v0.9.7 props
     build_letter_graph,                               # v0.9.7 letter prop
 )
 ```
@@ -904,6 +905,20 @@ for desk-setup sequences or presentation beats.
 `avatar_pod` exposes `open_lid(scene)` and `close_lid(scene)` animations and
 maintains occupied vs. unoccupied styling.  Suitable for pod-bay or teleport
 sequences.
+
+#### tv_monitor
+
+`tv_monitor` (alias `monitor`) is a wall-mounted or desk display.  Pass
+`screen_text`, `screen_color`, and `screen_text_color` at spawn time.  To
+change the display mid-scene, `remove_prop` and `spawn_prop` with an explicit
+`"type": "tv_monitor"`:
+
+```json
+{"action": "remove_prop", "prop": "slide"}
+{"action": "spawn_prop",  "prop": "slide", "type": "tv_monitor",
+ "x": -3.0, "y": 1.8, "width": 3.2, "height": 2.0,
+ "screen_text": "CHEMICAL SAFETY", "screen_color": "#ffffff"}
+```
 
 #### Letter graphs
 
@@ -1315,7 +1330,7 @@ replaced by another note of the same key.
 |---|---|
 | `FRAMING` | `wide` · `medium` · `medium-close` · `close` · `ots-left` · `ots-right` · `oneshot` · `insert` |
 | `SUBJECT` | Character name · prop name · scene-object name · `ensemble` |
-| `MOVE` | `static` · `push` · `pull` · `pan-follow` · `drift` · `pan-up` · `pan-down` |
+| `MOVE` | `static` · `push` · `pull` · `pan-follow` · `drift` · `pan-up` · `pan-down` · `descend` · `push_into` |
 | `TRANSITION` | `cut` · `hold` · `hold-empty` · `smash` |
 
 Freeform tags (no `=` present) pass through unchanged and are fully backward
@@ -1357,7 +1372,7 @@ Renders a text card over the scene.  Parsed into a `caption` action.
 | Sub-key | Values | Default |
 |---|---|---|
 | `TEXT` (or bare value) | Any string | — |
-| `POSITION` | `bottom` · `top` · `lower-third` | `bottom` |
+| `POSITION` | `bottom` · `top` · `lower-third` · `center` | `bottom` |
 | `DURATION` | float seconds | `3.0` |
 | `STYLE` | `normal` · `italic` · `bold` | `normal` |
 
@@ -1586,7 +1601,8 @@ silently.
 **title**
 
 ```json
-{"action": "title", "text": "Scene Title", "subtitle": "optional"}
+{"action": "title", "text": "Scene Title", "subtitle": "optional",
+ "y_offset": 0.6}
 ```
 
 **cast** — declares all characters.  Must appear before any `fade_in`.
@@ -1594,12 +1610,15 @@ silently.
 ```json
 {"action": "cast", "characters": {
   "nona": {
-    "build":  "alien",
-    "offset": [-3, 0, 0],
-    "scale":  {"sy": 0.7, "sx": 0.7, "anchor": "lankle"},
-    "style":  {"head_label": "Nona", "edge_color": "#2a9d8f"}
+    "figure_type": "alien",
+    "gender":      "female",
+    "build":       "alien_female",
+    "offset":      [-3, 0, 0],
+    "scale":       {"sy": 0.7, "sx": 0.7, "anchor": "lankle"},
+    "torso_color": "#cc2222",
+    "style":       {"head_label": "Nona", "edge_color": "#2a9d8f"}
   },
-  "sidel": {"build": "alien", "offset": [3, 0, 0]}
+  "sidel": {"figure_type": "alien", "gender": "female", "offset": [3, 0, 0]}
 }}
 ```
 
@@ -1607,30 +1626,39 @@ silently.
 
 ```json
 {"action": "props", "items": {
-  "desk":  {"type": "desk",  "x": 1.0, "monitor": true},
-  "chair": {"type": "chair", "x": 0.8},
-  "door":  {"type": "door",  "x": 6.5}
+  "desk":  {"type": "desk",       "x": 1.0, "monitor": true},
+  "chair": {"type": "chair",      "x": 0.8},
+  "door":  {"type": "door",       "x": 6.5},
+  "slide": {"type": "tv_monitor", "x": -3.0, "y": 1.8,
+             "width": 3.2, "height": 2.0,
+             "screen_text": "SAFE LIFTING\nTECHNIQUES",
+             "screen_color": "#ffffff", "screen_text_color": "#111111"}
 }}
 ```
 
 **spawn_prop** — spawns a prop or prop-character mid-scene.
 
 ```json
-{"action": "spawn_prop", "prop": "dodecahedron",
+{"action": "spawn_prop", "prop": "laptop_1", "type": "laptop",
+ "x": 3.5, "y": -1.0, "attrs": {"scale": 2.8},
+ "screen_color": "#1af0c4", "label": "PetroPlast"}
+
+{"action": "spawn_prop", "prop": "governor",
  "figure_type": "dodecahedron", "x": 0.0, "y": 1.5}
 ```
 
 **remove_prop**
 
 ```json
-{"action": "remove_prop", "prop": "dodecahedron"}
+{"action": "remove_prop", "prop": "laptop_1"}
 ```
 
 **fade_in / fade_out**
 
 ```json
-{"action": "fade_in",  "who": "nona", "t": 0.5}
-{"action": "fade_out", "who": "all",  "t": 0.5}
+{"action": "fade_in",  "who": "nona",    "duration": 0.1}
+{"action": "fade_out", "who": "all",     "duration": 0.5}
+{"action": "fade_out", "who": "freydoon","duration": 0.3}
 ```
 
 **say**
@@ -1649,17 +1677,28 @@ Pass `"style": "os"` (or `"phone"`) for a dashed-border O.S. speech bubble:
  "style": "os", "side": "left"}
 ```
 
+Pass `"style": "whisper"` for a smaller, lighter bubble suggesting a hushed aside:
+
+```json
+{"action": "say", "who": "chava", "text": "Very little.",
+ "style": "whisper", "side": "left", "hold": 1.5}
+```
+
 **prop_say**
 
 ```json
-{"action": "prop_say", "prop": "dodecahedron",
+{"action": "prop_say", "prop": "governor",
  "text": "Approved.", "hold": 1.2}
+
+{"action": "prop_say", "prop": "door",
+ "text": "Keller, bring back that laptop!",
+ "side": "left", "style": "os", "hold": 2.0}
 ```
 
 **prop_color**
 
 ```json
-{"action": "prop_color", "prop": "dodecahedron",
+{"action": "prop_color", "prop": "governor",
  "color": "#e87a1a", "t": 0.4}
 ```
 
@@ -1670,14 +1709,17 @@ Pass `"style": "os"` (or `"phone"`) for a dashed-border O.S. speech bubble:
 {"action": "turn", "who": "sidel", "pose": "standing_front"}
 ```
 
-Required before `walk_to`, `run_to`, or `carry`.
+Required before `walk`, `run_to`, or `carry`.
 
-**walk_to / run_to**
+**walk / run_to**
 
 ```json
-{"action": "walk_to", "who": "sidel", "x":  1.0, "t": 1.2}
-{"action": "run_to",  "who": "nona",  "x": -2.0, "t": 0.8}
+{"action": "walk",   "who": "sidel", "to_x": 1.0,  "t": 1.2}
+{"action": "run_to", "who": "nona",  "to_x": -2.0, "t": 0.8}
 ```
+
+Note: the JSON screenplay player uses `"to_x"` (not `"x"`) for locomotion
+destination.  The `"x"` key is used only for prop placement.
 
 **trot_to**
 
@@ -1691,7 +1733,8 @@ Note: uses `"prop"`, not `"who"`.  The dog lives in the props registry.
 **sit_down / stand_up**
 
 ```json
-{"action": "sit_down", "who": "sidel", "prop": "chair"}
+{"action": "sit_down", "who": "sidel"}
+{"action": "sit_down", "who": "sidel", "prop": "chair_1"}
 {"action": "stand_up", "who": "sidel"}
 ```
 
@@ -1703,10 +1746,22 @@ Note: uses `"prop"`, not `"who"`.  The dog lives in the props registry.
 {"action": "wave", "who": "nona", "direction": "right"}
 ```
 
+**Gesture actions** (v0.9.11)
+
+```json
+{"action": "nod",        "who": "athena"}
+{"action": "shake_head", "who": "freydoon"}
+{"action": "shrug",      "who": "brad"}
+```
+
+Single-character body-language beats.  All three are sequential-only (not
+parallel-safe).
+
 **exit_through**
 
 ```json
 {"action": "exit_through", "who": "nona", "prop": "door"}
+{"action": "exit_through", "who": "nona", "direction": "right"}
 ```
 
 **pick_up / put_down**
@@ -1738,7 +1793,7 @@ Accepts any named pose or a raw joint dict.
  "hold": 2.0}
 ```
 
-**caption** (v0.9.5) — on-screen text card with position, duration, and style.
+**caption** (v0.9.5) — blocking on-screen text card.
 
 ```json
 {"action": "caption",
@@ -1750,9 +1805,51 @@ Accepts any named pose or a raw joint dict.
 
 | Key | Values | Default |
 |---|---|---|
-| `position` | `"bottom"` · `"top"` · `"lower-third"` | `"bottom"` |
+| `position` | `"bottom"` · `"top"` · `"lower-third"` · `"center"` | `"bottom"` |
 | `duration` | float seconds | `3.0` |
 | `style` | `"normal"` · `"italic"` · `"bold"` | `"normal"` |
+
+**overlay_caption** (v0.9.5) — non-blocking caption driven by an updater.
+The action loop continues immediately; the caption fades in, holds, and fades
+out in the background.
+
+```json
+{"action": "overlay_caption",
+ "text": "Hotel lower level — Freydoon's seminar room. Later.",
+ "position": "lower-third",
+ "duration": 5.0,
+ "style": "italic"}
+```
+
+Use `"position": "center"` for a mid-screen time-skip card:
+
+```json
+{"action": "overlay_caption",
+ "text": ">>> Fast Forward >>>",
+ "position": "center",
+ "duration": 2.0,
+ "style": "italic"}
+```
+
+| Key | Values | Default |
+|---|---|---|
+| `position` | `"bottom"` · `"top"` · `"lower-third"` · `"center"` | `"bottom"` |
+| `duration` | float seconds | `4.0` |
+| `style` | `"normal"` · `"italic"` · `"bold"` | `"italic"` |
+| `color` | hex string | `"#e8e8e8"` |
+| `rt_in` | float seconds | `0.4` |
+| `rt_out` | float seconds | `0.4` |
+
+**persistent_caption** — static lower-third bar that stays on screen for the
+entire scene.
+
+```json
+{"action": "persistent_caption",
+ "text": "Venus City — lower level",
+ "position": "lower-third",
+ "duration": 5.0,
+ "style": "italic"}
+```
 
 **sound_cue** (v0.9.5) — flash a diegetic sound label on screen.
 
@@ -1763,7 +1860,7 @@ Accepts any named pose or a raw joint dict.
 **express** (v0.9.5) — flash a reaction glyph above a character's head.
 
 ```json
-{"action": "express", "who": "nona", "expression": "smirk", "hold": 1.2}
+{"action": "express", "who": "nona",  "expression": "smirk",     "hold": 1.2}
 {"action": "express", "who": "sidel", "expression": "roll_eyes"}
 ```
 
@@ -1784,7 +1881,7 @@ Accepts any named pose or a raw joint dict.
 Reset to full brightness:
 
 ```json
-{"action": "focus", "reset": true}
+{"action": "focus_reset"}
 ```
 
 **reach_for** — extend one arm toward a prop, hold briefly, retract.
@@ -1820,7 +1917,8 @@ Reset to full brightness:
  "prop": "desk_lamp", "direction": "left", "distance": 0.4}
 ```
 
-**peel_from_hand** (v0.9.5) — slide a tiny prop off the palm, ready for `stick_to`.
+**peel_from_hand** (v0.9.5) — open-palm gesture that slides a tiny prop off
+the palm, leaving it in `fig._held_prop` ready for `stick_to`.
 
 ```json
 {"action": "peel_from_hand", "who": "sidel", "prop": "bug", "arm": "r"}
@@ -1850,7 +1948,8 @@ Best paired with `FRAMING=insert` — the prop is tiny in wide shots.
 **rush_to / rush_out** — fast run with forward-lean pose.
 
 ```json
-{"action": "rush_to", "who": "nona", "x": 2.5}
+{"action": "rush_to",  "who": "nona", "x": 2.5}
+{"action": "rush_out", "who": "brad"}
 ```
 
 **squeeze_through** — narrow-stance walk through a tight space.
@@ -1877,7 +1976,8 @@ Best paired with `FRAMING=insert` — the prop is tiny in wide shots.
 {"action": "pat", "who": "nona", "target": "ramis", "cycles": 3}
 ```
 
-**search_drawers** — rummaging macro: repeated reach_for(desk) with downward variants.
+**search_drawers** — rummaging macro: repeated reach_for(desk) with downward
+variants.
 
 ```json
 {"action": "search_drawers", "who": "sidel",
@@ -1897,8 +1997,8 @@ Best paired with `FRAMING=insert` — the prop is tiny in wide shots.
  "prop": "desk_phone", "target": "sidels_desk"}
 ```
 
-**group_translate** (v0.9.5) — move multiple characters and props simultaneously.
-Primary mechanism for elevator rise.
+**group_translate** (v0.9.5) — move multiple characters and props
+simultaneously.  Primary mechanism for elevator rise.
 
 ```json
 {"action": "group_translate",
@@ -1918,22 +2018,125 @@ subsequent actions start from the correct post-translate position.
  "sy": 0.7, "sx": 0.7, "anchor": "lankle"}
 ```
 
-**Interaction actions** (v0.9.8) — person-to-person choreography implemented
-in `actions_interactions.py`.  All four are sequential-only (not parallel-safe).
+**rotate** (v0.9.13) — rotate a character or a prop around a chosen
+pivot point.  Accepts either `who` (character) or `prop` (prop); if
+both are given, `prop` wins.
+
+Character — lay a body flat on a stretcher, then stand back up:
 
 ```json
-{"action": "kiss",       "who": "alice", "target": "bob"}
-{"action": "hold_hands", "who": "alice", "target": "bob"}
-{"action": "hand_to",    "who": "alice", "target": "bob",  "prop": "folder"}
-{"action": "pat_head",   "who": "alice", "target": "bob"}
+{"action": "rotate", "who": "freydoon",
+ "angle_deg": -90, "pivot": "bottom", "rt": 0.6}
+
+{"action": "rotate", "who": "freydoon",
+ "angle_deg": 90, "pivot": "bottom", "rt": 0.4}
+```
+
+Prop — open an avatar pod lid (hinged at the left edge):
+
+```json
+{"action": "rotate", "prop": "bevers_pod",
+ "angle_deg": 70, "pivot": "left", "rt": 0.5}
+```
+
+Prop — small wobble on a wheeled stretcher (fast, low angle):
+
+```json
+{"action": "rotate", "prop": "stretcher",
+ "angle_deg": 4, "rt": 0.15}
+```
+
+Prop — door slamming on a hinge:
+
+```json
+{"action": "rotate", "prop": "mens_room_door",
+ "angle_deg": -85, "pivot": "left", "rt": 0.3}
+```
+
+| Key | Values | Default |
+|---|---|---|
+| `who` | character key (mutually exclusive with `prop`) | — |
+| `prop` | prop registry key (wins if both `who` and `prop` are present) | — |
+| `angle_deg` | float — rotation angle in degrees (preferred) | — |
+| `angle` | float — rotation angle in radians (alternative) | `0.0` |
+| `pivot` | `"bottom"` · `"center"` · `"top"` · `"left"` · `"right"` · `[x, y]` | `"bottom"` |
+| `rt` | float seconds (`0` for instant non-animated) | `0.5` |
+
+If both `angle_deg` and `angle` are given, `angle_deg` wins.  Useful for
+laying an unconscious character flat on a stretcher, falling, recovering
+upright via counter-rotation, opening a pod lid, swinging a door, or
+tilting a sign.  Sequential-only (not parallel-safe).
+
+Note: `rotate` is **not** an option in cast entries.  The `pose` field in
+a cast block accepts a *named pose* (e.g. `"standing_front"`,
+`"sitting_mid"`, `"on_hands_knees"`) — a full joint dictionary, not a
+rotation angle.  To start a scene with a rotated character, `fade_in`
+upright and immediately apply `rotate`.
+
+**flash** (v0.9.7) — temporarily recolor a prop, character, or both, then
+restore.
+
+```json
+{"action": "flash", "prop": "laptop_1", "color": "#ff4444", "duration": 0.4}
+{"action": "flash", "who": "nona",      "color": "#ffffff",  "duration": 0.2}
+```
+
+**Interaction actions** (v0.9.8 / v0.9.12) — person-to-person choreography
+implemented in `actions_interactions.py`.  All are sequential-only (not
+parallel-safe).
+
+```json
+{"action": "kiss",             "who": "alice",  "target": "bob"}
+{"action": "hold_hands",       "who": "alice",  "target": "bob"}
+{"action": "hand_to",          "who": "alice",  "target": "bob",  "prop": "folder"}
+{"action": "pat_head",         "who": "alice",  "target": "bob"}
 ```
 
 | Action | Description |
 |---|---|
 | `kiss` | Brief forward-lean approach and retract between two characters |
 | `hold_hands` | Both characters extend arms toward each other and hold |
-| `hand_to` | Pass a held prop from one character to another |
+| `hand_to` | Pass a held prop from one character's grip to another |
 | `pat_head` | One character reaches and taps the top of another's head |
+
+**Physical restraint actions** (v0.9.12) — two-character constraint choreography.
+All three are sequential-only.
+
+```json
+{"action": "grab_arm",         "who": "chava", "target": "brad",
+ "arm": "r", "rt": 0.3}
+
+{"action": "twist_arm_behind", "who": "chava", "target": "brad",
+ "tilt": 0.13, "rt": 0.35}
+
+{"action": "release_arm",      "who": "chava", "target": "brad",
+ "rt": 0.3}
+```
+
+| Key | Description | Default |
+|---|---|---|
+| `target` | Cast member being seized | — |
+| `arm` | `"r"` \| `"l"` \| `"auto"` — which of the target's arms to grab | `"auto"` |
+| `tilt` | (`twist_arm_behind`) how far target's torso tilts forward | `0.12` |
+| `rt` | Morph speed in seconds | `0.3` / `0.35` |
+
+`"auto"` selects the arm on the side closest to the grabbing character.
+`grab_arm` records `_restrained_arm` on the target figure — other actions that
+move arm joints will check this flag and skip the restrained arm.
+`release_arm` restores both characters to their pre-grab rest poses and clears
+all constraint state.  Always call `release_arm` before issuing subsequent
+locomotion actions to either character.
+
+A typical restraint sequence:
+
+```json
+{"action": "grab_arm",         "who": "chava", "target": "brad", "arm": "r"}
+{"action": "say",              "who": "brad",  "text": "Hey, wanna hear a funny story?", "hold": 1.6}
+{"action": "twist_arm_behind", "who": "chava", "target": "brad", "tilt": 0.13}
+{"action": "say",              "who": "chava", "text": "You're going to jail. Ha, ha!", "hold": 1.8}
+{"action": "release_arm",      "who": "chava", "target": "brad"}
+{"action": "walk",             "who": "brad",  "to_x": -2.0}
+```
 
 ### The props declaration
 
@@ -1999,9 +2202,9 @@ render behind all characters.
 
 Only locomotion (`walk_to`, `run_to`, `trot_to`, `walk_to_prop`, `run_to_prop`)
 and single-step pose actions (`morph`, `turn`, `scale`, `fade_out`) may appear
-in `do`.  Multi-step choreography (`sit_down`, `wave`, `rush_to`) and all
-interaction actions (`kiss`, `hold_hands`, `hand_to`, `pat_head`) fall back to
-sequential with a console warning.
+in `do`.  Multi-step choreography (`sit_down`, `wave`, `rush_to`), all gesture
+actions (`nod`, `shake_head`, `shrug`), and all interaction and restraint
+actions fall back to sequential with a console warning.
 
 ### Annotation entries
 
@@ -2044,6 +2247,11 @@ The most common manual edits after running `fountain2pam.py`:
 
    before the walk/run, and `"standing_front"` after it.
 
+5. **Clear speech bubbles before `focus_reset`.**  Persistent speech bubbles
+   can be visually overlaid by characters when `focus_reset` fires while the
+   bubble is still on screen.  Issue `clear_bubble` (or `clear_all_bubbles`)
+   before the reset, or tune `duration` so the bubble expires first.
+
 ---
 
 ## Coordinate system and conventions
@@ -2065,7 +2273,7 @@ The most common manual edits after running `fountain2pam.py`:
 
 ## Tips and caveats
 
-**`walk_to` and `run_to` require `standing_side`.**  Add
+**`walk` / `walk_to` and `run_to` require `standing_side`.**  Add
 `{"action": "turn", "who": "...", "pose": "standing_side"}` first.  The
 converter adds this automatically; hand-written JSON must include it.
 
@@ -2100,9 +2308,23 @@ and they are automatically available to the `express` action.
 triggered by parenthetical alone — `fountain2pam.py` must inject the `style`
 key, or you can set it manually in hand-written JSON.
 
-**Interaction actions are sequential-only.**  `kiss`, `hold_hands`, `hand_to`,
-and `pat_head` each involve multi-step choreography and cannot be placed inside
-a `parallel` block.
+**Interaction and restraint actions are sequential-only.**  `kiss`, `hold_hands`,
+`hand_to`, `pat_head`, `grab_arm`, `twist_arm_behind`, and `release_arm` each
+involve multi-step choreography and cannot be placed inside a `parallel` block.
+
+**`grab_arm` auto-selects the near arm.**  `"arm": "auto"` (the default)
+picks the target's arm on the side closest to the grabbing character.  If the
+grabber is to the right, it grabs the right arm.  Override with `"arm": "l"`
+or `"arm": "r"` for scripted intent.
+
+**Always `release_arm` before locomotion.**  Brad cannot walk to his seat
+while Chava still has his arm.  `release_arm` clears `_restrained_arm` on the
+target and both characters return to rest pose.
+
+**`_restrained_arm` blocks other arm actions.**  While a grab is active, any
+action that would move the target's restrained arm (e.g. `wave`, `reach_for`)
+will print a warning and skip the arm movement.  This is intentional — it
+prevents conflicting pose states.
 
 **Freeform `[[ CAMERA: ]]` tags** (no `=` sign) pass through unchanged and
 are fully backward compatible with v0.9.0.
@@ -2119,11 +2341,102 @@ directory, set `CHARACTERS=/path/to/characters.txt`.
 **Font warnings on Linux.**  If Manim warns that Courier New is not found,
 change the font in `builds.py` to `"Liberation Mono"` or `"DejaVu Sans Mono"`.
 
+**Persistent speech bubbles and `focus_reset`.**  Persistent bubbles (from
+`say`/`prop_say` with `duration` or `persist`) can be visually overlaid by
+characters when a `focus_reset` fires while the bubble is still on screen.
+The `focus_reset` restores characters to full opacity/z-order, which can paint
+over the bubble.  Workaround: issue `clear_bubble` (or `clear_all_bubbles`)
+before the `focus_reset`, or tune `duration` to expire before the reset.
+
+**`tv_monitor` prop swap.**  To change slide text mid-scene use
+`remove_prop` + `spawn_prop` with explicit `"type": "tv_monitor"`.  The
+manifest key and the type string must both be set — `spawn_prop` does not
+infer type from a previously registered name.
+
+**`rotate` on characters is a visual-only transform.**  Manim's `Rotate`
+animation moves the figure's geometry but does not update the PAM
+figure's internal `pose` dictionary or `offset`.  After rotating a
+character, any `morph`, `walk`, `turn`, or other pose-changing action
+will reanimate the figure from its stored upright pose, snapping it
+back to vertical.  For sustained horizontal poses (e.g. a body lying
+on a stretcher), do not issue further pose actions to that character
+until you counter-rotate them upright.  This is fine for unconscious
+or knocked-out characters who are not expected to move; it is a
+problem if you want a character to roll, then crawl.  *Props* are not
+affected — their geometry is rotated permanently and subsequent
+`move_aside` / `group_translate` / `remove_prop` operations compose
+correctly with the rotation.
+
 ---
 
 ## Major changes by version
 
-### 0.9.8 (current)
+### 0.9.13 (current)
+
+**`rotate` action (`actions.py`)**
+
+- `rotate` — rotate a character **or a prop** around a chosen pivot
+  point.  Tilts a character flat onto a stretcher, knocks them
+  off-balance, opens a pod lid, swings a door on its hinge, tilts a
+  sign, or wobbles a wheeled prop on bumpy ground.  Accepts either
+  `who` (character) or `prop` — if both are given, `prop` wins.  Angle
+  via `angle_deg` (degrees, preferred) or `angle` (radians); `pivot`
+  may be `"bottom"` (default), `"center"`, `"top"`, `"left"`,
+  `"right"`, or an explicit `[x, y]` world-space point.  Pass `rt: 0`
+  for an instant non-animated rotation.
+- Caveat for *characters*: rotation is a visual-only transform — it
+  does not update the figure's internal `pose` or `offset`, so a
+  subsequent `morph`, `walk`, or other pose-changing action snaps the
+  figure back to upright.  Issue a counter-rotation first if the
+  character needs to keep acting.  *Props* do not have this problem;
+  their geometry is rotated permanently and subsequent translates
+  compose correctly.
+- Registered in `ACTION_REGISTRY` and `_CANNOT_PARALLEL`.
+
+---
+
+### 0.9.12
+
+**Physical restraint actions (`actions_interactions.py`)**
+
+- `grab_arm` — one character seizes another's arm from behind.  Computes
+  world-space wrist target position; fig reaches forward while target's wrist
+  lifts slightly.  Records `_restrained_arm` on target and `_grabbing_target` /
+  `_grabbing_arm` on fig.  Saves scaled rest-pose snapshots on both figures
+  for `release_arm` to restore.  `"arm": "auto"` selects the near arm based
+  on relative x-position.  Guards against double-grabbing.
+- `twist_arm_behind` — escalates an active grab into an arm-lock.  Folds
+  the seized arm behind the target's back; elbow kicks outward, wrist ends
+  behind the torso centerline.  Target's torso and head tilt forward by
+  `tilt` (default 0.12, tunable).  Fig's grabbing hand tracks to the new
+  wrist position.  Must be called after `grab_arm` on the same target.
+- `release_arm` — restores both characters to pre-grab rest poses by inverting
+  the stored scaled snapshots; clears all constraint attributes
+  (`_restrained_arm`, `_grabbing_target`, `_grabbing_arm`, `_pre_grab_rest`,
+  `_pre_grab_rest_a`).
+- All three registered in `ACTION_REGISTRY` and added to `_CANNOT_PARALLEL`.
+
+**`overlay_caption` center position (`pam_player.py`)**
+
+- New `"position": "center"` option places the caption bar at
+  `_frame_cy + 0.5` — slightly above vertical mid-screen to clear standing
+  characters.  Updated in module docstring (line 68), `persistent_caption`
+  docstring, and `overlay_caption` docstring.
+
+---
+
+### 0.9.11
+
+**Gesture actions (`actions.py`)**
+
+- `nod` — rapid head bob: head drops forward then returns to rest.
+- `shake_head` — lateral head oscillation left-right-left.
+- `shrug` — both shoulders rise then settle; arms lift and drop.
+- All three registered in `ACTION_REGISTRY` and `_CANNOT_PARALLEL`.
+
+---
+
+### 0.9.8
 
 **Interaction actions (`actions_interactions.py`)**
 
@@ -2146,20 +2459,10 @@ change the font in `builds.py` to `"Liberation Mono"` or `"DejaVu Sans Mono"`.
   `props_furniture.py`, `props_carried.py`, `props_flora.py`,
   `props_environment.py`, `props_accessories.py`, `props_letters.py`.
   `props.py` remains the public-facing entry point and re-exports everything.
-- New carried props:
-  - `backpack` — shoulder bag with `reveal_laptop(scene, laptop_prop)`
-    animation method.
-  - `laptop` — clamshell prop shown open or closed.
-- New environment props:
-  - `avatar_pod` — pod object with `open_lid(scene)` and `close_lid(scene)`
-    animations; maintains occupied vs. unoccupied styling.
-  - `tv_monitor` (`monitor`) — wall-mounted or desk display.
-  - `solar_panel` — flat panel.
-  - `wire` — connecting line between props.
-  - `backdrop` — full-width background rectangle.
-- New letter prop:
-  - `letter_graph` — graph-shaped letter on a normalised 3×5 node grid;
-    useful for title cards and graph-theory branding.
+- New carried props: `backpack`, `laptop`.
+- New environment props: `avatar_pod`, `tv_monitor` (`monitor`), `solar_panel`,
+  `wire`, `backdrop`.
+- New letter prop: `letter_graph`.
 - All new types registered in `PROP_TYPES`.
 
 **FOCUS annotation (`fountain2pam.py`)**
@@ -2168,7 +2471,6 @@ change the font in `builds.py` to `"Liberation Mono"` or `"DejaVu Sans Mono"`.
   - `[[ FOCUS: ON=Name1,Name2 | DIM=all_others | OPACITY=0.25 ]]`
   - `[[ FOCUS: RESET ]]` restores full brightness.
 - Emitted as `{"action": "focus", ...}` in PAM JSON.
-- `OPACITY` defaults to `0.25`; `DIM` defaults to `all_others`.
 
 ---
 
@@ -2176,75 +2478,36 @@ change the font in `builds.py` to `"Liberation Mono"` or `"DejaVu Sans Mono"`.
 
 **Character accessories (props.py)**
 
-- `build_name_tag(name, x, y, text, color)` — rounded chest badge with text
-  label and a pin dot at the top edge.  Spawn via `spawn_prop` with
-  `on_torso_of=`.
-- `build_delivery_cap(name, x, y, color, label)` — wide flat-brim cap; brim
-  extends further forward than back; optional front-panel label.  Spawn via
-  `spawn_prop` with `on_head_of=`.
-- `build_cheap_suit(name, x, y, color)` — jacket body + lapel triangles +
-  V-notch collar.  Draws over the skeleton — spawn after `fade_in`.  Spawn via
-  `spawn_prop` with `on_torso_of=`.
-- `build_silver_hair(name, x, y, color)` — thick `Arc` (220°) over the crown
-  plus a short fringe line.  Spawn via `spawn_prop` with `on_head_of=`.
-- All four registered in `PROP_TYPES`; `pam_player.spawn_prop` gains
-  `on_torso_of` alongside `on_head_of`.
+- `build_name_tag`, `build_delivery_cap`, `build_cheap_suit`,
+  `build_silver_hair` — four new accessory prop builders.
+- `on_torso_of` and `on_head_of` keys added to `spawn_prop` handling.
+- All four registered in `PROP_TYPES`.
 
 **New actions (actions.py)**
 
-- `express` — flash a reaction glyph above a character's head.  Reads
-  `EXPRESSION_GLYPHS` from `poses.py` (currently `smirk` and `roll_eyes`).
-  Add new expressions to `EXPRESSION_GLYPHS`; no player changes needed.
-- `peel_from_hand` — open-palm gesture that slides a tiny prop (bug, sticker)
-  from wrist to fingertip, leaving it in `fig._held_prop` ready for `stick_to`.
-  Best used in INSERT framing.
-- `group_translate` — move multiple characters and/or props simultaneously in
-  a single `scene.play()` call with a `[dx, dy]` displacement.  Primary
-  mechanism for elevator rise.  Bypasses `_targets()` in `pam_player.py`
-  (same pattern as `trot_to`).  Updates `fig.offset` and prop position attrs
-  in place.
+- `express` — flash a reaction glyph above a character's head.
+- `peel_from_hand` — open-palm gesture for bug/sticker planting.
+- `group_translate` — move multiple characters and/or props simultaneously.
 
 **O.S. / phone speech bubble (figure.py)**
 
 - `HumanGraph.say()` gains `bubble_style=None` parameter.
-  - `bubble_style="os"` or `"phone"` — dashed-border `DashedVMobject` box in
-    cool blue (`#6ab0d4`) with a zigzag VMobject tail; text in `#a8d8f0`.
-  - `bubble_style=None` / `"normal"` — unchanged standard bubble.
-- `DogGraph.say()` and `GovernorGraph.say()` gain `bubble_style=None` for
-  signature parity (no rendering difference).
+  - `bubble_style="os"` or `"phone"` — dashed-border box in cool blue with
+    zigzag tail.
 
 **Spatial / camera additions (pam_player.py)**
 
-- `pan-down` MOVE value — mirror of `pan-up`; tilts camera bottom to floor
-  (`y ≈ -2.6`).  Tilt duration 2.5 s.  `_execute_pan_down()` added.
-- `scene_objects` action — background dressing registered in `_scene_objects`
-  and added to the back of the scene; merged into camera subject lookup so
-  `SUBJECT=building-facade` works in CAMERA annotations.
-- `zones` action — declares named spatial sub-regions into `_zones`; camera
-  x-range clamped to active zone at each `_subscene_marker`.
-- `caption` action — Manim Text card with dark backing bar; `position`
-  (`bottom` / `top` / `lower-third`), `duration`, `style` sub-keys.
-- `sound_cue` action — scale-pop flash of a diegetic label (RING!, KNOCK!).
+- `pan-down` MOVE value — mirror of `pan-up`; tilts camera to floor level.
+- `scene_objects` action — background dressing merged into camera subject
+  lookup.
+- `zones` action — named spatial sub-regions; camera x-range clamped at marker.
+- `caption` action — blocking text card with dark backing bar.
+- `overlay_caption` action — non-blocking updater-driven caption.
+- `sound_cue` action — scale-pop flash of a diegetic label.
 
 **Fountain+ keys (fountain2pam.py)**
 
-- `CAPTION` — parsed into `caption` action with TEXT, POSITION, DURATION,
-  STYLE sub-keys.
-- `SOUND` — parsed into `sound_cue` action.
-- `PHONE` — marks intercut telephone conversation; `say` actions receive
-  `style="os"`.
-- `PRODUCTION NOTE` — stored as metadata only; not emitted to PAM JSON.
-- `ZONE` — parsed into `_subscene_marker` `zone` field.
-- `pan-down` added to `CAMERA_MOVE` vocabulary.
-
-**Docstring / version cleanup**
-
-- All Veo/Kling references removed from `pam_player.py` docstrings; the
-  PAM → Blender workflow replaces the PAM → AI video direct pipeline.
-- FRAMING table in `PAMPlayer` class docstring corrected to match actual
-  `_FRAMING_CAMERA` dict values.
-- Orphaned unreachable `self.wait()` dead code removed from `on_screen_text`
-  handler.
+- `CAPTION`, `SOUND`, `PHONE`, `PRODUCTION NOTE`, `ZONE`, `pan-down`.
 
 ---
 
@@ -2252,69 +2515,25 @@ change the font in `builds.py` to `"Liberation Mono"` or `"DejaVu Sans Mono"`.
 
 **Two-zone character color (Track D)**
 
-- `HumanGraph` and `AlienGraph` now accept `torso_color=None`.  When set,
-  the torso zone (torso joints, torso bar, and edges to shoulders/hips/neck)
-  is rendered in a second color — the head and limbs keep the `color` palette.
-- `_TORSO_JOINTS = {"torso", "torso_left", "torso_right"}` and
-  `_TORSO_ADJACENT = {"lshoulder", "rshoulder", "lhip", "rhip", "neck"}` —
-  new class-level sets on `HumanGraph` define the two-zone boundary.
-- `_apply_torso_color(hex)` — new public method; also called by `_build()`.
-  Can be called mid-scene to change the uniform color without rebuilding.
-- Full backward compatibility: `torso_color=None` (default) → single-color
-  rendering, identical to v0.9.3.
-- `TORSO_COLOR` Fountain+ key added to `fountain2pam.py`; `torso_color` key
-  added to `characters.txt` spec; `pam_player.py` reads and passes through
-  `torso_color` and `gender` from both `cast` declarations and `fade_in` steps.
+- `HumanGraph` and `AlienGraph` accept `torso_color=None`.
+- `_apply_torso_color(hex)` — public method; also called by `_build()`.
+- `TORSO_COLOR` Fountain+ key added to `fountain2pam.py`.
 
 **New props: building, flower, sun, moon (Track C)**
 
-- `build_building(name, x, y, height, width, color, window_color)` — tall
-  concrete rectangle with an auto-computed window grid.  Stores `pam_height`
-  for the pan-up camera handler.  Base sits at `y`; top at `y + height`.
-- `build_flower(name, x, y, color, stem_color, center_color, petal_count)` —
-  stem + two mirrored leaves + radial petals + centre circle.
-- `build_sun(name, x, y, color, ray_count, radius, show_horizon)` — disc
-  with radiating lines and optional horizon line.  Stores `.pam_lighting`
-  metadata for `pam2blender.py`: SUN type, 3.5 energy, warm white.
-- `build_moon(name, x, y, color, bg_color, phase, orientation, radius)` —
-  crescent or half-moon via two-circle mask.  Stores `.pam_lighting`: SUN
-  type, 0.15 energy, cool blue.  `bg_color` must match the scene background.
-- All four registered in `PROP_TYPES`.
+- `build_building`, `build_flower`, `build_sun`, `build_moon`.
+- `sun` and `moon` store `.pam_lighting` for `pam2blender.py`.
 
 **Pan-up camera shot (Track B)**
 
-- `pan-up` added to `CAMERA_MOVE` vocabulary in `fountain2pam.py`.
-- `_execute_pan_up(meta, scene, props, char_x_positions)` — new function in
-  `pam_player.py`.  Sets framing width and x instantly, then animates
-  `camera.frame` centre-y upward until the building top is in frame.
-  Reads `prop.pam_height` and `prop.pam_y` directly — no runtime geometry
-  queries.  Falls back to a gentle upward drift if the subject prop is not
-  in the registry.
-- `pan-up: 2.5` added to `_MOVE_RT` — 2.5 second tilt duration.
-- Subscene marker handler updated: `move == "pan-up"` calls `_execute_pan_up`
-  immediately rather than deferring to the pending-camera queue.
+- `pan-up` added to `CAMERA_MOVE` vocabulary.
+- `_execute_pan_up()` in `pam_player.py`.
 
 **Blender layout exporter (Track A)**
 
-- `pam2blender.py` — new top-level script.  Reads a PAM JSON screenplay and
-  emits a self-contained Blender Python script (`screenplay_blender.py`).
-- `BlenderScriptBuilder` class — pre-pass collects cast, props, markers, and
-  estimated frame count; `build()` emits eight sections: header, scene setup,
-  clear scene, camera, lights, props, characters, timeline markers, footer.
-- Camera: one `bpy.data.cameras` object; focal length and position keyframes
-  per subscene marker; `pan-up` markers emit an additional rotation keyframe
-  (`rx` → 60°) at `frame + 60` (2.5 s × 24 fps).
-- Lights: one `bpy.data.lights` object per distinct LIGHTING annotation, with
-  type and energy from `_LIGHTING_BLENDER` table; `sun`/`moon` props
-  contribute lights automatically via `.pam_lighting`.
-- Props: named Empties at PAM world position × 0.36 m scale; custom
-  properties carry `pam_type`, `pam_name`, `pam_color`, `pam_height`.
-- Characters: named Empties with `pam_figure_type`, `pam_build`, `pam_color`,
-  `pam_torso_color`, `pam_gender` custom properties.
-- Timeline markers: one per `_subscene_marker`, labelled with subscene ID +
-  framing/move suffix for NLA editor navigation.
-- Scope note: character armatures, deformable geometry, and action strips were
-  deferred beyond v0.9.4.
+- `pam2blender.py` — new top-level script.
+- `BlenderScriptBuilder` class emits eight sections: header, scene setup,
+  clear scene, camera, lights, props, characters, timeline markers.
 
 ---
 
@@ -2322,108 +2541,31 @@ change the font in `builds.py` to `"Liberation Mono"` or `"DejaVu Sans Mono"`.
 
 **Character registry and gallery**
 
-- `characters.txt` — new file-based character registry.  One character per
-  line, `key=value` format.  Ships pre-populated with seven default characters
-  covering all types and genders.
-- `character_gallery.py` — new standalone Manim scene that reads
-  `characters.txt` and renders every character in a two-column layout (front +
-  side, or type-appropriate pair).  All figures stand on a common ground line.
-  Supports `WHITE_BG` and `CHARACTERS` environment variables.
-- Gallery view pairs: human/alien → front + side; dog → standing + trot-A;
-  dodecahedron → spin style + Schlegel diagram.
+- `characters.txt` — new file-based character registry.
+- `character_gallery.py` — Manim scene rendering every registered character.
+- `CHARACTER` Fountain+ key — synced to `characters.txt` on conversion.
 
-**Fountain+ CHARACTER annotation**
+**Gender presets**
 
-- New `CHARACTER` key in `fountain2pam.py`.  Annotations of the form
-  `[[ CHARACTER: name=... type=... gender=... ]]` are collected during
-  conversion and synced to `characters.txt` — adding new names, updating
-  existing ones in place.
-- `parse_character_line()` and `sync_characters_file()` — new public
-  functions for programmatic registry management.
-
-**Gender presets (humanoid)**
-
-- `HumanGraph` now accepts `gender="male"` | `"female"` | `"child"`.
-- Gender presets set `build`, `torso_y`, and `height` in one step.
-  Explicit kwargs always override the preset.
-- `torso_y` is passed through `build_poses()` as an override, so all
-  front-view poses (standing, sitting, wave) pick up the correct torso height.
-
-| Gender | Build | Torso y | Height |
-|---|---|---|---|
-| `male` | `broad` | 0.40 (low) | 1.0 |
-| `female` | `narrow` | 1.00 (high) | 1.0 |
-| `child` | `narrow` | 0.70 | 0.65 |
-
-**Alien gender differentiation**
-
-- `AlienGraph` now accepts `gender="male"` | `"female"`.
-- New `alien_female` build (`_ALIEN_FEMALE_PROPORTIONS` in `builds.py`) with
-  distinct torso bar position, width, shoulder width, and head size.
-- `torso_bar_scale` — new proportions key controlling the half-width of the
-  alien torso bar as a multiple of `hip_w`.
-
-| Gender | Build | `torso_y` | `torso_bar_scale` | `head_radius` | `shoulder_w` |
-|---|---|---|---|---|---|
-| `male` | `alien` | 0.30 (low) | 1.10 (wide) | 0.30 | 1.10 |
-| `female` | `alien_female` | 0.80 (high) | 0.85 (narrow) | 0.34 | 0.95 |
-
-- `alien_front_pose_split()` now uses both `torso_y` and `torso_bar_scale`
-  from build proportions rather than computing geometric midpoints.
-- `alien_side_pose()` accepts explicit `torso_y` so gender overrides are
-  preserved in all side-view keyframes.
-
-**Alien split-torso skeleton**
-
-- `ALIEN_JOINTS` and `ALIEN_EDGES` — new constants in `poses.py` defining
-  the 16-vertex, 17-edge alien skeleton topology.
-- `alien_front_pose_split()` — front-view pose builder returning
-  `torso_left` and `torso_right` keys.
-- `alien_side_pose()` — side-view pose builder; both torso vertices coincide
-  so the bar is invisible (preserves the side-view illusion).
-- `HumanGraph._build()` reads `joints` and `edges` from the build-poses dict,
-  so the alien skeleton is handled automatically without subclass overrides.
-- `AlienGraph` is now a thin subclass of `HumanGraph` with no overridden
-  animation methods.
+- `HumanGraph` accepts `gender="male"` | `"female"` | `"child"`.
+- `AlienGraph` accepts `gender="male"` | `"female"`.
+- `alien_female` build added to `builds.py`.
 
 **GovernorGraph Schlegel diagram**
 
-- `GovernorGraph` now accepts `style="schlegel"` (default) or `style="spin"`.
-- `"schlegel"` renders a static 2-D Schlegel diagram: 20 vertices, 30 edges,
-  four concentric pentagons.
-- `"spin"` restores the original animated 12-sided polygon.
-- `pulse()`, `set_state()`, `say()`, and `fade_out()` all branch correctly on
-  style.
-
-**Zero-length edge handling**
-
-- `HumanGraph._build()` creates a `Line` for every edge, setting opacity to 0
-  for coincident vertices rather than skipping the key.
-- `_safe_line_anim()` now returns a list and uses opacity animations to
-  hide/show coincident edges (alien torso bar in side view) through
-  `morph_to`, `set_pose`, and `turn`.
+- `GovernorGraph` accepts `style="schlegel"` (default) or `style="spin"`.
 
 ---
 
 ### 0.9.2
 
-- `LIGHTING` annotation — new beat-scoped Fountain+ key with structured
-  vocabulary (`evenly-lit`, `high-contrast`, `practical-cool`, etc.).
-- `LIGHTING=` sub-key inside `[[ CAMERA: ]]` annotations.
-- `--shot-count` flag — assigns `shot_label` and `shot_number` to each
-  subscene based on camera/lighting signature changes.
-- `--csv` flag — exports shot-list CSV (implies `--shot-count`).
-- `_subscene_marker` entries injected into PAM JSON for `pam_player`
-  `--camera-mode` sync.
+- `LIGHTING` annotation — structured vocabulary for lighting setup.
+- `--shot-count` and `--csv` flags for shot-list export.
+- `_subscene_marker` entries injected into PAM JSON.
 
 ### 0.9.1
 
-- Structured `CAMERA` tags with four sub-keys: `FRAMING`, `SUBJECT`, `MOVE`,
-  `TRANSITION`.
-- `parse_camera_tag()` — parses structured vs. freeform camera values.
-- `_camera_to_shot_line()` — new `ScenePromptBuilder` method replaces direct
-  `_infer_shot_size()` call.
-- `TRANSITION=` overrides `[DRAMA / CUT]` line.
+- Structured `CAMERA` tags with `FRAMING`, `SUBJECT`, `MOVE`, `TRANSITION`.
 - `shot_meta` field added to each subscene JSON.
 
 ### 0.9.0
@@ -2432,8 +2574,6 @@ change the font in `builds.py` to `"Liberation Mono"` or `"DejaVu Sans Mono"`.
 - `per-speaker` clip mode added as default.
 - `_hint` convention replaces plain `_comment` for patch instructions.
 - Tiered implied-prop inference system.
-- `KIND` and `CAMERA` note types added.
-- `PATCH HINTS` printed after conversion.
 
 ### 0.7.3
 
@@ -2459,5 +2599,5 @@ scene layout, AI video generation, and Final Cut Pro X assembly.
 
 ---
 
-*PAM v0.9.8 · fountain2pam v0.9.8 · pam2blender v0.9.4*
+*PAM v0.9.13 · fountain2pam v0.9.12 · pam2blender v0.9.4*
 *Co-authored by David Joyner and Claude (Anthropic)*
