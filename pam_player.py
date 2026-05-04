@@ -1,7 +1,7 @@
 """
 PAM Player — animate humanoid and non-humanoid graphs from a JSON screenplay.
-
-version 0.9.8
+ 
+version 0.9.12 
 
 Usage
 -----
@@ -38,6 +38,88 @@ Screenplay format
 -----------------
 A JSON array of action objects.  See README.md for the full reference.
 
+Key additions in v0.9.12 — physical restraint and overlay center
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  • ``"grab_arm"``, ``"twist_arm_behind"``, ``"release_arm"`` actions —
+    two-character constraint choreography implemented in
+    ``actions_interactions.py``.  ``grab_arm`` seizes a target's arm
+    from behind; ``twist_arm_behind`` escalates the grab into an
+    arm-lock with the target's torso tilting forward; ``release_arm``
+    restores both characters to pre-grab rest poses and clears all
+    constraint state.  Sub-keys: ``who`` (grabber), ``target`` (the
+    seized character), ``arm`` (``"r"`` / ``"l"`` / ``"auto"``,
+    default ``"auto"``), ``tilt`` (twist angle, default 0.12), ``rt``
+    (morph speed in seconds).  All three are sequential-only (not
+    parallel-safe).  Always call ``release_arm`` before any subsequent
+    locomotion to either character.
+
+  • ``"overlay_caption"`` ``"position": "center"`` — places the caption
+    bar at ``_frame_cy + 0.5``, slightly above vertical mid-screen so
+    standing characters are not occluded.  Useful for time-skip cards
+    (``">>> Fast Forward >>>"``) that should sit on top of the action.
+
+Key additions in v0.9.11 — gesture actions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  • ``"nod"``, ``"shake_head"``, ``"shrug"`` actions — single-character
+    body-language beats implemented in ``actions.py``.  ``nod`` is a
+    rapid head bob (drops forward, returns).  ``shake_head`` is a
+    lateral left-right-left oscillation.  ``shrug`` raises both
+    shoulders and arms then settles them.  Sub-keys: ``who`` (only).
+    All three are sequential-only — they call ``morph_to`` internally
+    and cannot appear inside a ``parallel`` block.
+
+Key additions in v0.9.10 — speech bubble cleanup
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  • ``"clear_bubble"`` action — dismiss a single persistent bubble
+    previously created with ``"persist": true`` or ``"duration": t``
+    on a ``say`` or ``prop_say``.  Works for any speaker — character
+    say, generic prop_say, Governor, or Dog.  Sub-keys (one of):
+    ``who`` (character key) or ``prop`` (prop registry id), plus
+    optional ``rt`` (fade-out duration, defaults to the bubble's own
+    ``pam_rt_out`` set at creation time, or 0.25 if unset).  No-op if
+    no persistent bubble exists for the named target.
+
+  • ``"clear_prop_bubble"`` action — back-compat alias for
+    ``clear_bubble`` retained for scenes authored against v0.9.9 that
+    only knew about prop bubbles.  Identical semantics.
+
+  • ``"clear_all_bubbles"`` action — convenience: dismiss every
+    persistent bubble at once.  Useful at scene/subscene boundaries
+    since those do **not** auto-clear persistent bubbles.  Sub-key:
+    ``rt`` (uniform fade-out duration, default 0.25).  Per-bubble
+    ``pam_rt_out`` is ignored here because the FadeOuts run
+    concurrently and need a single ``run_time``.
+
+  Why this matters: a persistent bubble left on screen during a
+  ``focus_reset`` can be visually overlaid by characters when the reset
+  restores their full opacity and z-order, painting over the bubble.
+  Issue ``clear_bubble`` (or ``clear_all_bubbles``) before the
+  ``focus_reset`` to avoid this, or tune the bubble's ``duration`` so
+  it expires before the reset fires.
+
+Key additions in v0.9.9 — uniform changes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  • ``"change_uniform"`` action — recolor a character's torso zone mid-scene
+    to simulate a costume change.  Reads named variants from the cast block's
+    ``"uniforms"`` dict, or accepts an inline ``"torso_color"`` hex override.
+    Sub-keys: ``who`` (character key), ``uniform`` (variant name from the
+    ``uniforms`` dict), ``torso_color`` (hex color — used if ``uniform`` is
+    not given or not found), ``rt`` (transition seconds, default 0.3).
+    Parsed from Fountain+ ``UNIFORM:`` annotations by fountain2pam.py.
+
+Key additions in v0.9.8 — character interactions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  • ``"kiss"``, ``"hold_hands"``, ``"hand_to"``, ``"pat_head"`` actions —
+    person-to-person interaction handlers implemented in
+    ``actions_interactions.py``.  ``kiss`` is a brief forward-lean
+    approach and retract between two characters.  ``hold_hands`` has
+    both characters extend arms toward each other and hold.
+    ``hand_to`` passes a held prop from one character's grip to
+    another (sub-key: ``prop``).  ``pat_head`` is a single reach-and-tap
+    on the top of another character's head.  All four take ``who``
+    (the actor) and ``target`` (the partner); all four are
+    sequential-only (not parallel-safe).
+
 Key additions in v0.9.7 — focus / dim
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   • ``"focus"`` action — animate one or more cast members to full (or custom)
@@ -55,7 +137,7 @@ Key additions in v0.9.6 — spatial / caption / sound
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   • ``"caption"`` action — render a Manim Text card with fade-in/hold/fade-out.
     Parsed from Fountain+ ``CAPTION:`` keys by fountain2pam.py.  Sub-keys:
-    ``text``, ``position`` (``"bottom"`` / ``"top"`` / ``"lower-third"``),
+    ``text``, ``position`` (``"bottom"`` / ``"top"`` / ``"lower-third"`` / ``"center"``),
     ``duration`` (float, seconds), ``style`` (``"normal"`` / ``"italic"`` /
     ``"bold"``).
 
@@ -970,9 +1052,11 @@ def _build_prop_items(items: dict, registry: PropRegistry,
     for pname, spec in {**roots, **children}.items():
         spec   = dict(spec)              # copy — never mutate loaded JSON
         ptype  = spec.pop("type", "desk")
-        hidden = spec.pop("hidden", False)   # consumed here; never reaches build_prop
-        # Inject the live registry so child props can resolve parent position
+        hidden = spec.pop("hidden", False)   # consumed here for scene-add logic
+        # Forward hidden to build_prop so builders that default hidden=True
+        # (e.g. build_laptop) don't self-set opacity 0 when we want them visible.
         prop   = build_prop(pname, type=ptype,
+                            hidden=hidden,
                             prop_registry=registry._store, **spec)
         registry.add(pname, prop)
         if hidden:
@@ -1337,6 +1421,31 @@ class PAMPlayer(MovingCameraScene):
         # This avoids camera animation consuming time before dialogue starts.
         _pending_camera: list = []   # 0 or 1 entry: [meta, char_x_snapshot]
 
+        # ── persistent speech bubbles ────────────────────────────────────
+        # `say` and `prop_say` with "persist": true keep their bubble on
+        # screen until a `clear_bubble` / `clear_all_bubbles` action
+        # dismisses it.  With "duration": t the bubble stays on screen
+        # for t seconds total (including fade-in); remaining lifetime is
+        # tracked as a Manim-scene wall-clock deadline and expired
+        # bubbles are swept at the start of each subsequent action.
+        #
+        # Keys are namespaced (v0.9.10):
+        #   "char:<n>" — character bubble (from `say`)
+        #   "prop:<n>" — prop bubble (from `prop_say`, any flavor)
+        _persistent_bubbles: dict = {}
+        # key → {"bubble": VGroup, "deadline": float|None}
+        # deadline is self.renderer.time at which the bubble should fade;
+        # None means "persist until explicitly cleared".
+
+        def _sweep_expired_bubbles() -> None:
+            """Fade out any persistent bubbles whose deadline has passed."""
+            now = self.renderer.time
+            expired = [k for k, v in _persistent_bubbles.items()
+                       if v["deadline"] is not None and now >= v["deadline"]]
+            for k in expired:
+                bubble = _persistent_bubbles.pop(k)["bubble"]
+                self.play(FadeOut(bubble), run_time=0.25)
+
         def _get_fig(name: str) -> HumanGraph | None:
             if name in cast:
                 return cast[name].get("fig")
@@ -1376,7 +1485,14 @@ class PAMPlayer(MovingCameraScene):
                 if multi:
                     spec = cast.get(name, {})
                     pose_name    = step.get("pose", spec.get("pose"))
-                    offset       = step.get("offset", spec.get("offset", [0, 0, 0]))
+                    # "x" key overrides offset x-component; "offset" takes full priority
+                    _spec_offset = spec.get("offset", [0, 0, 0])
+                    if "offset" in step:
+                        offset = step["offset"]
+                    elif "x" in step:
+                        offset = [step["x"], 0, 0]
+                    else:
+                        offset = _spec_offset
                     style        = spec.get("style", {})
                     build        = step.get("build", spec.get("build", "default"))
                     figure_type  = step.get("figure_type",
@@ -1410,7 +1526,8 @@ class PAMPlayer(MovingCameraScene):
                         gender=gender, torso_color=torso_color,
                     )
                 elif figure_type == "dog":
-                    fig = DogGraph(offset=offset, style=style)
+                    facing = step.get("facing", spec.get("facing", "right"))
+                    fig = DogGraph(offset=offset, style=style, facing=facing)
                 else:
                     # "human" or unrecognised → default HumanGraph
                     fig = HumanGraph(
@@ -1441,6 +1558,21 @@ class PAMPlayer(MovingCameraScene):
                 return None
 
             if fig is None:
+                # trot_to is prop-keyed, not cast-keyed — let it through
+                # even when the name doesn't resolve to a cast figure.
+                if act != "trot_to":
+                    return None
+
+            # ── trot_to ──────────────────────────────────────────────────
+            # Stays player-owned: DogGraph lives in props, not cast.
+            if act == "trot_to":
+                pname = step.get("prop") or name
+                prop  = props.get(pname)
+                dog   = getattr(prop, "pam_dog", None) if prop else None
+                if dog:
+                    dog.trot_to(step["x"], self, stride=step.get("stride", 0.14))
+                else:
+                    print(f"PAMPlayer: trot_to — '{pname}' is not a DogGraph, skipping.")
                 return None
 
             # ── say ──────────────────────────────────────────────────────
@@ -1453,29 +1585,50 @@ class PAMPlayer(MovingCameraScene):
                     _cam_anim = _camera_anim(_cmeta, self, _cxpos)
                     _pending_camera.clear()
                 bubble_style = step.get("style", "normal").lower()
-                fig.say(
+
+                # ── Persistence handling (v0.9.10) ────────────────────
+                # "persist": true           — bubble stays until clear_bubble
+                # "duration": t (seconds)   — bubble stays for t seconds
+                #                             total; auto-swept at next action
+                # neither                   — original blocking behavior
+                _persist  = bool(step.get("persist", False))
+                _duration = step.get("duration")
+                _hold     = step.get("hold", 1.2)
+                _rt_in    = step.get("rt_in", 0.4)
+                _key      = f"char:{name}"
+
+                # If this character already has a persistent bubble, fade
+                # it out first so bubbles don't stack on the same figure.
+                if (_persist or _duration is not None) \
+                        and _key in _persistent_bubbles:
+                    _old = _persistent_bubbles.pop(_key)["bubble"]
+                    self.play(FadeOut(_old), run_time=0.2)
+
+                _bubble = fig.say(
                     step["text"], self,
-                    hold=step.get("hold", 1.2),
+                    hold=_hold,
                     font_size=step.get("font_size", 20),
+                    rt_in=_rt_in,
+                    rt_out=step.get("rt_out", 0.3),
                     side=step.get("side", "right"),
-                    post_wait=PADDING_WAIT,
+                    post_wait=PADDING_WAIT if not (_persist or _duration is not None) else 0.0,
                     extra_anims=[_cam_anim] if _cam_anim else None,
                     # "os" / "phone" triggers dashed-border bubble in HumanGraph.say()
                     # if supported; gracefully ignored by older builds.
                     bubble_style=bubble_style if bubble_style != "normal" else None,
+                    persist=(_persist or _duration is not None),
                 )
-                return None
-
-            # ── trot_to ──────────────────────────────────────────────────
-            # Stays player-owned: DogGraph lives in props, not cast.
-            if act == "trot_to":
-                pname = step.get("prop") or name
-                prop  = props.get(pname)
-                dog   = getattr(prop, "pam_dog", None) if prop else None
-                if dog:
-                    dog.trot_to(step["x"], self, stride=step.get("stride", 0.14))
-                else:
-                    print(f"PAMPlayer: trot_to — '{pname}' is not a DogGraph, skipping.")
+                if _bubble is not None:
+                    if _duration is not None:
+                        # `duration` is measured from fade-in start, matching
+                        # the author's mental model of total on-screen time.
+                        deadline = self.renderer.time + float(_duration) - _rt_in
+                    else:
+                        deadline = None
+                    _persistent_bubbles[_key] = {
+                        "bubble":   _bubble,
+                        "deadline": deadline,
+                    }
                 return None
 
             # ── wave ─────────────────────────────────────────────────────
@@ -1494,6 +1647,76 @@ class PAMPlayer(MovingCameraScene):
                 if fig:
                     fig.wave(self, cycles=cycles, rt_lift=rt_lift,
                              rt_wag=rt_wag, hand=hand)
+                return None
+
+            # ── change_uniform ───────────────────────────────────────────
+            #   Recolor a character's torso zone mid-scene.
+            #   Looks up a named variant from the cast block's "uniforms"
+            #   dict, or accepts an inline "torso_color" hex override.
+            #
+            #   JSON example (named variant):
+            #     {"action": "change_uniform", "who": "chava",
+            #      "uniform": "delivery"}
+            #
+            #   JSON example (inline override):
+            #     {"action": "change_uniform", "who": "chava",
+            #      "torso_color": "#6b4226"}
+            #
+            #   Sub-keys:
+            #     "uniform"     — variant name from cast "uniforms" dict
+            #     "torso_color" — hex color (used if "uniform" is missing
+            #                     or the named variant is not found)
+            #     "rt"          — transition time in seconds (default 0.3)
+            if act == "change_uniform":
+                if fig is None:
+                    print(f"PAMPlayer: change_uniform — '{name}' has no "
+                          f"live figure, skipping.")
+                    return None
+                spec = cast.get(name, {})
+                uniforms = spec.get("uniforms", {})
+                variant_name = step.get("uniform", "")
+                variant = uniforms.get(variant_name, {})
+                tc = (variant.get("torso_color")
+                      or step.get("torso_color")
+                      or spec.get("torso_color"))
+                if not tc:
+                    print(f"PAMPlayer: change_uniform — no torso_color "
+                          f"resolved for '{name}', skipping.")
+                    return None
+                rt = step.get("rt", 0.3)
+                if rt > 0:
+                    # Animate: snapshot current colors, apply new, then
+                    # interpolate.  For simplicity, apply instantly with
+                    # a brief wait so nearby actions have breathing room.
+                    fig._apply_torso_color(tc)
+                    self.wait(rt)
+                else:
+                    fig._apply_torso_color(tc)
+                # Also update the limb color if the variant specifies it
+                new_color = variant.get("color") or step.get("color")
+                if new_color:
+                    from pam.figure import _style_from_color
+                    s = _style_from_color(new_color)
+                    for jname, dot in fig.dots.items():
+                        if jname not in fig._TORSO_JOINTS:
+                            if isinstance(dot, VGroup):
+                                dot[0].set_fill(color=s["node_color"],
+                                                opacity=1)
+                                dot[0].set_color(s["node_stroke"])
+                            else:
+                                dot.set_fill(color=s["node_color"],
+                                             opacity=1)
+                                dot.set_color(s["node_stroke"])
+                    for (a, b), line in fig.lines.items():
+                        a_torso = a in fig._TORSO_JOINTS
+                        b_torso = b in fig._TORSO_JOINTS
+                        a_adj = a in fig._TORSO_ADJACENT
+                        b_adj = b in fig._TORSO_ADJACENT
+                        is_torso_edge = ((a_torso or b_torso)
+                                         and (a_torso or a_adj)
+                                         and (b_torso or b_adj))
+                        if not is_torso_edge:
+                            line.set_color(s["edge_color"])
                 return None
 
             # ── all other actions → registry ─────────────────────────────
@@ -1531,6 +1754,10 @@ class PAMPlayer(MovingCameraScene):
         for step in actions:
             if "_comment" in step or "_hint" in step:   # skip annotations
                 continue
+
+            # Expire any persistent bubbles whose duration has run out.
+            if _persistent_bubbles:
+                _sweep_expired_bubbles()
 
             # ── _subscene_marker: camera-mode sync ───────────────────────
             if "_subscene_marker" in step:
@@ -1614,6 +1841,7 @@ class PAMPlayer(MovingCameraScene):
                         "color":       spec.get("color"),
                         "torso_color": spec.get("torso_color"),
                         "gender":      spec.get("gender") or None,
+                        "uniforms":    spec.get("uniforms", {}),
                         # prop-characters carry spawn coords in cast block
                         "spawn":       spec.get("spawn", {}),
                     }
@@ -1772,16 +2000,28 @@ class PAMPlayer(MovingCameraScene):
                 if ptype == "dog" or figure_type == "dog":
                     x      = step.get("x", 0.0)
                     y      = step.get("y", -1.95)
-                    cast_style = cast.get("dog", {}).get("style", {})
+                    # "facing" may come from spawn_prop step or from the
+                    # named cast entry (e.g. chekov's cast block).
+                    cast_entry = cast.get(pname, cast.get("dog", {}))
+                    cast_style = cast_entry.get("style", {})
                     style  = {**cast_style, **step.get("style", {})}
-                    dog = DogGraph(offset=[x, y, 0], style=style if style else None)
-                    dog.group.pam_name      = pname
-                    dog.group.pam_type      = "dog"
-                    dog.group.pam_x         = x
-                    dog.group.pam_y         = y
-                    dog.group.pam_surface_y = y
-                    dog.group.pam_dog       = dog
-                    props.add(pname, dog.group)
+                    facing = step.get("facing",
+                                      cast_entry.get("facing", "right"))
+                    dog = DogGraph(offset=[x, y, 0],
+                                   style=style if style else None,
+                                   facing=facing)
+                    # Bind dog.group to a local: the property returns a fresh
+                    # VGroup on each access, so setting attributes on
+                    # dog.group directly would attach them to throwaway
+                    # objects and leave the registered group bare.
+                    dog_group = dog.group
+                    dog_group.pam_name      = pname
+                    dog_group.pam_type      = "dog"
+                    dog_group.pam_x         = x
+                    dog_group.pam_y         = y
+                    dog_group.pam_surface_y = y
+                    dog_group.pam_dog       = dog
+                    props.add(pname, dog_group)
                     dog.fade_in(self, rt_edges=rt, rt_dots=rt * 0.7)
                     continue
 
@@ -1831,6 +2071,23 @@ class PAMPlayer(MovingCameraScene):
 
                 prop = build_prop(pname, type=ptype,
                                   prop_registry=props._store, **kwargs)
+
+                # ── parent/attach → pam_follows stamping ─────────────────
+                # When a prop is spawned with parent=<character> and
+                # attach="back" or "torso", stamp pam_follows / pam_attach_type
+                # so _drag_attached_props picks it up during walk/run actions.
+                _parent_key     = step.get("parent")
+                _attach_key     = step.get("attach", "")
+                _TORSO_ATTACHES = {"back", "torso", "chest"}
+                _HEAD_ATTACHES  = {"head", "hat", "hair"}
+                if _parent_key and _parent_key in cast:
+                    if _attach_key in _TORSO_ATTACHES:
+                        prop.pam_follows     = _parent_key
+                        prop.pam_attach_type = "torso"
+                    elif _attach_key in _HEAD_ATTACHES:
+                        prop.pam_follows     = _parent_key
+                        prop.pam_attach_type = "head"
+
                 props.add(pname, prop)
                 self.play(FadeIn(prop), run_time=rt)
                 continue
@@ -2076,17 +2333,67 @@ class PAMPlayer(MovingCameraScene):
                 # ── GovernorGraph: delegate to its say() method ───────────
                 gov = getattr(prop, "pam_governor", None)
                 if gov is not None:
-                    gov.say(text, self, hold=hold, font_size=font_size,
-                            rt_in=rt_in, rt_out=rt_out, side=side,
-                            post_wait=PADDING_WAIT, extra_anims=_cam_extra)
+                    # Persistence handling (v0.9.10) mirrors the generic
+                    # prop_say branch below, keyed under "prop:<name>".
+                    _persist  = bool(step.get("persist", False))
+                    _duration = step.get("duration")
+                    _key      = f"prop:{pname}"
+
+                    # Displace any existing persistent bubble on this prop
+                    if (_persist or _duration is not None) \
+                            and _key in _persistent_bubbles:
+                        _old = _persistent_bubbles.pop(_key)["bubble"]
+                        self.play(FadeOut(_old), run_time=0.2)
+
+                    _bubble = gov.say(
+                        text, self, hold=hold, font_size=font_size,
+                        rt_in=rt_in, rt_out=rt_out, side=side,
+                        bubble_color=step.get("bubble_color"),
+                        text_color=step.get("text_color"),
+                        border_color=step.get("border_color"),
+                        post_wait=PADDING_WAIT if not (_persist or _duration is not None) else 0.0,
+                        extra_anims=_cam_extra,
+                        persist=(_persist or _duration is not None),
+                    )
+                    if _bubble is not None:
+                        if _duration is not None:
+                            deadline = self.renderer.time + float(_duration) - rt_in
+                        else:
+                            deadline = None
+                        _persistent_bubbles[_key] = {
+                            "bubble":   _bubble,
+                            "deadline": deadline,
+                        }
                     continue
 
                 # ── DogGraph: delegate to its say() method ────────────────
                 dog = getattr(prop, "pam_dog", None)
                 if dog is not None:
-                    dog.say(text, self, hold=hold, font_size=font_size,
-                            rt_in=rt_in, rt_out=rt_out, side=side,
-                            post_wait=PADDING_WAIT, extra_anims=_cam_extra)
+                    _persist  = bool(step.get("persist", False))
+                    _duration = step.get("duration")
+                    _key      = f"prop:{pname}"
+
+                    if (_persist or _duration is not None) \
+                            and _key in _persistent_bubbles:
+                        _old = _persistent_bubbles.pop(_key)["bubble"]
+                        self.play(FadeOut(_old), run_time=0.2)
+
+                    _bubble = dog.say(
+                        text, self, hold=hold, font_size=font_size,
+                        rt_in=rt_in, rt_out=rt_out, side=side,
+                        post_wait=PADDING_WAIT if not (_persist or _duration is not None) else 0.0,
+                        extra_anims=_cam_extra,
+                        persist=(_persist or _duration is not None),
+                    )
+                    if _bubble is not None:
+                        if _duration is not None:
+                            deadline = self.renderer.time + float(_duration) - rt_in
+                        else:
+                            deadline = None
+                        _persistent_bubbles[_key] = {
+                            "bubble":   _bubble,
+                            "deadline": deadline,
+                        }
                     continue
 
                 # ── Generic prop: manual speech bubble ────────────────────
@@ -2100,9 +2407,36 @@ class PAMPlayer(MovingCameraScene):
                              getattr(prop, "pam_y", _wpos[1]))
                 _prop_os = step.get("style", "").lower() == "os"
 
+                # ── Bubble color priority chain ──────────────────────────
+                # 1. Explicit "bubble_color" / "text_color" in the step
+                # 2. Parent character's color (via prop.pam_follows → cast)
+                # 3. Default amber-on-dark-brown (terminal/CRT look)
+                # The dark fill is preserved regardless so the bubble still
+                # reads as a "screen"; the parent color drives border/text,
+                # which is what the eye picks up as the character's palette.
+                _default_text = "#f0d060"
+                _default_fill = "#2a1a00"
+                _text_color = step.get("text_color")
+                _fill_color = step.get("bubble_color") or step.get("fill_color")
+                if _text_color is None:
+                    _parent_name = getattr(prop, "pam_follows", None)
+                    if _parent_name and _parent_name in cast:
+                        _pc = cast[_parent_name].get("color")
+                        if _pc is None:
+                            # Fall back to style.head_color if top-level color
+                            # wasn't set on this character.
+                            _pc = (cast[_parent_name].get("style") or {}
+                                   ).get("head_color")
+                        if _pc:
+                            _text_color = _pc
+                if _text_color is None:
+                    _text_color = _default_text
+                if _fill_color is None:
+                    _fill_color = _default_fill
+
                 txt = Text(
                     text, font="Courier New",
-                    font_size=font_size, color="#f0d060", weight=BOLD,
+                    font_size=font_size, color=_text_color, weight=BOLD,
                 )
                 pad = 0.30
                 bw = txt.width + pad * 2
@@ -2126,7 +2460,7 @@ class PAMPlayer(MovingCameraScene):
                 _solid_box = RoundedRectangle(
                     width=bw, height=bh,
                     corner_radius=0.12,
-                    color="#f0d060", fill_color="#2a1a00",
+                    color=_text_color, fill_color=_fill_color,
                     fill_opacity=0.95, stroke_width=0 if _prop_os else 2,
                 ).move_to(np.array([bx, by, 0]))
                 if _prop_os:
@@ -2137,7 +2471,7 @@ class PAMPlayer(MovingCameraScene):
                             RoundedRectangle(
                                 width=bw, height=bh,
                                 corner_radius=0.12,
-                                color="#f0d060", stroke_width=2,
+                                color=_text_color, stroke_width=2,
                             ).move_to(np.array([bx, by, 0])),
                             num_dashes=22, dashed_ratio=0.5,
                         ),
@@ -2151,16 +2485,113 @@ class PAMPlayer(MovingCameraScene):
                     np.array([tail_x - 0.12, by - bh / 2, 0]),
                     np.array([tail_x + 0.12, by - bh / 2, 0]),
                     np.array([tail_x,         by - bh / 2 - 0.28, 0]),
-                    color="#f0d060", fill_color="#2a1a00",
+                    color=_text_color, fill_color=_fill_color,
                     fill_opacity=0.95, stroke_width=1.2,
                 )
                 bubble = VGroup(box, tail, txt)
+
+                # ── Persistence handling ─────────────────────────────────
+                # "persist": true           — bubble stays until clear_bubble
+                # "duration": t (seconds)   — bubble stays for t seconds total,
+                #                             then auto-fades at the next action
+                # neither                   — original behavior: fade in, hold,
+                #                             fade out inline (blocking)
+                _persist  = bool(step.get("persist", False))
+                _duration = step.get("duration")
+                _key      = f"prop:{pname}"
+
+                # If this prop already has a persistent bubble, fade it out
+                # first so bubbles don't stack visually.
+                if (_persist or _duration is not None) and _key in _persistent_bubbles:
+                    _old = _persistent_bubbles.pop(_key)["bubble"]
+                    self.play(FadeOut(_old), run_time=0.2)
+
                 _fade_anims = [FadeIn(bubble, scale=0.88)] + (_cam_extra or [])
                 self.play(*_fade_anims, run_time=rt_in)
-                self.wait(hold)
-                self.play(FadeOut(bubble), run_time=rt_out)
-                if PADDING_WAIT > 0:
-                    self.wait(PADDING_WAIT)
+
+                if _persist or _duration is not None:
+                    # Non-blocking: keep the bubble mounted, register it,
+                    # and move on. `hold` still waits the requested time
+                    # *while the bubble is up* — useful if you want the
+                    # authored beat to feel the same before dialogue resumes.
+                    if hold > 0:
+                        self.wait(hold)
+                    if _duration is not None:
+                        deadline = self.renderer.time + float(_duration) - rt_in
+                        # (rt_in is already elapsed; `duration` is measured
+                        # from fade-in start, matching the author's mental
+                        # model of total on-screen time.)
+                    else:
+                        deadline = None
+                    # Stash rt_out so clear_bubble can match the author's
+                    # intended fade-out duration (parity with gov/dog/char
+                    # paths that stash rt_out on the bubble itself).
+                    bubble.pam_rt_out = rt_out
+                    _persistent_bubbles[_key] = {
+                        "bubble":   bubble,
+                        "deadline": deadline,
+                    }
+                else:
+                    # Original blocking behavior.
+                    self.wait(hold)
+                    self.play(FadeOut(bubble), run_time=rt_out)
+                    if PADDING_WAIT > 0:
+                        self.wait(PADDING_WAIT)
+                continue
+
+            # ── clear_bubble ─────────────────────────────────────────────
+            # Dismiss a persistent bubble previously created with
+            # "persist": true or "duration": t.  Works for character say
+            # and any flavor of prop_say (generic / Governor / Dog).
+            #
+            # JSON keys (one of):
+            #   "who"  — character name   → registry key "char:<n>"
+            #   "prop" — prop registry id → registry key "prop:<n>"
+            #   "rt"   — fade-out duration in seconds.  If omitted,
+            #            falls back to bubble.pam_rt_out (set by say()
+            #            when persist=True), then 0.25.
+            #
+            # No-op if no persistent bubble exists for that target.
+            #
+            # ``clear_prop_bubble`` is retained as a back-compat alias
+            # for scenes authored against v0.9.9 that only know about
+            # prop bubbles.
+            if act in ("clear_bubble", "clear_prop_bubble"):
+                who_name  = step.get("who")
+                prop_name = step.get("prop")
+                if prop_name is not None:
+                    _key = f"prop:{prop_name}"
+                elif who_name is not None:
+                    _key = f"char:{who_name}"
+                else:
+                    # No target specified — silently no-op rather than
+                    # crashing a scene on a malformed authoring step.
+                    continue
+                entry = _persistent_bubbles.pop(_key, None)
+                if entry is not None:
+                    _bubble = entry["bubble"]
+                    _default_rt = getattr(_bubble, "pam_rt_out", 0.25)
+                    rt = step.get("run_time", step.get("rt", _default_rt))
+                    self.play(FadeOut(_bubble), run_time=rt)
+                continue
+
+            # ── clear_all_bubbles ────────────────────────────────────────
+            # Convenience: dismiss *all* persistent bubbles at once.
+            # Useful at scene/subscene boundaries since those do NOT
+            # auto-clear persistent bubbles.
+            #
+            # JSON keys:
+            #   "rt" — fade-out duration in seconds (default 0.25).
+            #          Applied uniformly; per-bubble pam_rt_out is
+            #          ignored here because the FadeOut animations
+            #          run concurrently and need a single run_time.
+            if act == "clear_all_bubbles":
+                rt = step.get("run_time", step.get("rt", 0.25))
+                if _persistent_bubbles:
+                    fades = [FadeOut(v["bubble"])
+                             for v in _persistent_bubbles.values()]
+                    _persistent_bubbles.clear()
+                    self.play(*fades, run_time=rt)
                 continue
 
             # ── on_screen_text ───────────────────────────────────────────
@@ -2199,7 +2630,7 @@ class PAMPlayer(MovingCameraScene):
             #
             # JSON keys:
             #   "text"     — caption text (required)
-            #   "position" — "bottom" (default) | "top" | "lower-third"
+            #   "position" — "bottom" (default) | "top" | "lower-third" | "center"
             #   "duration" — hold time in seconds (default 3.0)
             #   "style"    — "normal" | "italic" | "bold" (default "normal")
             #   "rt_in"    — fade-in run time (default 0.3)
@@ -2262,7 +2693,7 @@ class PAMPlayer(MovingCameraScene):
             #
             # JSON keys (same as "caption" plus one new flag):
             #   "text"     — caption text (required)
-            #   "position" — "bottom" (default) | "top" | "lower-third"
+            #   "position" — "bottom" (default) | "top" | "lower-third" | "center"
             #   "duration" — total visible time in seconds (default 4.0);
             #                includes fade-in and fade-out time
             #   "style"    — "normal" | "italic" | "bold" (default "italic")
@@ -2308,6 +2739,8 @@ class PAMPlayer(MovingCameraScene):
                         _bar_cy = _frame_cy + _frame_h / 2 - _bar_h / 2 - 0.15
                     elif cap_pos == "lower-third":
                         _bar_cy = _frame_cy - _frame_h / 2 + _bar_h / 2 + 1.0
+                    elif cap_pos == "center":
+                        _bar_cy = _frame_cy + 0.5  # slightly above mid to clear characters
                     else:
                         _bar_cy = _frame_cy - _frame_h / 2 + _bar_h / 2 + 0.15
                     _oc_card.move_to(np.array([0.0, _bar_cy, 0]))
