@@ -1,7 +1,7 @@
 """
 PAM — Pose And Motion library for the humanoid skeleton graph.
 
-version 0.9.8
+version 0.9.13
 
 poses.py
 ~~~~~~~~
@@ -471,6 +471,37 @@ SIT_CYCLE = [SITTING_MID, SITTING_DOWN]     # stand → mid → down
 STAND_CYCLE = [SITTING_MID, STANDING_FRONT] # down → mid → stand
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  SITTING ARM UP  (front view — seated, one hand raised to shoulder height)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  Combines SITTING_DOWN's leg/torso posture with one arm raised so the wrist
+#  sits roughly at the seated shoulder height (~y=0.95).  Two variants:
+#    SITTING_ARM_UP_R — right hand raised
+#    SITTING_ARM_UP_L — left hand raised
+#
+#  Player usage:
+#    {"action": "morph", "who": "athena", "pose": "sitting_arm_up_r",
+#     "duration": 0.4}
+#    {"action": "morph", "who": "athena", "pose": "sitting_down",
+#     "duration": 0.4}    # to lower the arm
+
+def _sit_arm_up_r(elbow_x, elbow_y, wrist_x, wrist_y):
+    p = deepcopy(SITTING_DOWN)
+    p["relbow"] = _v(elbow_x, elbow_y)
+    p["rwrist"] = _v(wrist_x, wrist_y)
+    return p
+
+def _sit_arm_up_l(elbow_x, elbow_y, wrist_x, wrist_y):
+    p = deepcopy(SITTING_DOWN)
+    p["lelbow"] = _v(elbow_x, elbow_y)
+    p["lwrist"] = _v(wrist_x, wrist_y)
+    return p
+
+#                                  elbow_x  elbow_y  wrist_x  wrist_y
+SITTING_ARM_UP_R = _sit_arm_up_r(    0.85,    0.40,    0.95,    0.95)
+SITTING_ARM_UP_L = _sit_arm_up_l(   -0.85,    0.40,   -0.95,    0.95)
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  RUNNING KEYFRAMES  (side view — wider stride, forward lean, flight phase)
 # ─────────────────────────────────────────────────────────────────────────────
 #  Running differs from walking by:
@@ -755,6 +786,28 @@ DOG_TROT_B = dog_side_pose(
 DOG_TROT_CYCLE = [DOG_TROT_A, DOG_TROT_B, DOG_TROT_A, DOG_TROT_B]
 
 
+def _flip_dog_pose(pose):
+    """Mirror a dog pose left-to-right (negate x of every joint).
+
+    Unlike the humanoid mirror_x(), dog joints use near/far naming
+    (fl/fr/rl/rr) rather than left/right, so no key swapping is needed —
+    only the x-coordinate of each joint is negated.
+    """
+    return {k: _v(-v[0], v[1]) for k, v in pose.items()}
+
+
+# ── Left-facing (head at left) variants ─────────────────────────────────────
+# Use these when spawning a dog that faces left on screen.
+
+DOG_STANDING_LEFT  = _flip_dog_pose(DOG_STANDING)
+DOG_TROT_A_LEFT    = _flip_dog_pose(DOG_TROT_A)
+DOG_TROT_B_LEFT    = _flip_dog_pose(DOG_TROT_B)
+DOG_TROT_CYCLE_LEFT = [
+    DOG_TROT_A_LEFT, DOG_TROT_B_LEFT,
+    DOG_TROT_A_LEFT, DOG_TROT_B_LEFT,
+]
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  LOOK UP  (front view — head raised, one arm optionally lifted)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -948,6 +1001,103 @@ SQUEEZE_CYCLE = [SQUEEZE_WALK_A, SQUEEZE_WALK_B,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  FALL POSES  (side view — stumble → catch → on hands and knees)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  Three-pose sequence used by act_fall_down:
+#
+#  STUMBLE       — still upright but pitching forward; weight on back foot,
+#                  leading knee rising, arms splayed wide for balance.
+#
+#  FALL_CATCH    — body pitched ~50° forward; both knees buckling and
+#                  dropping; arms reaching down-forward to break the fall.
+#
+#  ON_HANDS_KNEES — fully grounded; torso nearly horizontal; both knees
+#                   and both wrists at or near floor level.
+#
+#  Floor level in side_pose coordinates is lankle_y = -2.60.
+#  Knees-on-floor:  knee_y ≈ -2.20  (slightly above ankle because bent)
+#  Hands-on-floor:  wrist_y ≈ -2.40 (close to floor, arms braced forward)
+
+# Fall poses are built with side_pose() then head/neck/shoulder y values
+# are overridden directly, since side_pose() hardcodes head y=3.00.
+# In a fall the whole upper body drops — head and shoulders must descend.
+
+def _fall_pose(head_x, head_y, neck_x, neck_y,
+               lsh_y, rsh_y, torso_y, hip_y,
+               lhip_x, lknee_x, lankle_x, lknee_y, lankle_y,
+               rhip_x, rknee_x, rankle_x, rknee_y, rankle_y,
+               lelbow_x, lelbow_y, lwrist_x, lwrist_y,
+               relbow_x, relbow_y, rwrist_x, rwrist_y):
+    """Build a fall-sequence pose with explicit head/neck/shoulder y values."""
+    p = side_pose(
+        torso_y=torso_y, hip_y=hip_y,
+        head_x=head_x, neck_x=neck_x,
+        lhip_x=lhip_x, lknee_x=lknee_x, lankle_x=lankle_x,
+        lknee_y=lknee_y, lankle_y=lankle_y,
+        rhip_x=rhip_x, rknee_x=rknee_x, rankle_x=rankle_x,
+        rknee_y=rknee_y, rankle_y=rankle_y,
+        lelbow_x=lelbow_x, lelbow_y=lelbow_y,
+        lwrist_x=lwrist_x, lwrist_y=lwrist_y,
+        relbow_x=relbow_x, relbow_y=relbow_y,
+        rwrist_x=rwrist_x, rwrist_y=rwrist_y,
+    )
+    # Override the hardcoded y values
+    p["head"]      = _v(head_x,  head_y)
+    p["neck"]      = _v(neck_x,  neck_y)
+    p["lshoulder"] = _v(-0.15,   lsh_y)
+    p["rshoulder"] = _v( 0.15,   rsh_y)
+    return p
+
+
+# STUMBLE — still mostly upright, pitching forward
+# Head drops ~0.4, neck ~0.3, shoulders ~0.2 from standing
+STUMBLE = _fall_pose(
+    head_x=0.35,  head_y=2.60,   neck_x=0.25,  neck_y=2.00,
+    lsh_y=1.50,   rsh_y=1.50,
+    torso_y=0.40, hip_y=-0.55,
+    # back foot planted, front knee rising
+    lhip_x=-0.12, lknee_x=-0.22, lankle_x=-0.38, lknee_y=-1.55, lankle_y=-2.60,
+    rhip_x= 0.20, rknee_x= 0.52, rankle_x= 0.28, rknee_y=-0.90, rankle_y=-1.55,
+    # arms thrown wide for balance
+    lelbow_x=-0.75, lelbow_y=1.30,  lwrist_x=-1.05, lwrist_y=0.70,
+    relbow_x= 0.65, relbow_y=1.20,  rwrist_x= 0.95, rwrist_y=0.50,
+)
+
+# FALL_CATCH — torso pitching ~55° forward, body dropping fast
+# Head drops to ~1.5, shoulders near 0.7
+FALL_CATCH = _fall_pose(
+    head_x=0.80,  head_y=1.50,   neck_x=0.62,  neck_y=1.00,
+    lsh_y=0.70,   rsh_y=0.70,
+    torso_y=-0.20, hip_y=-0.80,
+    # back foot still on ground, front knee near floor
+    lhip_x=-0.05, lknee_x= 0.08, lankle_x=-0.18, lknee_y=-1.65, lankle_y=-2.60,
+    rhip_x= 0.22, rknee_x= 0.48, rankle_x= 0.28, rknee_y=-1.85, rankle_y=-2.45,
+    # arms lunging forward-down to break the fall
+    lelbow_x= 0.40, lelbow_y=0.20,  lwrist_x= 0.70, lwrist_y=-1.10,
+    relbow_x= 0.65, relbow_y=0.00,  rwrist_x= 0.95, rwrist_y=-1.40,
+)
+
+# ON_HANDS_KNEES — fully grounded, head near floor level
+# Head at y=0.4 (just above floor), torso horizontal
+ON_HANDS_KNEES = _fall_pose(
+    head_x=0.90,  head_y=0.40,   neck_x=0.72,  neck_y=0.10,
+    lsh_y=-0.20,  rsh_y=-0.20,
+    torso_y=-0.85, hip_y=-1.10,
+    # both knees on ground
+    lhip_x= 0.08, lknee_x=-0.28, lankle_x=-0.58, lknee_y=-2.20, lankle_y=-2.15,
+    rhip_x= 0.22, rknee_x= 0.42, rankle_x= 0.72, rknee_y=-2.20, rankle_y=-2.15,
+    # both hands on floor, arms bracing
+    lelbow_x= 0.40, lelbow_y=-0.30,  lwrist_x= 0.60, lwrist_y=-2.10,
+    relbow_x= 0.70, relbow_y=-0.40,  rwrist_x= 0.90, rwrist_y=-2.40,
+)
+
+# The fall sequence: standing → stumble → catching → grounded
+FALL_CYCLE = [STUMBLE, FALL_CATCH, ON_HANDS_KNEES]
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  DODGE  (side view — lateral sidestep lean away from another character)
 # ─────────────────────────────────────────────────────────────────────────────
 #
@@ -1073,13 +1223,75 @@ EXPRESSION_GLYPHS = {
 }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  GRAPPLED / RESTRAINED POSES
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# A sideways stance designed to be paired with GRIP_BEHIND: one character
+# (the target) stands in RESTRAINED_SIDE with their front arm hanging
+# forward-down and their back arm raised up-behind — as if their back arm
+# is being held from behind.  A second character standing just behind
+# them in GRIP_BEHIND reaches forward-down with their right arm to grip
+# the target's raised back wrist.
+#
+# Intended usage: two-character tableau where CHAVA has BRAD restrained.
+# BRAD is in side view (STANDING_SIDE derivative) facing camera-right.
+# CHAVA is in front view (STANDING_FRONT derivative) standing just
+# behind BRAD, extending her right arm forward to grip his raised arm.
+#
+# Geometry assumes both figures at the same scale and y-offset.  Tune
+# Chava's x-offset relative to Brad so her right wrist lands near
+# Brad's left (back) wrist in world coordinates.
+
+RESTRAINED_SIDE = side_pose(
+    lhip_x=0.0,  lknee_x=-0.05, lankle_x=-0.07,
+    rhip_x=0.0,  rknee_x= 0.05, rankle_x= 0.07,
+    # Front (right) arm: slanted down-forward, like a dangling limb.
+    relbow_x= 0.25, relbow_y= 0.40,
+    rwrist_x= 0.45, rwrist_y=-0.20,
+    # Back (left) arm: raised up-behind, wrist high, elbow near shoulder.
+    # Reads as "arm twisted up behind the back."
+    lelbow_x=-0.20, lelbow_y= 1.10,
+    lwrist_x=-0.40, lwrist_y= 1.45,
+)
+
+GRIP_BEHIND = {
+    **front_pose(),
+    # Right arm reaches forward-and-up to grip the restrained character's
+    # raised back wrist.
+    #
+    # Geometry assumes:
+    #   • grappler positioned ~0.3 world units behind the target (smaller x)
+    #   • both figures at scale 0.7
+    #   • target in RESTRAINED_SIDE, whose left (back) wrist lands at
+    #     world (-0.28, 1.02).
+    #
+    # Solved for grappler at offset (-0.3, 0):
+    #   world = offset + scale * pose
+    #   wrist pose_x = (-0.28 - (-0.3)) / 0.7 ≈  0.03
+    #   wrist pose_y = ( 1.02 -   0.0 ) / 0.7 ≈  1.45
+    #
+    # Left arm stays in its default front-standing position.
+    #
+    # Arm path: rshoulder (0.80, 1.70) → relbow (0.45, 1.55) → rwrist (0.03, 1.45).
+    # Slightly drooped elbow, monotonic leftward sweep, no hyperextension.
+    "relbow": _v(0.45, 1.55),
+    "rwrist": _v(0.03, 1.45),
+}
+
+
 POSES = {
     # standing
     "standing_front": STANDING_FRONT,
     "standing_side":  STANDING_SIDE,
+    # grappled / restrained
+    "restrained_side": RESTRAINED_SIDE,
+    "grip_behind":     GRIP_BEHIND,
     # sitting
-    "sitting_mid":    SITTING_MID,
-    "sitting_down":   SITTING_DOWN,
+    "sitting_mid":     SITTING_MID,
+    "sitting_down":    SITTING_DOWN,
+    "sitting_arm_up_r": SITTING_ARM_UP_R,
+    "sitting_arm_up_l": SITTING_ARM_UP_L,
     # wave
     "wave_up":        WAVE_UP,
     "wave_right":     WAVE_RIGHT,
@@ -1131,6 +1343,10 @@ POSES = {
     "squeeze":         SQUEEZE,
     "squeeze_walk_a":  SQUEEZE_WALK_A,
     "squeeze_walk_b":  SQUEEZE_WALK_B,
+    # fall
+    "stumble":        STUMBLE,
+    "fall_catch":     FALL_CATCH,
+    "on_hands_knees": ON_HANDS_KNEES,
     # dodge
     "dodge_r":        DODGE_R,
     "dodge_l":        DODGE_L,
@@ -1320,17 +1536,43 @@ def build_poses(proportions: dict, torso_y_override: float | None = None) -> dic
     wave_cycle  = [wave_right, wave_left, wave_right, wave_left]
     lwave_cycle = [lwave_right, lwave_left, lwave_right, lwave_left]
 
+    # ── seated arm-up poses — override one arm on sitting_down ──────────
+    # x-coordinates scale with elbow_w / wrist_w from the build's
+    # proportions; y-coordinates inherit from sitting_down's torso level.
+    def _sit_arm_up_r_local(elbow_x, elbow_y, wrist_x, wrist_y):
+        sp = deepcopy(sitting_down)
+        sp["relbow"] = _v(elbow_x, elbow_y)
+        sp["rwrist"] = _v(wrist_x, wrist_y)
+        return sp
+
+    def _sit_arm_up_l_local(elbow_x, elbow_y, wrist_x, wrist_y):
+        sp = deepcopy(sitting_down)
+        sp["lelbow"] = _v(elbow_x, elbow_y)
+        sp["lwrist"] = _v(wrist_x, wrist_y)
+        return sp
+
+    sitting_arm_up_r = _sit_arm_up_r_local(
+        p["elbow_w"] * 0.65,  0.40,
+        p["wrist_w"] * 0.63,  0.95,
+    )
+    sitting_arm_up_l = _sit_arm_up_l_local(
+       -p["elbow_w"] * 0.65,  0.40,
+       -p["wrist_w"] * 0.63,  0.95,
+    )
+
     poses_reg = {
-        "standing_front": standing_front,
-        "standing_side":  standing_side,
-        "sitting_mid":    sitting_mid,
-        "sitting_down":   sitting_down,
-        "wave_up":        wave_up,
-        "wave_right":     wave_right,
-        "wave_left":      wave_left,
-        "lwave_up":       lwave_up,
-        "lwave_right":    lwave_right,
-        "lwave_left":     lwave_left,
+        "standing_front":   standing_front,
+        "standing_side":    standing_side,
+        "sitting_mid":      sitting_mid,
+        "sitting_down":     sitting_down,
+        "sitting_arm_up_r": sitting_arm_up_r,
+        "sitting_arm_up_l": sitting_arm_up_l,
+        "wave_up":          wave_up,
+        "wave_right":       wave_right,
+        "wave_left":        wave_left,
+        "lwave_up":         lwave_up,
+        "lwave_right":      lwave_right,
+        "lwave_left":       lwave_left,
     }
     # add walk/run/carry keyframes
     wn = ["walk_r_lift", "walk_r_swing", "walk_r_extend", "walk_r_plant",
@@ -1413,6 +1655,10 @@ def build_poses(proportions: dict, torso_y_override: float | None = None) -> dic
     side_carry_r_cycle = [_adapt_side(kf) for kf in SIDE_CARRY_R_CYCLE]
     pat_a            = _adapt_side(PAT_A)
     pat_b            = _adapt_side(PAT_B)
+    stumble          = _adapt_side(STUMBLE)
+    fall_catch       = _adapt_side(FALL_CATCH)
+    on_hands_knees   = _adapt_side(ON_HANDS_KNEES)
+    fall_cycle       = [stumble, fall_catch, on_hands_knees]
 
     jump_cycle   = [jump_crouch, jump_peak, standing_front]
     pat_cycle    = [pat_a, pat_b, pat_a, pat_b]
@@ -1439,6 +1685,9 @@ def build_poses(proportions: dict, torso_y_override: float | None = None) -> dic
         "side_carry_r_walk_b": side_carry_r_cycle[1],
         "pat_a":             pat_a,
         "pat_b":             pat_b,
+        "stumble":           stumble,
+        "fall_catch":        fall_catch,
+        "on_hands_knees":    on_hands_knees,
     })
 
     return {
@@ -1448,6 +1697,8 @@ def build_poses(proportions: dict, torso_y_override: float | None = None) -> dic
         "standing_side":  standing_side,
         "sitting_mid":    sitting_mid,
         "sitting_down":   sitting_down,
+        "sitting_arm_up_r": sitting_arm_up_r,
+        "sitting_arm_up_l": sitting_arm_up_l,
         "wave_up":        wave_up,
         "wave_right":     wave_right,
         "wave_left":      wave_left,
@@ -1466,6 +1717,10 @@ def build_poses(proportions: dict, torso_y_override: float | None = None) -> dic
         "squeeze_cycle":       squeeze_cycle,
         "jump_cycle":          jump_cycle,
         "pat_cycle":           pat_cycle,
+        "fall_cycle":          fall_cycle,
+        "stumble":             stumble,
+        "fall_catch":          fall_catch,
+        "on_hands_knees":      on_hands_knees,
         "poses":          poses_reg,
     }
 
