@@ -1,7 +1,7 @@
 """
 PAM — Pose And Motion library for the humanoid skeleton graph.
 
-version 0.9.8
+version 0.9.13
 
 figure.py
 ~~~~~~~~~
@@ -301,8 +301,10 @@ class HumanGraph:
 
         # Default initial pose uses this build's standing_front
         self.pose = pose if pose is not None else bp["standing_front"]
-        self.offset = np.array(offset if offset is not None else [0, 0, 0],
-                               dtype=float)
+        _off = offset if offset is not None else [0, 0, 0]
+        if len(_off) == 2:
+            _off = [_off[0], _off[1], 0.0]
+        self.offset = np.array(_off, dtype=float)
         # ── two-zone color: torso vs extremities ─────────────────────────
         # Store the resolved torso color (None = single-color, use self.style)
         self._torso_color = torso_color
@@ -682,9 +684,35 @@ class HumanGraph:
             self.morph_to(kf, scene, rt=rt_per_kf, rate=smooth)
 
     def stand_up(self, scene: Scene, rt_per_kf=0.5):
-        """Transition from seated to standing-front."""
-        for kf in self._bp["stand_cycle"]:
-            self.morph_to(kf, scene, rt=rt_per_kf, rate=smooth)
+        """Transition from seated or grounded to standing-front.
+
+        If the figure is currently in the ``on_hands_knees`` pose (or any
+        fall pose), it recovers by reversing the fall sequence before
+        running the normal stand cycle.  Otherwise the standard
+        sit → stand cycle is used.
+        """
+        bp = self._bp
+        on_hands_knees = bp.get("on_hands_knees",
+                                bp["poses"].get("on_hands_knees"))
+        fall_catch     = bp.get("fall_catch",
+                                bp["poses"].get("fall_catch"))
+        stumble        = bp.get("stumble",
+                                bp["poses"].get("stumble"))
+        standing_side  = bp.get("standing_side")
+
+        # Detect grounded state: pose identity check against on_hands_knees
+        _is_grounded = (on_hands_knees is not None and
+                        self.pose is on_hands_knees)
+
+        if _is_grounded and fall_catch and stumble and standing_side:
+            # Reverse the fall: hands-knees → catch → stumble → side → front
+            for kf in [fall_catch, stumble, standing_side]:
+                self.morph_to(kf, scene, rt=rt_per_kf * 0.9, rate=smooth)
+            self.morph_to(bp["standing_front"], scene,
+                          rt=rt_per_kf * 0.7, rate=smooth)
+        else:
+            for kf in bp["stand_cycle"]:
+                self.morph_to(kf, scene, rt=rt_per_kf, rate=smooth)
 
     # ── choreography: wave ───────────────────────────────────────────────────
 
@@ -731,11 +759,114 @@ class HumanGraph:
         self.morph_to(prior_pose, scene, rt=rt_lift, rate=smooth)
         self.unhighlight_edges(keys, scene)
 
+    # ── choreography: nod ───────────────────────────────────────────────────
+    def nod(self, scene: Scene, cycles=2, amp=0.12, rt_per_step=0.18):
+        """
+        Nod the head up-and-down for *cycles* oscillations.
+
+        Implemented by tweaking only the ``head`` joint's y-coordinate
+        through a down→up→rest cycle, so the rest of the body stays put.
+        A nod is "down then back to rest" per cycle (no overshoot), which
+        matches the natural affirmative-nod motion better than symmetric
+        up-and-down.
+
+        Parameters
+        ----------
+        cycles      : number of nod oscillations (default 2).
+        amp         : vertical displacement in world units (default 0.12).
+                      Positive = head dips down; the method handles the
+                      sign internally.
+        rt_per_step : run time per keyframe (default 0.18).
+        """
+        import copy
+        prior_pose = copy.deepcopy(self.pose)
+
+        # Down-position: head dips by amp
+        down_pose = copy.deepcopy(self.pose)
+        down_pose["head"] = down_pose["head"] + np.array([0.0, -amp, 0.0])
+
+        for _ in range(cycles):
+            self.morph_to(down_pose,  scene, rt=rt_per_step, rate=smooth)
+            self.morph_to(prior_pose, scene, rt=rt_per_step, rate=smooth)
+
+    # ── choreography: shake_head ────────────────────────────────────────────
+    def shake_head(self, scene: Scene, cycles=2, amp=0.10, rt_per_step=0.16):
+        """
+        Shake the head side-to-side for *cycles* oscillations (negation).
+
+        Implemented by tweaking only the ``head`` joint's x-coordinate
+        through a left→right→rest cycle.  Each cycle is
+        left → right → rest, which gives the familiar "no" motion.
+
+        Parameters
+        ----------
+        cycles      : number of shake oscillations (default 2).
+        amp         : horizontal displacement in world units (default 0.10).
+        rt_per_step : run time per keyframe (default 0.16).
+        """
+        import copy
+        prior_pose = copy.deepcopy(self.pose)
+
+        left_pose  = copy.deepcopy(self.pose)
+        right_pose = copy.deepcopy(self.pose)
+        left_pose["head"]  = left_pose["head"]  + np.array([-amp, 0.0, 0.0])
+        right_pose["head"] = right_pose["head"] + np.array([ amp, 0.0, 0.0])
+
+        for _ in range(cycles):
+            self.morph_to(left_pose,  scene, rt=rt_per_step, rate=smooth)
+            self.morph_to(right_pose, scene, rt=rt_per_step, rate=smooth)
+        self.morph_to(prior_pose, scene, rt=rt_per_step, rate=smooth)
+
+    # ── choreography: shrug ─────────────────────────────────────────────────
+    def shrug(self, scene: Scene, hold=0.35, amp=0.10, rt=0.25):
+        """
+        Shrug: raise both shoulders and bring wrists up (palms-up).
+
+        Builds one "shrugged" keyframe by lifting lshoulder/rshoulder by
+        *amp* and raising both wrists by ~1.5·amp (so the hands come up
+        with the shoulders rather than dangling).  Elbows are lifted by
+        amp as well so the upper arm doesn't stretch unnaturally.
+        Holds briefly, then returns to the prior pose.
+
+        If the current pose lacks any of the lifted joints (lshoulder,
+        rshoulder, lelbow, relbow, lwrist, rwrist), that joint is left
+        alone — makes the method safe across different builds.
+
+        Parameters
+        ----------
+        hold : how long to hold the shrugged pose, in seconds (default 0.35).
+        amp  : vertical shoulder lift in world units (default 0.10).
+        rt   : run time for the morph in each direction (default 0.25).
+        """
+        import copy
+        prior_pose = copy.deepcopy(self.pose)
+        shrug_pose = copy.deepcopy(self.pose)
+
+        # Lift shoulders, elbows follow at same amplitude, wrists lift more
+        # so hands rise with the shrug (palms-up feel).
+        lifts = {
+            "lshoulder": amp,
+            "rshoulder": amp,
+            "lelbow":    amp,
+            "relbow":    amp,
+            "lwrist":    amp * 1.5,
+            "rwrist":    amp * 1.5,
+        }
+        for joint, dy in lifts.items():
+            if joint in shrug_pose:
+                shrug_pose[joint] = shrug_pose[joint] + np.array([0.0, dy, 0.0])
+
+        self.morph_to(shrug_pose, scene, rt=rt, rate=smooth)
+        if hold > 0:
+            scene.wait(hold)
+        self.morph_to(prior_pose, scene, rt=rt, rate=smooth)
+
     # ── choreography: carry ──────────────────────────────────────────────────
 
     def carry(self, obj: Mobject, x_target: float, scene: Scene,
               rt_per_kf=0.28, rate=smooth,
-              companions: list | None = None):
+              companions: list | None = None,
+              torso_companions: list | None = None):
         """
         Pick up *obj*, walk it to *x_target*, and set it down.
 
@@ -752,12 +883,17 @@ class HumanGraph:
             Additional props (e.g. hat, name tag) that should follow the
             figure during the walk.  Each companion is snapped to the
             figure's head position after every keyframe step.
+        torso_companions : list[Mobject] | None
+            Props (e.g. backpack, laptop) that should follow the figure's
+            torso midpoint after every keyframe step.
         """
         # arms to carry position
         self.morph_to(self._bp["carry_hold"], scene, rt=0.3, rate=smooth)
         self._snap_obj_to_wrists(obj)
         if companions:
             self._snap_companions(companions)
+        if torso_companions:
+            self._snap_companions_torso(torso_companions)
 
         dx_total = x_target - self.offset[0]
         cycle = self._bp["carry_walk_cycle"]
@@ -772,11 +908,15 @@ class HumanGraph:
             self._snap_obj_to_wrists(obj)
             if companions:
                 self._snap_companions(companions)
+            if torso_companions:
+                self._snap_companions_torso(torso_companions)
 
         # settle and release
         self.morph_to(self._bp["standing_side"], scene, rt=0.3, rate=smooth)
         if companions:
             self._snap_companions(companions)
+        if torso_companions:
+            self._snap_companions_torso(torso_companions)
 
     def _snap_obj_to_wrists(self, obj: Mobject):
         """Move *obj* to the midpoint of the two wrist positions (scaled)."""
@@ -800,12 +940,32 @@ class HumanGraph:
             dy     = cur_cy - cur_hy   # preserve vertical offset from head
             comp.move_to(np.array([float(head[0]), cur_hy + dy, 0]))
 
+    def _snap_companions_torso(self, companions: list):
+        """Move each companion prop to track the figure's torso midpoint.
+
+        Used for backpacks, laptops, and other props that ride on the back
+        or torso rather than following the head.
+        """
+        sp    = self._apply_scale(self.pose)
+        spos  = sp.get("lshoulder", sp.get("head",
+                       np.array([0, 0.5, 0]))) + self.offset
+        hpos  = sp.get("lhip",      sp.get("head",
+                       np.array([0, -0.5, 0]))) + self.offset
+        tx    = float(self.offset[0])
+        ty    = float((spos[1] + hpos[1]) / 2)
+        for comp in companions:
+            if comp is None:
+                continue
+            cur_cy = float(comp.get_center()[1])
+            dy     = cur_cy - ty   # preserve vertical offset from torso centre
+            comp.move_to(np.array([tx, ty + dy, 0]))
+
     # ── speech bubble utility ────────────────────────────────────────────────
 
     def say(self, text: str, scene: Scene,
             hold=1.2, font_size=20, rt_in=0.4, rt_out=0.3,
             side="right", max_bubble_w=4.5, post_wait=0.0,
-            extra_anims=None, bubble_style=None):
+            extra_anims=None, bubble_style=None, persist=False):
         """Pop a speech bubble above the head, hold, then dismiss.
 
         Parameters
@@ -824,6 +984,17 @@ class HumanGraph:
             stroke and a slightly cooler fill to signal auditory-only
             presence.  The tail is replaced by a small zigzag to
             reinforce the O.S. convention.
+        persist : bool
+            ``False`` (default) — original blocking behavior: fade in,
+            wait ``hold`` seconds, fade out, return ``None``.
+            ``True`` — fade in, wait ``hold`` seconds, then return the
+            bubble ``VGroup`` *without* fading it out.  The caller (the
+            pam_player dispatcher) is responsible for dismissing it
+            later via ``clear_bubble`` / ``clear_all_bubbles``.  The
+            bubble has ``bubble.pam_rt_out`` stashed on it so the
+            dismissal can match the original fade-out duration.
+            Introduced in v0.9.10 to support unified persistent
+            speech bubbles across all figure types.
         """
         sp = self._apply_scale(self.pose)
         hx = (sp["head"] + self.offset)[0]
@@ -907,9 +1078,15 @@ class HumanGraph:
         fade_anims = [FadeIn(bubble, scale=0.85)] + (extra_anims or [])
         scene.play(*fade_anims, run_time=rt_in)
         scene.wait(hold)
+        if persist:
+            # Caller owns dismissal — stash rt_out so clear_bubble can
+            # match the original fade-out duration.
+            bubble.pam_rt_out = rt_out
+            return bubble
         scene.play(FadeOut(bubble), run_time=rt_out)
         if post_wait > 0:
             scene.wait(post_wait)
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -976,6 +1153,7 @@ class AlienGraph(HumanGraph):
 from .poses import (
     DOG_JOINTS, DOG_EDGES, DOG_FAR_EDGES, DOG_FAR_JOINTS,
     DOG_STANDING, DOG_TROT_CYCLE, dog_side_pose,
+    DOG_STANDING_LEFT, DOG_TROT_CYCLE_LEFT,
 )
 
 _DOG_DEFAULT_STYLE = dict(
@@ -1028,11 +1206,21 @@ class DogGraph:
         rex.say("Woof.", self)
     """
 
-    def __init__(self, pose=None, offset=None, style=None):
+    def __init__(self, pose=None, offset=None, style=None, facing="right"):
         self.style = {**_DOG_DEFAULT_STYLE, **(style or {})}
-        self.pose = pose if pose is not None else DOG_STANDING
-        self.offset = np.array(offset if offset is not None else [0, 0, 0],
-                               dtype=float)
+        self.facing = facing.lower() if facing else "right"
+        _default_standing = (
+            DOG_STANDING_LEFT if self.facing == "left" else DOG_STANDING
+        )
+        self.pose = pose if pose is not None else _default_standing
+        self._trot_cycle = (
+            DOG_TROT_CYCLE_LEFT if self.facing == "left" else DOG_TROT_CYCLE
+        )
+        self._standing_pose = _default_standing
+        _off = offset if offset is not None else [0, 0, 0]
+        if len(_off) == 2:
+            _off = [_off[0], _off[1], 0.0]
+        self.offset = np.array(_off, dtype=float)
         self.dots: dict[str, Mobject] = {}
         self.lines: dict[tuple[str, str], Line] = {}
         self._build()
@@ -1140,12 +1328,12 @@ class DogGraph:
         dx_total = x_target - self.offset[0]
         if abs(dx_total) < 0.01:
             return []
-        cycle = DOG_TROT_CYCLE
+        cycle = self._trot_cycle
         n_kf = len(cycle)
         steps = max(n_kf, int(round(abs(dx_total) / stride)))
         dx_per_kf = dx_total / steps
         plan = [(cycle[i % n_kf], dx_per_kf) for i in range(steps)]
-        plan.append((DOG_STANDING, 0.0))
+        plan.append((self._standing_pose, 0.0))
         return plan
 
     def trot_to(self, x_target: float, scene: Scene,
@@ -1154,7 +1342,7 @@ class DogGraph:
         dx_total = x_target - self.offset[0]
         if abs(dx_total) < 0.01:
             return
-        cycle = DOG_TROT_CYCLE
+        cycle = self._trot_cycle
         n_kf = len(cycle)
         steps = max(n_kf, int(round(abs(dx_total) / stride)))
         dx_per_kf = dx_total / steps
@@ -1162,18 +1350,23 @@ class DogGraph:
         for i in range(steps):
             self.morph_to(cycle[i % n_kf], scene,
                           rt=rt_per_kf, rate=rate, dx=dx_per_kf)
-        self.morph_to(DOG_STANDING, scene, rt=0.22, rate=smooth)
+        self.morph_to(self._standing_pose, scene, rt=0.22, rate=smooth)
 
     # ── speech bubble ────────────────────────────────────────────────────────
 
     def say(self, text: str, scene: Scene,
             hold=1.2, font_size=18, rt_in=0.4, rt_out=0.3,
             side="right", max_bubble_w=4.5, post_wait=0.0,
-            extra_anims=None, bubble_style=None):
+            extra_anims=None, bubble_style=None, persist=False):
         """Speech bubble above the dog's head.
 
         ``bubble_style`` is accepted for signature parity with
         HumanGraph.say() but is not rendered differently for DogGraph.
+
+        ``persist=True`` (v0.9.10) returns the bubble VGroup without
+        fading it out, so the caller can register it for later
+        dismissal via ``clear_bubble`` / ``clear_all_bubbles``.
+        The bubble has ``bubble.pam_rt_out`` stashed on it.
         """
         s = self.style
         head_pos = self.pose["head"] + self.offset
@@ -1218,9 +1411,15 @@ class DogGraph:
         fade_anims = [FadeIn(bubble, scale=0.85)] + (extra_anims or [])
         scene.play(*fade_anims, run_time=rt_in)
         scene.wait(hold)
+        if persist:
+            # Caller owns dismissal — stash rt_out so clear_bubble can
+            # match the original fade-out duration.
+            bubble.pam_rt_out = rt_out
+            return bubble
         scene.play(FadeOut(bubble), run_time=rt_out)
         if post_wait > 0:
             scene.wait(post_wait)
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1536,7 +1735,9 @@ class GovernorGraph:
     def say(self, text: str, scene: Scene,
             hold=1.4, font_size=20, rt_in=0.4, rt_out=0.3,
             side="right", max_bubble_w=4.5, post_wait=0.0,
-            extra_anims=None, bubble_style=None):
+            extra_anims=None, bubble_style=None,
+            bubble_color=None, text_color=None, border_color=None,
+            persist=False):
         """
         Pop a speech bubble beside the dodecahedron, hold, then dismiss.
 
@@ -1544,7 +1745,27 @@ class GovernorGraph:
         centre, consistent with HumanGraph.say().  ``bubble_style`` is
         accepted for signature parity with HumanGraph.say() but is not
         rendered differently here.
+
+        Color overrides (all default to None → preserve original gold/navy):
+          ``bubble_color`` — fill color behind the text (default navy ``#0d2340``)
+          ``text_color``   — color of the text (default Governor gold)
+          ``border_color`` — color of the box outline and tail edge.
+                             If None, falls back to ``text_color`` (so two-arg
+                             calls keep text and border in sync, matching the
+                             original single-color behavior).
+
+        ``persist=True`` (v0.9.10) returns the bubble VGroup without
+        fading it out, so the caller can register it for later
+        dismissal via ``clear_bubble`` / ``clear_all_bubbles``.
+        The dodecahedron's fade-in pulse and its reverse both happen
+        during ``rt_in`` + the 0.1s pulse-back (before ``hold``), so
+        the persist branch sees a post-pulse steady-state.  On
+        dismissal, clear_bubble does a plain FadeOut — no second pulse.
+        The bubble has ``bubble.pam_rt_out`` stashed on it.
         """
+        _fill   = bubble_color if bubble_color is not None else "#0d2340"
+        _text   = text_color   if text_color   is not None else self._color_gold
+        _border = border_color if border_color is not None else _text
         char_w = 0.113 * (font_size / 20)
         pad = 0.32
         usable_w = max_bubble_w - pad * 2
@@ -1552,7 +1773,7 @@ class GovernorGraph:
         wrapped = textwrap.fill(text, width=chars_per_line)
 
         txt = Text(wrapped, font="Courier New", font_size=font_size,
-                   color=self._color_gold, weight=BOLD)
+                   color=_text, weight=BOLD)
         bw = txt.width + pad * 2
         bh = txt.height + pad * 1.2
 
@@ -1568,7 +1789,7 @@ class GovernorGraph:
 
         box = RoundedRectangle(
             width=bw, height=bh, corner_radius=0.15,
-            color=self._color_gold, fill_color="#0d2340",
+            color=_border, fill_color=_fill,
             fill_opacity=0.95, stroke_width=2,
         ).move_to(np.array([bx, by, 0]))
         txt.move_to(box.get_center())
@@ -1580,7 +1801,7 @@ class GovernorGraph:
             np.array([tail_x - 0.12, by - bh / 2,        0]),
             np.array([tail_x + 0.12, by - bh / 2,        0]),
             np.array([tail_x,        by - bh / 2 - 0.28, 0]),
-            color=self._color_gold, fill_color="#0d2340",
+            color=_border, fill_color=_fill,
             fill_opacity=0.95, stroke_width=1.5,
         )
 
@@ -1605,6 +1826,12 @@ class GovernorGraph:
             )
 
         scene.wait(hold)
+        if persist:
+            # Caller owns dismissal — stash rt_out so clear_bubble can
+            # match the original fade-out duration.
+            bubble.pam_rt_out = rt_out
+            return bubble
         scene.play(FadeOut(bubble), run_time=rt_out)
         if post_wait > 0:
             scene.wait(post_wait)
+        return None
