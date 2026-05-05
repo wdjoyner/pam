@@ -502,6 +502,80 @@ SITTING_ARM_UP_R = _sit_arm_up_r(    0.85,    0.40,    0.95,    0.95)
 SITTING_ARM_UP_L = _sit_arm_up_l(   -0.85,    0.40,   -0.95,    0.95)
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  LYING POSES  (v0.9.14 — flat on back, body horizontal, head at floor level)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  LYING_FLAT_RIGHT — head pointing screen-right, feet pointing screen-left
+#  LYING_FLAT_LEFT  — head pointing screen-left,  feet pointing screen-right
+#
+#  Geometrically equivalent to STANDING_SIDE rotated 90° about the torso and
+#  translated so the spine sits just above the floor (y ≈ -2.3).  Designed to
+#  be usable directly during fade_in via the cast pose= field, like
+#  SITTING_DOWN — no `rotate` action needed, so speech bubbles correctly
+#  anchor above the head's actual lying position (the pose dict reflects the
+#  real joint coordinates and is not subject to rotate snap-back).
+#
+#  Body lays at floor level by default.  To place the figure on a bed,
+#  set the cast offset y to the desired bed height, e.g. offset=[2.0, 1.0, 0].
+#
+#  L/R joint pairs are separated by a small y-offset so the limbs are
+#  visually distinguishable in the 2D rendering — the "near" side of the
+#  body sits slightly above the spine, the "far" side slightly below.
+#
+#  Player usage:
+#    cast: {"freydoon": {"figure_type": "human",
+#                        "pose": "lying_flat_right",
+#                        "offset": [2.0, 1.0, 0]}}
+#    {"action": "fade_in", "who": "freydoon"}
+#    {"action": "say",     "who": "freydoon", "text": "What happened?"}
+#
+#  Or to morph from standing:
+#    {"action": "morph", "who": "freydoon",
+#     "pose": "lying_flat_right", "duration": 0.6}
+
+def _lying_flat(direction: str = "right"):
+    """
+    Build a flat-on-back lying pose at floor level.
+
+    Parameters
+    ----------
+    direction : "right" — head points screen-right, feet screen-left
+                "left"  — mirror image (head left, feet right)
+
+    The "near-side" limbs (lshoulder/lhip/lknee/lankle for the right-facing
+    version) sit slightly above the spine, the far side slightly below, so
+    paired joints don't visually overlap in the 2D Schlegel rendering.
+    """
+    s = +1.0 if direction == "right" else -1.0
+    spine_y = -2.30                        # body lies just above floor
+    near    = -2.15                        # near-side limb y (above spine)
+    far     = -2.45                        # far-side limb y (below spine)
+    return {
+        # spine, head→feet along x (multiplied by s for direction)
+        "head":      _v( 2.30 * s, -2.20),
+        "neck":      _v( 1.65 * s, spine_y),
+        "lshoulder": _v( 1.30 * s, near),
+        "rshoulder": _v( 1.30 * s, far),
+        "torso":     _v( 0.50 * s, spine_y),
+        "lhip":      _v(-0.30 * s, near),
+        "rhip":      _v(-0.30 * s, far),
+        "lknee":     _v(-1.30 * s, near + 0.05),
+        "rknee":     _v(-1.30 * s, far + 0.05),
+        "lankle":    _v(-2.30 * s, near + 0.05),
+        "rankle":    _v(-2.30 * s, far + 0.05),
+        # arms — hands rest on/near the torso, near-arm bent up onto chest,
+        # far-arm extended along the body
+        "lelbow":    _v( 0.80 * s, near + 0.10),
+        "lwrist":    _v( 0.20 * s, near + 0.15),
+        "relbow":    _v( 0.80 * s, far - 0.05),
+        "rwrist":    _v( 0.20 * s, far - 0.05),
+    }
+
+
+LYING_FLAT_RIGHT = _lying_flat("right")
+LYING_FLAT_LEFT  = _lying_flat("left")
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  RUNNING KEYFRAMES  (side view — wider stride, forward lean, flight phase)
 # ─────────────────────────────────────────────────────────────────────────────
 #  Running differs from walking by:
@@ -1292,6 +1366,9 @@ POSES = {
     "sitting_down":    SITTING_DOWN,
     "sitting_arm_up_r": SITTING_ARM_UP_R,
     "sitting_arm_up_l": SITTING_ARM_UP_L,
+    # lying flat (v0.9.14)
+    "lying_flat_right": LYING_FLAT_RIGHT,
+    "lying_flat_left":  LYING_FLAT_LEFT,
     # wave
     "wave_up":        WAVE_UP,
     "wave_right":     WAVE_RIGHT,
@@ -1567,6 +1644,9 @@ def build_poses(proportions: dict, torso_y_override: float | None = None) -> dic
         "sitting_down":     sitting_down,
         "sitting_arm_up_r": sitting_arm_up_r,
         "sitting_arm_up_l": sitting_arm_up_l,
+        # lying flat — pass-through; build-proportional variants TBD (v0.9.14)
+        "lying_flat_right": LYING_FLAT_RIGHT,
+        "lying_flat_left":  LYING_FLAT_LEFT,
         "wave_up":          wave_up,
         "wave_right":       wave_right,
         "wave_left":        wave_left,
@@ -1699,6 +1779,8 @@ def build_poses(proportions: dict, torso_y_override: float | None = None) -> dic
         "sitting_down":   sitting_down,
         "sitting_arm_up_r": sitting_arm_up_r,
         "sitting_arm_up_l": sitting_arm_up_l,
+        "lying_flat_right": LYING_FLAT_RIGHT,
+        "lying_flat_left":  LYING_FLAT_LEFT,
         "wave_up":        wave_up,
         "wave_right":     wave_right,
         "wave_left":      wave_left,
