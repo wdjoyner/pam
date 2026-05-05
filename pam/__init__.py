@@ -52,6 +52,7 @@ from .poses import (                      # noqa: F401 — public API
     # named poses (default build)
     STANDING_FRONT, STANDING_SIDE,
     SITTING_MID, SITTING_DOWN,
+    LYING_FLAT_RIGHT, LYING_FLAT_LEFT,
     WAVE_UP, WAVE_RIGHT, WAVE_LEFT,
     CARRY_HOLD,
     # v0.9.6 named poses
