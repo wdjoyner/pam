@@ -1026,7 +1026,7 @@ class HumanGraph:
         x_min = -7.1 + x_margin + bw / 2
         x_max =  7.1 - x_margin - bw / 2
 
-        by = hy + 0.55
+        by = hy + 0.75
         if side == "left":
             bx = np.clip(hx - bw / 2 - 0.3, x_min, x_max)
         else:
