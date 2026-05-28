@@ -1,7 +1,7 @@
 """
 PAM — Pose And Motion library for the humanoid skeleton graph.
 
-version 0.9.13
+version 0.9.14
 
 actions.py
 ~~~~~~~~~~
@@ -86,7 +86,9 @@ subsequent translates compose correctly.
 """
 
 from __future__ import annotations
+import pathlib
 from copy import deepcopy
+from collections import namedtuple
 
 import numpy as np
 from manim import *
@@ -102,6 +104,7 @@ def rush_into_start(t: float) -> float:
     return t ** 2
 
 from pam.poses import _v, scale_pose, STANDING_FRONT
+from pam.tics import TIC_FRAGMENTS, fragment_applies, get_fragment
 from pam.actions_interactions import (
     act_kiss, act_hold_hands, act_hand_to, act_pat_head,
     act_grab_arm, act_twist_arm_behind, act_release_arm,
@@ -124,6 +127,8 @@ _CANNOT_PARALLEL = frozenset({
     "grab_arm", "twist_arm_behind", "release_arm",
     # v0.9.13 — Manim Rotate animation, single figure transform
     "rotate",
+    # v0.9.13 — wave aliases (wrap parallel-unsafe wave())
+    "wave_left", "wave_right",
 })
 
 def _warn_parallel(action_name: str, name: str) -> None:
@@ -137,6 +142,106 @@ def _get_prop(props, prop_name: str):
         print(f"PAMPlayer: action needs props registry but none was passed.")
         return None
     return props.get(prop_name)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  PATH C — DUAL REGISTRATION LOOKUP HELPER  (v0.9.14)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Quadrupeds (DogGraph and any future restyle, e.g. CatGraph) live in BOTH
+# the cast registry and the prop registry under the same name.  Bipeds live
+# in cast only.  Plain props (chairs, doors, phones) live in props only.
+#
+# This helper unifies lookup so that handlers don't have to repeat the
+# "try cast, fall back to props, maybe check prop.pam_dog" pattern inline.
+# It is read-only and never warns; callers decide how to react to a miss
+# based on their own semantics (e.g. trot_to warns "not a DogGraph" if
+# fig is None or not a DogGraph; say is fine with any figure).
+#
+# See BACK_BURNER.md, "Quadruped registration (Path C)" for the design.
+
+ResolvedSpeaker = namedtuple("ResolvedSpeaker", ["name", "fig", "prop"])
+
+
+def _resolve_speaker(step, cast=None, props=None) -> ResolvedSpeaker:
+    """Resolve the target of an action to its cast figure and/or prop.
+
+    Reads ``step.get("who")`` first, then ``step.get("prop")``, for the
+    target name.  Looks the name up in both the cast registry and the
+    prop registry.  Under Path C dual registration (v0.9.14+), the
+    same DogGraph instance is reachable from either side; this helper
+    also handles the legacy cases where a target lives in only one.
+
+    Parameters
+    ----------
+    step  : dict — the raw PAM JSON step.
+    cast  : dict | None — live cast dict (character key → spec).
+    props : PropRegistry | None — live prop registry.
+
+    Returns
+    -------
+    ResolvedSpeaker namedtuple with three fields:
+
+    name : str | None
+        The resolved target name, or None if neither ``who`` nor
+        ``prop`` was set on the step.
+    fig  : HumanGraph | AlienGraph | DogGraph | GovernorGraph | None
+        The figure instance, if found.  Populated from cast first;
+        if cast is empty for this name but a prop with ``pam_dog``
+        exists, fig is populated from ``prop.pam_dog`` (so callers
+        can use ``.fig`` uniformly across cast-loaded and
+        spawn_prop'd dogs, even before Path C step C lands the
+        full dual-entry on spawn_prop).
+    prop : VGroup | None
+        The prop VGroup wrapper, if found in the prop registry.
+
+    Both fields may be set simultaneously for dual-registered entries.
+    Callers select whichever they need.
+
+    Examples
+    --------
+    >>> spk = _resolve_speaker({"who": "bevers"}, cast=cast, props=props)
+    >>> # spk.fig is the AlienGraph instance; spk.prop is None
+
+    >>> spk = _resolve_speaker({"prop": "chekov"}, cast=cast, props=props)
+    >>> # spk.fig is the DogGraph; spk.prop is the dog_group VGroup
+
+    >>> spk = _resolve_speaker({"prop": "elevator-car"}, cast=cast, props=props)
+    >>> # spk.fig is None; spk.prop is the elevator VGroup
+    """
+    name = step.get("who") or step.get("prop")
+    if name is None:
+        return ResolvedSpeaker(name=None, fig=None, prop=None)
+
+    fig = None
+    if cast is not None:
+        entry = cast.get(name)
+        if entry is not None:
+            # Cast entries are normally dicts ({"fig": ..., "pose": ..., ...})
+            # but tolerate raw-figure entries used in some test scaffolds.
+            fig = entry.get("fig") if isinstance(entry, dict) else entry
+
+    prop = None
+    if props is not None:
+        # Use PropRegistry's silent get_raw when available (PropRegistry.get
+        # prints "unknown prop ..." on miss, which is a debugging convenience
+        # for explicit lookups but spams the log when used for membership
+        # probes like this one).  Fall back to plain .get for dicts used in
+        # test scaffolds.
+        if hasattr(props, "get_raw"):
+            prop = props.get_raw(name)
+        else:
+            prop = props.get(name)
+
+    # If we have a prop with pam_dog but no cast-side fig, surface the
+    # DogGraph as fig for caller convenience.  This handles spawn_prop'd
+    # dogs cleanly until Path C step C lands the cast-side mirror entry.
+    if fig is None and prop is not None:
+        dog = getattr(prop, "pam_dog", None)
+        if dog is not None:
+            fig = dog
+
+    return ResolvedSpeaker(name=name, fig=fig, prop=prop)
 
 
 def _drag_attached_props(fig, name: str, props, scene) -> None:
@@ -198,11 +303,131 @@ def _resolve_pose(name_or_none, default=None, fig=None):
 
 def act_fade_out(fig, step, scene, name="I.G. NoreMe", *,
                  props=None, cast=None):
-    """Fade the character out and clear their cast slot."""
+    """Fade the character out and clear their cast slot.
+
+    v0.9.15: if a face is attached via attach_face, tear it down
+    concurrently with the body fade.  The face's updater is removed
+    first so it stops tracking the head dot during the animation;
+    the face mobject is then included in the same play() call as
+    the body's edge_group and dot_group fades — single concurrent
+    fade, no visible discontinuity.
+
+    v0.9.16: same teardown extended to torso icons, gloves, and
+    shoes attached via attach_torso_icon / attach_gloves / attach_shoes.
+    All updaters are removed up-front and all attached mobjects
+    join the single FadeOut call.
+
+    Head dot opacity is not restored because the figure object is
+    discarded by the cast slot clear below (``cast[name]["fig"] = None``).
+    A subsequent fade_in for the same character builds a fresh figure
+    via pam_player's fade_in branch, with default head dot opacity.
+
+    FadeOut's default ``remover=True`` removes the face mobject from
+    the scene at animation end, so no manual scene.remove is needed.
+    """
     collect = step.get("_collect_anims", False)
+    rt = step.get("rt", 1.0)
+
+    # ── face refs (may be None if attach_face was never called) ──
+    face = getattr(fig, "head_face", None)
+    face_updater = getattr(fig, "head_face_updater", None)
+    if face is not None:
+        if face_updater is not None:
+            face.remove_updater(face_updater)
+        # Clear refs immediately.  Safe because the figure is about to
+        # be discarded from the cast (end of this function), and the
+        # FadeOut animation will remove the face mobject from the scene
+        # on completion.
+        fig.head_face = None
+        fig.head_face_updater = None
+
+    # ── v0.9.16 attachment refs ──
+    extra_mobs: list = []   # mobjects to include in the FadeOut bundle
+
+    torso_icon = getattr(fig, "torso_icon", None)
+    if torso_icon is not None:
+        upd = getattr(fig, "torso_icon_updater", None)
+        if upd is not None:
+            torso_icon.remove_updater(upd)
+        extra_mobs.append(torso_icon)
+        fig.torso_icon         = None
+        fig.torso_icon_updater = None
+
+    gloves = getattr(fig, "gloves", None) or {}
+    glove_updaters = getattr(fig, "glove_updaters", None) or {}
+    for side, glove in gloves.items():
+        upd = glove_updaters.get(side)
+        if upd is not None:
+            glove.remove_updater(upd)
+        extra_mobs.append(glove)
+    if gloves:
+        fig.gloves         = None
+        fig.glove_updaters = None
+
+    shoes = getattr(fig, "shoes", None) or {}
+    shoe_updaters = getattr(fig, "shoe_updaters", None) or {}
+    for side, shoe in shoes.items():
+        upd = shoe_updaters.get(side)
+        if upd is not None:
+            shoe.remove_updater(upd)
+        extra_mobs.append(shoe)
+    if shoes:
+        fig.shoes         = None
+        fig.shoe_updaters = None
+
+    # v0.9.X: name tag (from attach_name_tag).  Text mobject anchored to
+    # either fig.get_harness_nametag_anchor() (dogs) or
+    # face_builder.get_panel_badge_anchor() (panel-clothed humans/aliens)
+    # via its own per-frame updater.  Cleanup parallels torso_icon.
+    name_tag = getattr(fig, "_name_tag", None)
+    if name_tag is not None:
+        upd = getattr(fig, "_name_tag_updater", None)
+        if upd is not None:
+            name_tag.remove_updater(upd)
+        extra_mobs.append(name_tag)
+        fig._name_tag         = None
+        fig._name_tag_updater = None
+
+    # v0.9.X: harness (DogGraph only).  Unlike torso_icon/gloves/shoes
+    # which are attached at runtime, the harness is built at figure
+    # construction and would normally fade via DogGraph.fade_out().  But
+    # the "with attachments" branch below bypasses fig.fade_out() when
+    # extra_mobs is non-empty — so any dog with both a harness AND another
+    # attachment would have its harness left visible after the body fades.
+    # Adding it to extra_mobs joins it into the FadeOut bundle.
+    harness = getattr(fig, "harness", None)
+    if harness is not None:
+        upd = getattr(fig, "_harness_updater", None)
+        if upd is not None:
+            harness.remove_updater(upd)
+        extra_mobs.append(harness)
+        # Don't None out fig.harness — FadeOut(remover=True) removes the
+        # mobject from the scene at animation end; the figure object
+        # itself is discarded by the cast-slot clear at the function's end.
+
     if collect:
-        return [FadeOut(fig.edge_group), FadeOut(fig.dot_group)]
-    fig.fade_out(scene, rt=step.get("rt", 1.0))
+        anims = [FadeOut(fig.edge_group), FadeOut(fig.dot_group)]
+        if face is not None:
+            anims.append(FadeOut(face))
+        for m in extra_mobs:
+            anims.append(FadeOut(m))
+        return anims
+
+    # Build the FadeOut bundle — body + face (if any) + extra attachments.
+    fadeouts = [FadeOut(fig.edge_group), FadeOut(fig.dot_group)]
+    if face is not None:
+        fadeouts.append(FadeOut(face))
+    for m in extra_mobs:
+        fadeouts.append(FadeOut(m))
+
+    if len(fadeouts) > 2:
+        # At least one attachment present — play the combined bundle so
+        # everything fades concurrently with the body.
+        scene.play(*fadeouts, run_time=rt)
+    else:
+        # No attachments: unchanged from pre-v0.9.15 behavior.
+        fig.fade_out(scene, rt=rt)
+
     if cast is not None and name in cast:
         cast[name]["fig"] = None
     return None
@@ -328,7 +553,7 @@ def act_rotate(fig, step, scene, name="I.G. NoreMe", *,
 
     # ── Resolve target: prop wins if both keys are present ─────────────
     target = None
-    target_kind = None  # "prop" | "fig" — for warning messages
+    target_kind = None  # "prop" | "fig" — affects pivot calc and what gets rotated
 
     if "prop" in step:
         if props is None:
@@ -357,31 +582,111 @@ def act_rotate(fig, step, scene, name="I.G. NoreMe", *,
         return None  # nothing to do
 
     # ── Pivot point ────────────────────────────────────────────────────
+    # Props are Manim mobjects with get_bottom() / get_center() / etc.
+    # PAM figures (HumanGraph, AlienGraph) are wrapper objects whose
+    # geometry lives in fig.edge_group and fig.dot_group; to compute a
+    # pivot we use the pose's joint coordinates plus the figure offset.
     pivot_spec = step.get("pivot", "bottom")
+
     if isinstance(pivot_spec, (list, tuple)) and len(pivot_spec) >= 2:
+        # Explicit world-space [x, y] override — same path for either kind.
         pivot_pt = np.array([float(pivot_spec[0]),
                              float(pivot_spec[1]),
                              0.0])
-    else:
-        pivot_map = {
+    elif target_kind == "prop":
+        # Manim mobject — use its native getters.
+        prop_pivot_map = {
             "bottom": target.get_bottom,
             "center": target.get_center,
             "top":    target.get_top,
             "left":   target.get_left,
             "right":  target.get_right,
         }
-        getter = pivot_map.get(str(pivot_spec).lower(),
-                               target.get_bottom)
+        getter = prop_pivot_map.get(str(pivot_spec).lower(),
+                                    target.get_bottom)
         pivot_pt = getter()
+    else:
+        # PAM figure — derive pivot from pose joints + offset.
+        # Use the figure's edge_group (a Manim VGroup) for "center" since
+        # the pose dict has no center joint.  For top/bottom/left/right
+        # we read the appropriate joint directly.
+        sp = target._apply_scale(target.pose)
+        off = target.offset
+
+        def _joint(key, fallback=None):
+            """Return joint world-position, or fallback (e.g. midhip)."""
+            jp = sp.get(key)
+            if jp is None and fallback is not None:
+                jp = sp.get(fallback)
+            if jp is None:
+                return None
+            return jp + off
+
+        pivot_key = str(pivot_spec).lower()
+        if pivot_key == "bottom":
+            # Average of the two ankles, or midhip if ankles missing.
+            la = _joint("lankle"); ra = _joint("rankle")
+            if la is not None and ra is not None:
+                pivot_pt = (la + ra) / 2.0
+            else:
+                pivot_pt = _joint("midhip", "head")
+                if pivot_pt is None:
+                    pivot_pt = np.array([off[0], off[1] - 1.0, 0.0])
+        elif pivot_key == "top":
+            pivot_pt = _joint("head")
+            if pivot_pt is None:
+                pivot_pt = np.array([off[0], off[1] + 1.2, 0.0])
+        elif pivot_key == "left":
+            # Leftmost shoulder/hip — use the left side joints.
+            ls = _joint("lshoulder"); lh = _joint("lhip")
+            if ls is not None:
+                pivot_pt = ls
+            elif lh is not None:
+                pivot_pt = lh
+            else:
+                pivot_pt = np.array([off[0] - 0.4, off[1], 0.0])
+        elif pivot_key == "right":
+            rs = _joint("rshoulder"); rh = _joint("rhip")
+            if rs is not None:
+                pivot_pt = rs
+            elif rh is not None:
+                pivot_pt = rh
+            else:
+                pivot_pt = np.array([off[0] + 0.4, off[1], 0.0])
+        else:  # "center" or unknown
+            # midhip is the natural body center for a humanoid pose.
+            pivot_pt = _joint("midhip", "head")
+            if pivot_pt is None:
+                pivot_pt = np.array([off[0], off[1], 0.0])
 
     rt = float(step.get("rt", 0.5))
 
     # ── Apply rotation ─────────────────────────────────────────────────
-    if rt > 0:
-        scene.play(Rotate(target, angle=angle, about_point=pivot_pt),
-                   run_time=rt)
+    # Props rotate as a single mobject.  PAM figures are wrappers — their
+    # visible geometry lives in two VGroups (edge_group and dot_group),
+    # so we rotate both around the same pivot.
+    if target_kind == "prop":
+        if rt > 0:
+            scene.play(Rotate(target, angle=angle, about_point=pivot_pt),
+                       run_time=rt)
+        else:
+            target.rotate(angle, about_point=pivot_pt)
     else:
-        target.rotate(angle, about_point=pivot_pt)
+        eg = getattr(target, "edge_group", None)
+        dg = getattr(target, "dot_group", None)
+        if eg is None or dg is None:
+            print(f"PAMPlayer rotate: figure '{name}' has no edge_group "
+                  "or dot_group; cannot rotate.")
+            return None
+        if rt > 0:
+            scene.play(
+                Rotate(eg, angle=angle, about_point=pivot_pt),
+                Rotate(dg, angle=angle, about_point=pivot_pt),
+                run_time=rt,
+            )
+        else:
+            eg.rotate(angle, about_point=pivot_pt)
+            dg.rotate(angle, about_point=pivot_pt)
 
     return None
 
@@ -426,11 +731,69 @@ def act_stand_up(fig, step, scene, name="I.G. NoreMe", *,
 
 def act_wave(fig, step, scene, name="I.G. NoreMe", *,
              props=None, cast=None):
-    """Wave animation."""
+    """
+    Wave animation — single character raises one arm and wags it.
+
+    Implemented by ``HumanGraph.wave``; this handler just wires the
+    JSON keys through.  The figure returns to its prior pose (standing,
+    sitting, etc.) after the wave finishes.
+
+    JSON keys
+    ---------
+    direction : ``"right"`` (default) or ``"left"`` — which arm waves.
+                ``hand`` is also accepted as a synonym for symmetry with
+                ``HumanGraph.wave``'s parameter name.
+    cycles    : int — number of wag oscillations (default 2).
+    rt_lift   : float — run time for raising / lowering the arm
+                (default 0.4).
+    rt_wag    : float — run time for each wag keyframe (default 0.24).
+
+    Examples
+    --------
+    ::
+
+        {"action": "wave", "who": "alice"}
+        {"action": "wave", "who": "alice", "direction": "left"}
+        {"action": "wave", "who": "alice", "cycles": 3, "direction": "right"}
+
+    The aliases ``wave_left`` and ``wave_right`` are also registered;
+    they call this handler with ``direction`` preset.
+    """
     if step.get("_collect_anims"):
         _warn_parallel("wave", name)
-    fig.wave(scene, cycles=step.get("cycles", 2))
+    if fig is None:
+        print(f"PAMPlayer: wave — '{name}' has no live figure, skipping.")
+        return None
+
+    # Accept either "direction" or "hand"; default right.
+    hand = step.get("direction", step.get("hand", "right"))
+    if hand not in ("left", "right"):
+        print(f"PAMPlayer: wave — unknown direction '{hand}' for '{name}', "
+              "defaulting to 'right'.")
+        hand = "right"
+
+    fig.wave(
+        scene,
+        cycles  = step.get("cycles",  2),
+        rt_lift = step.get("rt_lift", 0.4),
+        rt_wag  = step.get("rt_wag",  0.24),
+        hand    = hand,
+    )
     return None
+
+
+def act_wave_left(fig, step, scene, name="I.G. NoreMe", *,
+                  props=None, cast=None):
+    """Convenience alias — equivalent to ``wave`` with ``"direction": "left"``."""
+    return act_wave(fig, {**step, "direction": "left"}, scene, name,
+                    props=props, cast=cast)
+
+
+def act_wave_right(fig, step, scene, name="I.G. NoreMe", *,
+                   props=None, cast=None):
+    """Convenience alias — equivalent to ``wave`` with ``"direction": "right"``."""
+    return act_wave(fig, {**step, "direction": "right"}, scene, name,
+                    props=props, cast=cast)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1741,6 +2104,1047 @@ def act_group_translate(fig, step, scene, name="I.G. NoreMe", *,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  SPEECH TICS  (v0.9.14)
+#  Decorative motions wired to a character's tic_profile.  The MVP handler
+#  here covers the explicit `react` trigger only; sentence_end / emphasis /
+#  idle / subject_focus triggers will land as follow-up additions reusing
+#  the same fragment registry and storage.  See pam/tics.py for the
+#  fragment library and body-type applicability semantics.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _figure_type_of(fig):
+    """Return the figure_type string for a figure instance, or None.
+
+    Used by tic-trigger handlers to filter the character's tic_profile
+    against fragments compatible with the figure's body type.  The
+    isinstance chain is ordered most-specific first because AlienGraph
+    is a subclass of HumanGraph (alien must be checked before human).
+
+    Lazy import for pam.figure to avoid any circular-import risk at
+    module load time.  Python caches the import, so the cost is paid
+    once per process.
+    """
+    if fig is None:
+        return None
+    from pam.figure import HumanGraph, AlienGraph, DogGraph, GovernorGraph
+    if isinstance(fig, GovernorGraph):
+        return "governor"
+    if isinstance(fig, DogGraph):
+        return "dog"
+    if isinstance(fig, AlienGraph):
+        return "alien"
+    if isinstance(fig, HumanGraph):
+        return "human"
+    return None
+
+
+def _play_tic_cycle(fig, fragment_meta, scene):
+    """Play a tic cycle and return the figure to its prior pose.
+
+    Each cycle keyframe is a delta dict (joint name → (dx, dy) offset)
+    that is applied to ``fig.pose`` at tic-start to compute a target
+    pose for that keyframe.  After all keyframes, the figure morphs
+    back to the captured start_pose.
+
+    Why deltas, not absolute poses
+    ------------------------------
+    Earlier MVP used absolute pose dicts built from ``deepcopy(STANDING_FRONT)``
+    with select joints overridden.  That crashed on ``AlienGraph`` because
+    aliens have build-specific poses (via ``fig._bp["poses"]``) that
+    include alien-only joints like ``torso_left`` — the global
+    ``STANDING_FRONT`` is missing those keys, and ``_pose_anims``
+    iterates ``self.dots`` which includes the alien joints, KeyError on
+    lookup.
+
+    Anchoring deltas to ``fig.pose`` (which is already the build-
+    specific pose) makes the cycle correct for any body type AND any
+    starting pose (standing, sitting, mid-action).  Joints named in
+    the delta that don't exist on the figure's body are silently
+    skipped via the ``if joint in target_pose`` guard.
+    """
+    cycle = fragment_meta.get("cycle", [])
+    if not cycle:
+        return
+    rt = fragment_meta.get("rt_per_kf", 0.12)
+    start_pose = getattr(fig, "pose", None)
+    if start_pose is None:
+        return
+
+    for deltas in cycle:
+        # Build a target pose by applying joint deltas to start_pose.
+        # deepcopy so we don't mutate start_pose for the auto-return.
+        target_pose = deepcopy(start_pose)
+        for joint, (dx, dy) in deltas.items():
+            if joint not in target_pose:
+                # Joint isn't on this body (e.g. "tail" on a biped) —
+                # silently skip.  applies_to should have filtered this
+                # case out earlier, but defence-in-depth here too.
+                continue
+            base = target_pose[joint]
+            target_pose[joint] = np.array(
+                [base[0] + dx, base[1] + dy, 0.0]
+            )
+        fig.morph_to(target_pose, scene, rt=rt, rate=smooth)
+
+    # Auto-return to the start pose.  morph_to updates fig.pose as a
+    # side effect, so the figure ends the cycle in its pre-tic state.
+    fig.morph_to(start_pose, scene, rt=rt, rate=smooth)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  v0.9.15  FACE ATTACHMENT  (avatar storytelling support)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# attach_face / detach_face overlay a cartoon face on a character's head dot,
+# tracking it every frame via a Manim updater.  Designed for the
+# consciousness-swap avatar beat in TNTD: when Bevers's consciousness
+# inhabits Freydoon's body, Freydoon's head dot is hidden and Bevers's
+# face is displayed in its place.
+#
+# Design choices (locked for v0.9.14):
+#   • Replace, not overlay.  Head dot opacity goes to 0 when a face
+#     attaches; the face IS the head visually.  The dot persists as
+#     the position anchor for the updater AND for any other code
+#     that reads head position (e.g. speech bubble anchoring inside
+#     fig.say()).
+#   • Explicit scale per attach.  No bbox-auto-fit; authors tune
+#     scale per face graphic.
+#   • Not persistent across fade_out + fade_in.  fade_out tears the
+#     face down concurrently with the body fade; the head dot's
+#     opacity is restored to 1 so a later fade_in brings the
+#     character back bare (no face), matching the pre-face behavior
+#     of fade_in.  Authors re-call attach_face if they want the
+#     face back.
+#
+# THREE FACE SOURCES — resolved in this priority order:
+#
+#   1. face_builder key (no file extension in "image" value)
+#      e.g.  {"image": "bevers"}
+#      Calls face_builder.build_face(key), which assembles a VGroup from
+#      native Manim VMobjects (Circle, Ellipse, Rectangle, Arc, etc.).
+#      Fully transparent outside drawn shapes — no alpha-channel issue,
+#      works with Cairo and OpenGL renderers.  Preferred path.
+#
+#   2. SVG file (.svg extension)
+#      e.g.  {"image": "bevers_face.svg"}
+#      Loaded via SVGMobject.  Cairo composites SVG transparency at the
+#      path level, bypassing the raster alpha-channel bug that affects
+#      ImageMobject.  Not compatible with the OpenGL renderer
+#      (ImageMobject lacks should_render — same root cause).
+#
+#   3. Raster file (.png / .jpg / .jpeg extension)
+#      e.g.  {"image": "bevers_face.png"}
+#      Loaded via ImageMobject.  Retained for backwards compatibility.
+#      Opaque PNGs with the scene background color baked into the
+#      corners avoid the Cairo alpha-channel compositing bug.
+#      OpenGL renderer: incompatible (crashes on should_render).
+#
+# Asset path for sources 2 and 3:
+#   <pam package dir>/assets/<filename>
+# so {"image": "bevers_neutral_face.png"} reads from
+# pam/assets/bevers_neutral_face.png.
+#
+# face_builder import is lazy (inside act_attach_face) so that the
+# module loads cleanly even if face_builder.py is not yet present.
+
+_FACE_ASSET_DIR = pathlib.Path(__file__).parent / "assets"
+_FACE_VALID_EXTS = frozenset({".png", ".jpg", ".jpeg", ".svg"})
+
+
+def _hide_head_dot(fig) -> None:
+    """Set the head dot to opacity 0 in place (does not remove it).
+
+    The dot continues to track the figure's pose every frame as the
+    position anchor — the face updater reads ``fig.dots["head"].get_center()``,
+    and fig.say() uses head position for bubble anchoring.  Both work
+    regardless of visibility.
+
+    HumanGraph / AlienGraph build ``fig.dots["head"]`` as a VGroup of
+    ``(Circle, Text label)``.  ``set_opacity(0)`` on the VGroup
+    propagates to both children, so the head label (e.g. "F" for
+    Freydoon) is hidden along with the circle.  This differs from the
+    change_uniform pattern, which only touches ``dot[0]`` (the circle)
+    and would leave the label visible — incorrect for face replacement.
+    """
+    fig.dots["head"].set_opacity(0)
+
+
+def _restore_head_dot(fig) -> None:
+    """Restore head dot to full opacity, mirror of _hide_head_dot."""
+    fig.dots["head"].set_opacity(1)
+
+
+def _teardown_face(fig, scene) -> None:
+    """Remove an attached face cleanly.
+
+    Stops the updater, removes the face mobject from the scene, clears
+    the figure-side references, and restores head dot visibility.
+    Idempotent — safe to call when no face is attached.
+
+    Used by:
+      • attach_face's swap path (re-attach with different image)
+      • detach_face handler
+      • fade_out's tear-down branch
+    """
+    face = getattr(fig, "head_face", None)
+    if face is None:
+        return
+    updater = getattr(fig, "head_face_updater", None)
+    if updater is not None:
+        face.remove_updater(updater)
+    scene.remove(face)
+
+    # PANEL ARM OCCLUSION (v0.9.X): if act_attach_face re-added the near
+    # arm to the scene to occlude a panel bib, undo that here.  Direct
+    # list manipulation rather than scene.remove() — see the matching
+    # comment in act_attach_face for the full reasoning.  scene.remove()
+    # cascades through the mobject's family and would pull the arm bands
+    # out of scene.mobjects entirely, leaving the sleeve missing from
+    # any subsequent front-view render.
+    near_arm = getattr(fig, "_panel_near_arm", None)
+    if near_arm is not None:
+        if near_arm in scene.mobjects:
+            scene.mobjects.remove(near_arm)
+        fig._panel_near_arm = None
+
+    fig.head_face = None
+    fig.head_face_updater = None
+    _restore_head_dot(fig)
+
+
+def act_attach_face(fig, step, scene, name="I.G. NoreMe", *,
+                    props=None, cast=None):
+    """Attach a cartoon face to a character's head dot.
+
+    Resolves the face from one of three sources depending on the value of
+    the ``image`` key (see below), positions it at the head dot's current
+    center, and installs a per-frame updater so it tracks the head through
+    walks, morphs, scale changes, and rotations.  The head dot itself is
+    set to opacity-0 so the face replaces it visually; the dot persists as
+    a position anchor and for ``fig.say()`` bubble anchoring.
+
+    ── Face sources (resolved in priority order) ────────────────────────────
+
+    1. **face_builder key** — ``image`` value has *no file extension*.
+
+       ``{"image": "bevers"}``
+
+       Calls ``face_builder.build_face(key)`` from ``pam/face_builder.py``.
+       The face is assembled from native Manim VMobjects (Circle, Ellipse,
+       Rectangle, ArcBetweenPoints, etc.) in the Chris Ware flat-cartoon
+       style.  Fully transparent outside drawn shapes — no alpha-channel
+       issue, works with both the Cairo and OpenGL renderers.
+
+       Valid keys are the entries of ``face_builder.FACE_DATA``.  An unknown
+       key prints a diagnostic and skips; it does not raise.
+
+       Suggested scale range: 0.28 – 0.42 (tune per scene and figure size).
+
+    2. **SVG file** — ``image`` ends in ``.svg``.
+
+       ``{"image": "bevers_face.svg"}``
+
+       Loaded via ``SVGMobject``.  Cairo composites SVG transparency at the
+       path level, so fill-opacity / fill="none" work correctly over any
+       scene background.  *Not* compatible with ``--renderer=opengl``
+       (OpenGL renderer calls ``should_render`` on every scene mobject;
+       ``ImageMobject`` — the internal target of some SVGMobject paths —
+       lacks that attribute and crashes).
+
+    3. **Raster file** — ``image`` ends in ``.png``, ``.jpg``, or ``.jpeg``.
+
+       ``{"image": "bevers_face.png"}``
+
+       Loaded via ``ImageMobject``.  Retained for backwards compatibility
+       and for photo-texture faces.  On some Manim CE 0.19/0.20 builds,
+       Cairo alpha-channel compositing treats transparent corners as opaque
+       black; bake the scene background color into the PNG corners as a
+       workaround.  OpenGL renderer: incompatible for same reason as SVG.
+
+    ── Swap / re-attach semantics ───────────────────────────────────────────
+
+    If a face is already attached when ``attach_face`` fires, the old face
+    is torn down first (updater removed, mobject removed from scene, head
+    dot restored to opacity-1) and the new face is attached in its place.
+    This gives change-face semantics for free — no separate action required:
+
+        {"action": "attach_face", "who": "freydoon",
+         "image": "bevers_worried", "scale": 0.35}
+
+    ── Body-type compatibility ──────────────────────────────────────────────
+
+    Quadrupeds and any future body type without a ``"head"`` dot: silent
+    no-op.  Consistent with the defensive-no-op philosophy of the tic
+    registry on incompatible bodies.
+
+    ── Animation ────────────────────────────────────────────────────────────
+
+    No animation — face snaps in instantly.  Parallel-safe; the action
+    returns an empty list in ``_collect_anims`` mode.  Authors who want a
+    visual fade-in can sequence ``attach_face`` before a ``say`` action so
+    the face appears on screen as dialogue begins.
+
+    JSON keys
+    ---------
+    who   : str   — character key (required).
+    image : str   — face source (required).  One of:
+                      • face_builder key with no extension: ``"bevers"``
+                      • SVG filename:    ``"bevers_face.svg"``
+                      • Raster filename: ``"bevers_face.png"``
+    scale : float — scale factor applied after the face is built or loaded
+                    (default 1.0).  Tune per source and scene.
+                    Recommended starting points:
+                      face_builder key → 0.35
+                      SVG file         → 0.40
+                      PNG file         → 0.40
+
+    Examples
+    --------
+    Preferred — face_builder key, no asset file needed::
+
+        {"action": "attach_face", "who": "freydoon",
+         "image": "bevers", "scale": 0.35}
+
+    SVG file from pam/assets/::
+
+        {"action": "attach_face", "who": "freydoon",
+         "image": "bevers_neutral_face.svg", "scale": 0.4}
+
+    PNG file (backwards compatible)::
+
+        {"action": "attach_face", "who": "freydoon",
+         "image": "bevers_neutral_face.png", "scale": 0.4}
+
+    Expression swap mid-scene — just re-call with a different image::
+
+        {"action": "attach_face", "who": "freydoon",
+         "image": "bevers_worried", "scale": 0.35}
+    """
+    collect = step.get("_collect_anims", False)
+    _empty = [] if collect else None
+
+    if fig is None:
+        print(f"PAMPlayer: attach_face — '{name}' has no live figure, "
+              f"skipping.")
+        return _empty
+
+    # Quadrupeds / future body types without a head dot: silent skip.
+    if "head" not in fig.dots:
+        print(f"PAMPlayer: attach_face — '{name}' has no 'head' dot, "
+              f"skipping (face attachment requires a head joint).")
+        return _empty
+
+    image_name = step.get("image")
+    if not image_name:
+        print(f"PAMPlayer: attach_face — '{name}' step is missing the "
+              f"'image' key, skipping.")
+        return _empty
+
+    scale = float(step.get("scale", 1.0))
+
+    # If a face is already attached, tear it down before building the new
+    # one.  This makes attach_face idempotent and gives change_face
+    # semantics for free.
+    _teardown_face(fig, scene)
+
+    ext = pathlib.Path(image_name).suffix.lower()
+
+    # ── SOURCE 1: face_builder key (no extension) ─────────────────────────
+    if ext == "":
+        try:
+            from pam.face_builder import build_face, FACE_DATA, register_variants
+        except ImportError:
+            print(f"PAMPlayer: attach_face — face_builder module not found "
+                  f"in pam/.  Install face_builder.py or use a file "
+                  f"extension (.svg/.png) in the 'image' key.")
+            return _empty
+
+        # ── lazy expression registration (v0.9.17) ───────────────────────
+        # cast[name]["expressions"] is populated by pam_player from the
+        # "expressions" block in tntd_characters.json (and any screenplay
+        # cast block that also declares it).  Register variants now so
+        # the key lookup below succeeds for expression keys like "nona_flat".
+        # Idempotent — safe to call on every attach_face for the same char.
+        if cast is not None and name in cast:
+            _exprs = cast[name].get("expressions") or {}
+            if _exprs:
+                register_variants(name, _exprs)
+
+        if image_name not in FACE_DATA:
+            import pam.face_builder as _fb
+            valid = ", ".join(f'"{k}"' for k in sorted(_fb.FACE_DATA))
+            print(f"PAMPlayer: attach_face — unknown face_builder key "
+                  f"'{image_name}'.  Valid keys: {valid}")
+            return _empty
+
+        face = build_face(image_name, view=step.get("view", "front"))
+        face.scale(scale)
+
+    # ── SOURCE 2: SVG file ────────────────────────────────────────────────
+    elif ext == ".svg":
+        path = _FACE_ASSET_DIR / image_name
+        if not path.is_file():
+            print(f"PAMPlayer: attach_face — SVG not found: {path}.  "
+                  f"Skipping for '{name}'.")
+            return _empty
+        face = SVGMobject(str(path))
+        face.scale(scale)
+
+    # ── SOURCE 3: Raster file (.png / .jpg / .jpeg) ───────────────────────
+    elif ext in _FACE_VALID_EXTS:
+        path = _FACE_ASSET_DIR / image_name
+        if not path.is_file():
+            print(f"PAMPlayer: attach_face — image not found: {path}.  "
+                  f"Skipping for '{name}'.")
+            return _empty
+        face = ImageMobject(str(path))
+        face.scale(scale)
+
+    else:
+        print(f"PAMPlayer: attach_face — unsupported extension '{ext}' "
+              f"for '{image_name}'.  Use a face_builder key (no extension), "
+              f".svg, .png, .jpg, or .jpeg.")
+        return _empty
+
+    # ── Position + updater (common to all three sources) ──────────────────
+    #
+    # ANCHOR FIX (v0.9.17): face_builder VGroups tag face.pam_head_ref with
+    # the head oval Ellipse.  The VGroup bounding box is LARGER than the head
+    # oval (hair, hats, clothing all extend it), so move_to(head_dot) would
+    # put the bbox center at the head dot — pushing the face down by however
+    # much hair sits above the head oval.
+    #
+    # Fix: compute the static offset from bbox center → head oval center once,
+    # right after scale.  This offset is CONSTANT because all VGroup elements
+    # translate together.  The updater then uses:
+    #     move_to(head_dot + bbox_to_oval_offset)
+    # which puts the bbox center at (head_dot + offset), making the head oval
+    # land exactly on the head dot.  Pure move_to — no drift, no frame-order
+    # dependency.
+    #
+    # SVG / PNG sources have no pam_head_ref; offset = zero → old behavior.
+    #
+    # pam_head_bbox_offset = bbox_center − head_oval_center  (in scaled space)
+    # To put the oval at target:  move_to(target + pam_head_bbox_offset)
+    # Verify: bbox ends up at target + offset; oval at bbox − offset = target ✓
+
+    _ref = getattr(face, "pam_head_ref", None)
+    if _ref is not None:
+        # Compute offset in scaled world space (after face.scale(scale) above).
+        face.pam_head_bbox_offset = face.get_center() - _ref.get_center()
+    else:
+        face.pam_head_bbox_offset = np.array([0.0, 0.0, 0.0])
+
+    face.move_to(fig.dots["head"].get_center() + face.pam_head_bbox_offset)
+
+    # Updater: captures fig so it always reads the live head dot position.
+    def _follow_head(m):
+        off = getattr(m, "pam_head_bbox_offset", np.zeros(3))
+        m.move_to(fig.dots["head"].get_center() + off)
+
+    face.add_updater(_follow_head)
+    scene.add(face)
+
+    # ── PANEL ARM OCCLUSION (v0.9.X) ────────────────────────────────────────
+    # In side view, the panel bib (cloth_style="panel") would otherwise draw
+    # on top of the camera-facing ("near") arm because the face is added to
+    # scene AFTER the figure — Manim renders scene members in add-order, so
+    # the face VGroup (and its panel Rectangle) covers all of fig's
+    # submobjects including the near arm.
+    #
+    # Fix: re-add the near arm to the scene so it lands after the face in
+    # the render list and draws on top of the bib.  The arm remains a child
+    # of fig.edge_group; scene.add() just appends a reference to scene's
+    # mobject list, so the arm is rendered twice per frame — once as part
+    # of fig (covered by the face), then once standalone (on top of the
+    # face).  The second render wins, achieving the desired occlusion.
+    #
+    # This requires figure.py to expose:
+    #
+    #     fig.get_near_arm(view: str) -> VGroup | None
+    #         Returns a VGroup containing the upper arm, lower arm, and
+    #         hand edges of the camera-facing arm for the given side view
+    #         ("lside" or "rside").  Returns None for front view or if
+    #         the figure has no per-arm decomposition.
+    #
+    # When figure.py does NOT have this method, the block is a one-time
+    # diagnostic and a silent no-op — the bib still draws on top of the
+    # arm (current behavior), but nothing breaks.
+    view = step.get("view", "front")
+    if view in ("lside", "rside") and hasattr(face, "pam_panel_ref"):
+        if hasattr(fig, "get_near_arm"):
+            near_arm = fig.get_near_arm(view)
+            if near_arm is not None:
+                # CRITICAL: bypass scene.add() — Manim's add() removes any
+                # submobjects of near_arm that are already in scene.mobjects
+                # to avoid duplicate rendering.  The arm bands ARE already
+                # top-level scene members (fade_in added each one via
+                # scene.play(Create(l))), so scene.add(near_arm) would pull
+                # the bands out of their original scene.mobjects position,
+                # leaving them rendered ONLY through near_arm.  Then
+                # scene.remove(near_arm) at teardown would cascade through
+                # near_arm's family and remove the bands entirely —
+                # breaking the sleeve on the formerly-near arm in any
+                # subsequent front view.
+                #
+                # Direct list append elevates near_arm's z-order (it draws
+                # last, on top of the face) WITHOUT touching the bands'
+                # original scene.mobjects entries.  The bands render
+                # twice per frame — once at their original position, then
+                # again as submobjects of near_arm on top of the face.
+                # The second render wins visually; the first one is
+                # cheap (Manim short-circuits same-position rasterization)
+                # and keeps the bands "owned" by scene.mobjects so a later
+                # view-switch finds them intact.
+                scene.mobjects.append(near_arm)
+                fig._panel_near_arm = near_arm
+        else:
+            # One-time diagnostic per figure — not per attach_face call.
+            if not getattr(fig, "_panel_arm_warned", False):
+                print(
+                    f"PAMPlayer: attach_face — figure has no get_near_arm() "
+                    f"method; panel bib will draw on top of the near arm in "
+                    f"side view.  To enable arm occlusion, add a "
+                    f"get_near_arm(view) method to figure.py that returns a "
+                    f"VGroup of the camera-facing arm's edges."
+                )
+                fig._panel_arm_warned = True
+
+    # ── PERSISTENT OVERLAY RE-ELEVATION (v0.9.X) ────────────────────────────
+    # Every expression swap (a subsequent attach_face call) rebuilds the
+    # face and adds it to the end of scene.mobjects.  This pushes the new
+    # face on top of any persistent overlay that was attached AFTER the
+    # original attach_face — torso icons, name tags, etc.  The visible
+    # effect is the panel covering the name tag after every expression
+    # swap, even though immediately after attach_torso_icon (or
+    # attach_name_tag) the tag was correctly placed on top.
+    #
+    # Fix: re-append each known persistent overlay to scene.mobjects so
+    # it returns to the end of the rendering order after every face
+    # swap.  Direct manipulation rather than scene.add() — same reasoning
+    # as the panel arm occlusion block above; we don't want Manim's
+    # family-cascade to disturb the overlay's submobjects.
+    for attr_name in ("torso_icon", "_name_tag"):
+        overlay = getattr(fig, attr_name, None)
+        if overlay is not None and overlay in scene.mobjects:
+            scene.mobjects.remove(overlay)
+            scene.mobjects.append(overlay)
+
+    fig.head_face         = face
+    fig.head_face_updater = _follow_head
+    _hide_head_dot(fig)
+
+    return _empty
+
+
+def act_detach_face(fig, step, scene, name="I.G. NoreMe", *,
+                    props=None, cast=None):
+    """Remove an attached face: stop the updater, remove the image,
+    restore head dot visibility.  No-op if no face is attached.
+
+    Usually unnecessary for typical authoring — fade_out auto-removes
+    a face when the character leaves the scene.  Provided for
+    completeness, for tests, and for the case where a character
+    keeps their body but loses their face mid-scene (e.g. a
+    consciousness-departure beat with the character remaining on
+    screen).
+
+    JSON keys
+    ---------
+    who : str — character key (required)
+
+    Examples
+    --------
+        {"action": "detach_face", "who": "freydoon"}
+    """
+    collect = step.get("_collect_anims", False)
+    _empty = [] if collect else None
+
+    if fig is None:
+        print(f"PAMPlayer: detach_face — '{name}' has no live figure, "
+              f"skipping.")
+        return _empty
+
+    _teardown_face(fig, scene)
+    return _empty
+
+
+def act_react(fig, step, scene, name="I.G. NoreMe", *,
+              props=None, cast=None):
+    """Fire any tics in ``fig.tic_profile`` whose triggers include ``"react"``.
+
+    A no-op for figures with no tic_profile or no react-triggered
+    fragments — common for the majority of characters that don't have
+    declared tics.  Body-type applicability is checked silently; a
+    fragment that doesn't apply to the figure's type is skipped without
+    a warning (consistent with the future ``avatar_into`` transfer
+    story, where incompatible fragments are expected and not authoring
+    errors).
+
+    Unknown fragment names also skip silently for now.  A scene linter
+    (future) should surface typo cases at parse time.
+
+    JSON keys
+    ---------
+    who or prop : standard Path C key resolution (the dispatcher
+                  routes by either key; this handler receives the
+                  already-resolved figure as ``fig``).
+
+    Examples
+    --------
+    ::
+
+        {"action": "react", "who": "chekov"}    # tail wags
+        {"action": "react", "who": "bevers"}    # hand twitches
+        {"action": "react", "who": "extra_3"}   # no profile → silent no-op
+    """
+    if fig is None:
+        print(f"PAMPlayer: react — '{name}' has no live figure, skipping.")
+        return None
+
+    profile = getattr(fig, "tic_profile", [])
+    if not profile:
+        return None  # silent — most characters don't have tics declared
+
+    figure_type = _figure_type_of(fig)
+
+    for entry in profile:
+        if "react" not in entry.get("triggers", []):
+            continue
+        frag_name = entry.get("fragment")
+        if not fragment_applies(frag_name, figure_type):
+            continue
+        _play_tic_cycle(fig, get_fragment(frag_name), scene)
+
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  v0.9.16  TORSO ICON / GLOVES / SHOES ATTACHMENT
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Three attach/detach pairs analogous to attach_face / detach_face.  Each
+# pair is a thin wrapper around HumanGraph.attach_<x> / detach_<x> in
+# figure.py — the figure-side methods own the construction logic and
+# updater installation; these handlers route JSON arguments and report
+# errors in the standard PAMPlayer voice.
+#
+# Compatibility:
+#   • Silent skip on figures lacking the relevant joints (DogGraph etc).
+#   • Idempotent — re-calling attach_X tears down the previous X first.
+#   • All three integrate with act_fade_out's teardown bundle so a
+#     character carrying gloves + shoes + face + torso icon fades out
+#     cleanly in a single play() call.
+#
+# JSON syntax examples
+# --------------------
+# ::
+#
+#     # Glove pair — bright red, default size
+#     {"action": "attach_gloves", "who": "bevers", "color": "#cc3333"}
+#
+#     # Sized shoes — black, slightly oversized
+#     {"action": "attach_shoes", "who": "freydoon",
+#      "color": "#1a1a1a", "size": 0.36}
+#
+#     # Torso icon — name tag built inline as a simple labelled rectangle
+#     {"action": "attach_torso_icon", "who": "yannos", "preset": "name_tag",
+#      "text": "Y. YANNOS", "fill": "#f0e4b8", "stroke": "#3a2a14"}
+#
+# ── attach_torso_icon icon-source priority ───────────────────────────────
+#
+#   1. preset: <key>   →  built by _build_torso_icon_preset (this module)
+#   2. (future)        →  SVG file under pam/assets, scaled to step["scale"]
+#
+# Only the "name_tag" preset ships in v0.9.16; further presets can be
+# added by extending _build_torso_icon_preset.  Authors needing arbitrary
+# icons can construct a VGroup in Python and call fig.attach_torso_icon
+# directly, bypassing this JSON handler.
+
+def _build_torso_icon_preset(preset: str, step: dict):
+    """Build a torso icon VGroup from a named preset, or return None on
+    unknown preset.  Pure native Manim VMobjects — no bitmaps, no SVG."""
+    if preset == "name_tag":
+        text  = step.get("text", "NAME")
+        fill  = step.get("fill",   "#f0e4b8")
+        stroke= step.get("stroke", "#3a2a14")
+        scale = float(step.get("scale", 1.0))
+        # Compact rectangle with text inside — sized to the text so any
+        # length wraps cleanly.  scale lets authors tune to figure size.
+        label = Text(text, font="Courier New", font_size=14,
+                     color=stroke, weight=BOLD)
+        pad_x, pad_y = 0.08, 0.05
+        plate = RoundedRectangle(
+            width=label.width + 2 * pad_x,
+            height=label.height + 2 * pad_y,
+            corner_radius=0.04,
+            color=stroke, fill_color=fill, fill_opacity=1.0,
+            stroke_width=1.6,
+        )
+        label.move_to(plate.get_center())
+        g = VGroup(plate, label)
+        g.scale(scale)
+        return g
+    return None
+
+
+def act_attach_torso_icon(fig, step, scene, name="I.G. NoreMe", *,
+                          props=None, cast=None):
+    """Attach a small icon (badge, name tag, emblem) to the character's
+    torso, tracking it through walks and morphs.
+
+    JSON keys
+    ---------
+    who    : str — character key (required).
+    preset : str — icon preset name.  Currently supported: ``"name_tag"``.
+    scale  : float — multiplier applied after build (default ``1.0``).
+    text   : str — text shown on the icon (preset-dependent).
+    fill   : str — fill colour hex (preset-dependent).
+    stroke : str — stroke colour hex (preset-dependent).
+
+    Examples
+    --------
+    ::
+
+        {"action": "attach_torso_icon", "who": "yannos",
+         "preset": "name_tag", "text": "Y. YANNOS",
+         "fill": "#f0e4b8", "stroke": "#3a2a14"}
+    """
+    collect = step.get("_collect_anims", False)
+    _empty = [] if collect else None
+
+    if fig is None:
+        print(f"PAMPlayer: attach_torso_icon — '{name}' has no live figure, "
+              f"skipping.")
+        return _empty
+
+    preset = step.get("preset")
+    if not preset:
+        print(f"PAMPlayer: attach_torso_icon — '{name}' step is missing the "
+              f"'preset' key, skipping.")
+        return _empty
+
+    icon = _build_torso_icon_preset(preset, step)
+    if icon is None:
+        print(f"PAMPlayer: attach_torso_icon — unknown preset '{preset}' "
+              f"for '{name}'.  Valid presets: 'name_tag'.")
+        return _empty
+
+    result = fig.attach_torso_icon(icon, scene)
+    if result is None:
+        print(f"PAMPlayer: attach_torso_icon — '{name}' has no torso joints "
+              f"(lshoulder/lhip), skipping.")
+    return _empty
+
+
+def act_detach_torso_icon(fig, step, scene, name="I.G. NoreMe", *,
+                          props=None, cast=None):
+    """Remove an attached torso icon.  No-op if none attached.
+
+    JSON keys
+    ---------
+    who : str — character key (required).
+
+    Examples
+    --------
+    ::
+
+        {"action": "detach_torso_icon", "who": "yannos"}
+    """
+    collect = step.get("_collect_anims", False)
+    _empty = [] if collect else None
+
+    if fig is None:
+        print(f"PAMPlayer: detach_torso_icon — '{name}' has no live figure, "
+              f"skipping.")
+        return _empty
+
+    fig.detach_torso_icon(scene)
+    return _empty
+
+
+def act_attach_gloves(fig, step, scene, name="I.G. NoreMe", *,
+                      props=None, cast=None):
+    """Attach a mitten ellipse to each wrist, tracking position every frame.
+
+    JSON keys
+    ---------
+    who    : str   — character key (required).
+    color  : str   — glove fill hex colour (required).
+    size   : float — glove width in world units (default
+                     ``0.22 * fig._scale_sy``).
+    stroke : str   — outline colour hex (default ``"#18120c"``).
+
+    Examples
+    --------
+    ::
+
+        {"action": "attach_gloves", "who": "bevers", "color": "#cc3333"}
+        {"action": "attach_gloves", "who": "freydoon",
+         "color": "#3a2a14", "size": 0.18}
+    """
+    collect = step.get("_collect_anims", False)
+    _empty = [] if collect else None
+
+    if fig is None:
+        print(f"PAMPlayer: attach_gloves — '{name}' has no live figure, "
+              f"skipping.")
+        return _empty
+
+    color = step.get("color")
+    if not color:
+        print(f"PAMPlayer: attach_gloves — '{name}' step is missing the "
+              f"'color' key, skipping.")
+        return _empty
+
+    size   = step.get("size")    # None → figure default
+    stroke = step.get("stroke", "#18120c")
+
+    result = fig.attach_gloves(color=color, size=size, scene=scene,
+                               stroke_color=stroke)
+    if result is None:
+        print(f"PAMPlayer: attach_gloves — '{name}' has no wrist joints, "
+              f"skipping.")
+    return _empty
+
+
+def act_detach_gloves(fig, step, scene, name="I.G. NoreMe", *,
+                      props=None, cast=None):
+    """Remove attached gloves.  No-op if none attached.
+
+    JSON keys
+    ---------
+    who : str — character key (required).
+    """
+    collect = step.get("_collect_anims", False)
+    _empty = [] if collect else None
+
+    if fig is None:
+        print(f"PAMPlayer: detach_gloves — '{name}' has no live figure, "
+              f"skipping.")
+        return _empty
+
+    fig.detach_gloves(scene)
+    return _empty
+
+
+def act_attach_shoes(fig, step, scene, name="I.G. NoreMe", *,
+                     props=None, cast=None):
+    """Attach an elongated ellipse to each ankle, tracking position
+    AND facing direction every frame.  Shoes mirror when the figure's
+    ``facing`` changes during a walk_to or run_to.
+
+    JSON keys
+    ---------
+    who    : str   — character key (required).
+    color  : str   — shoe fill hex colour (required).
+    size   : float — shoe length in world units (default
+                     ``0.32 * fig._scale_sy``).
+    stroke : str   — outline colour hex (default ``"#18120c"``).
+
+    Examples
+    --------
+    ::
+
+        {"action": "attach_shoes", "who": "bevers", "color": "#1a1a1a"}
+        {"action": "attach_shoes", "who": "thalia",
+         "color": "#3a2a14", "size": 0.30}
+    """
+    collect = step.get("_collect_anims", False)
+    _empty = [] if collect else None
+
+    if fig is None:
+        print(f"PAMPlayer: attach_shoes — '{name}' has no live figure, "
+              f"skipping.")
+        return _empty
+
+    color = step.get("color")
+    if not color:
+        print(f"PAMPlayer: attach_shoes — '{name}' step is missing the "
+              f"'color' key, skipping.")
+        return _empty
+
+    size   = step.get("size")
+    stroke = step.get("stroke", "#18120c")
+
+    result = fig.attach_shoes(color=color, size=size, scene=scene,
+                              stroke_color=stroke)
+    if result is None:
+        print(f"PAMPlayer: attach_shoes — '{name}' has no ankle joints, "
+              f"skipping.")
+    return _empty
+
+
+def act_detach_shoes(fig, step, scene, name="I.G. NoreMe", *,
+                     props=None, cast=None):
+    """Remove attached shoes.  No-op if none attached.
+
+    JSON keys
+    ---------
+    who : str — character key (required).
+    """
+    collect = step.get("_collect_anims", False)
+    _empty = [] if collect else None
+
+    if fig is None:
+        print(f"PAMPlayer: detach_shoes — '{name}' has no live figure, "
+              f"skipping.")
+        return _empty
+
+    fig.detach_shoes(scene)
+    return _empty
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  NAME TAG  (v0.9.X)
+#
+#  attach_name_tag attaches a Text mobject to a character at one of two
+#  anchor points, whichever is available (queried in this priority order):
+#
+#    1. fig.get_harness_nametag_anchor() — for DogGraph characters wearing a
+#       harness (cloth_style="harness" in the cast style block).  Returns
+#       the world-space point above the harness top edge midpoint.
+#    2. face_builder.get_panel_badge_anchor(fig.head_face) — for human/alien
+#       characters with cloth_style="panel" and an attached face (lazy
+#       import inside the action; harmless if face_builder is absent).
+#
+#  Both anchors are computed from live mobject bounding boxes, so they
+#  track scale and offset changes through walks, morphs, and view swaps.
+#  The Text mobject installs an updater that re-queries the anchor each
+#  frame so the tag follows the character through any motion.
+#
+#  If neither anchor is available (no harness, no panel face attached),
+#  attach_name_tag prints a diagnostic and is a no-op — same defensive
+#  pattern as the panel arm occlusion stub.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _teardown_name_tag(fig, scene) -> None:
+    """Remove an attached name tag cleanly: stop updater, remove from scene,
+    clear figure-side references.  Idempotent."""
+    tag = getattr(fig, "_name_tag", None)
+    if tag is None:
+        return
+    updater = getattr(fig, "_name_tag_updater", None)
+    if updater is not None:
+        tag.remove_updater(updater)
+    scene.remove(tag)
+    fig._name_tag         = None
+    fig._name_tag_updater = None
+
+
+def act_attach_name_tag(fig, step, scene, name="I.G. NoreMe", *,
+                        props=None, cast=None):
+    """Attach a Text name tag at the character's name-tag anchor.
+
+    Resolution order for the anchor:
+      1. ``fig.get_harness_nametag_anchor()`` — dogs with a harness.
+      2. ``face_builder.get_panel_badge_anchor(fig.head_face)`` — characters
+         with ``cloth_style="panel"`` and an attached face.
+      3. None available → diagnostic + no-op.
+
+    JSON keys
+    ---------
+    who        : str  — character key (required)
+    text       : str  — tag text (required; supports embedded newlines)
+    font_size  : float — Manim font size (default: 18)
+    color      : hex  — text color (default: "#ffffff")
+    dy         : float — additional vertical offset above the anchor in
+                 face-local units (default: 0).  Use to nudge the tag
+                 up/down without changing the anchor constants.
+
+    Examples
+    --------
+        {"action": "attach_name_tag", "who": "chekov", "text": "CHEKOV"}
+
+        {"action": "attach_name_tag", "who": "sidel",
+         "text": "CMDR\\nSIDEL", "font_size": 14, "color": "#c8a020"}
+
+    Re-attaching to the same character (e.g. to change the text) cleanly
+    tears down the previous tag first; you don't need detach_name_tag
+    between swaps.
+    """
+    collect = step.get("_collect_anims", False)
+    _empty = [] if collect else None
+
+    if fig is None:
+        print(f"PAMPlayer: attach_name_tag — '{name}' has no live figure, "
+              f"skipping.")
+        return _empty
+
+    text      = step["text"]
+    font_size = step.get("font_size", 18)
+    color     = step.get("color", "#ffffff")
+    dy        = float(step.get("dy", 0.0))
+
+    # Resolve the anchor source.  Both options return None when not
+    # applicable, so we can probe them safely.
+    anchor_getter = None
+
+    if hasattr(fig, "get_harness_nametag_anchor"):
+        if fig.get_harness_nametag_anchor() is not None:
+            anchor_getter = fig.get_harness_nametag_anchor
+
+    if anchor_getter is None:
+        # Try the panel badge anchor on the attached face, if any.
+        face = getattr(fig, "head_face", None)
+        if face is not None and hasattr(face, "pam_panel_ref"):
+            from pam.face_builder import get_panel_badge_anchor
+            if get_panel_badge_anchor(face) is not None:
+                anchor_getter = lambda: get_panel_badge_anchor(face)
+
+    if anchor_getter is None:
+        print(f"PAMPlayer: attach_name_tag — '{name}' has no harness or "
+              f"panel anchor available; no tag attached.  Make sure the "
+              f"character has cloth_style='harness' in cast style (dogs) "
+              f"or cloth_style='panel' in face data WITH attach_face "
+              f"already fired (humans/aliens).")
+        return _empty
+
+    # Tear down any pre-existing tag (swap-safe).
+    _teardown_name_tag(fig, scene)
+
+    # Build and place the tag.  The dy offset is added as a vertical
+    # nudge in world units; for face-local "above the anchor" semantics
+    # at the typical face scale of 0.35, dy=0.02-0.05 works well.
+    tag = Text(text, color=color, font_size=font_size)
+    tag.move_to(anchor_getter() + np.array([0, dy, 0]))
+
+    def _follow(m):
+        m.move_to(anchor_getter() + np.array([0, dy, 0]))
+    tag.add_updater(_follow)
+
+    scene.add(tag)
+    fig._name_tag         = tag
+    fig._name_tag_updater = _follow
+    return _empty
+
+
+def act_detach_name_tag(fig, step, scene, name="I.G. NoreMe", *,
+                        props=None, cast=None):
+    """Remove an attached name tag.  No-op if none attached.
+
+    JSON keys
+    ---------
+    who : str — character key (required)
+
+    Examples
+    --------
+        {"action": "detach_name_tag", "who": "chekov"}
+    """
+    collect = step.get("_collect_anims", False)
+    _empty = [] if collect else None
+
+    if fig is None:
+        print(f"PAMPlayer: detach_name_tag — '{name}' has no live figure, "
+              f"skipping.")
+        return _empty
+
+    _teardown_name_tag(fig, scene)
+    return _empty
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  ACTION REGISTRY
 #  Maps every JSON "action" key to its handler function.
 #  pam_player._dispatch_one iterates this dict — no if-chains needed.
@@ -1804,6 +3208,24 @@ ACTION_REGISTRY: dict[str, callable] = {
     "release_arm":        act_release_arm,
     # ── new v0.9.13 transform ──
     "rotate":             act_rotate,
+    # ── new v0.9.13 wave aliases (handler reads JSON 'direction' key) ──
+    "wave_left":          act_wave_left,
+    "wave_right":         act_wave_right,
+    # ── new v0.9.14 speech tics ──
+    "react":              act_react,
+    # ── new v0.9.15 face attachment ──
+    "attach_face":        act_attach_face,
+    "detach_face":        act_detach_face,
+    # ── new v0.9.16 wardrobe attachments ──
+    "attach_torso_icon":  act_attach_torso_icon,
+    "detach_torso_icon":  act_detach_torso_icon,
+    "attach_gloves":      act_attach_gloves,
+    "detach_gloves":      act_detach_gloves,
+    "attach_shoes":       act_attach_shoes,
+    "detach_shoes":       act_detach_shoes,
+    # ── new v0.9.X name tags ──
+    "attach_name_tag":    act_attach_name_tag,
+    "detach_name_tag":    act_detach_name_tag,
 }
 
 # Convenience set for fountain2pam.py validation
