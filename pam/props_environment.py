@@ -108,6 +108,9 @@ def build_building(name: str, x=3.0, y=-2.6,
                    height=6.0, width=2.0,
                    color=None, window_color=None, label=None,
                    label_font=None, label_color=None,
+                   outline_color=None, outline_width=2.5,
+                   show_roofline=True,
+                   window_glow=True,
                    parent=None, attach=None, attrs=None,
                    prop_registry=None, **kwargs) -> VGroup:
     """Build a tall background building (rectangle + window grid).
@@ -128,7 +131,18 @@ def build_building(name: str, x=3.0, y=-2.6,
                    Survives keystoning because it is near y=0 (t≈0).
     label_font   : font for the sign text.  Default ``"Times New Roman"``.
     label_color  : sign text / border colour.  Default gold ``"#e8c547"``.
-    parent       : name of a parent prop, or ``None`` (world coords).
+    outline_color : stroke colour for the body rectangle.  Defaults to a cool
+                    blue-grey ``"#b8c4cc"`` that reads as a crisp architectural
+                    silhouette against most backdrops.  Pass ``color`` to match
+                    the body fill, or any hex to suit the scene palette.
+    outline_width : stroke width of the body outline.  Default ``2.5``.
+    show_roofline : if ``True`` (default), draw a filled cap strip at the very
+                    top of the building — a thin bright rectangle that reads as
+                    the roof parapet / cornice.
+    window_glow   : if ``True`` (default), draw a soft halo behind each window
+                    (a slightly larger, low-opacity rectangle) so windows appear
+                    to emit a faint light.
+    parent        : name of a parent prop, or ``None`` (world coords).
     attach       : named attachment point on the parent.
     attrs        : dict of visual overrides — ``"scale"``, ``"inclination"``.
     prop_registry : live prop dict, needed when *parent* is set.
@@ -155,19 +169,30 @@ def build_building(name: str, x=3.0, y=-2.6,
 
     c   = color        or "#8a8a8a"   # concrete grey
     wc  = window_color or "#4a7a99"   # muted blue windows
+    oc  = outline_color or "#b8c4cc"  # cool blue-grey silhouette edge
     sw  = PROP_DEFAULTS["stroke_width"]
     fc  = "#6a6a6a"                   # slightly darker fill than stroke
 
-    top_y   = y + height
+    top_y    = y + height
     center_y = y + height / 2
 
-    # body rectangle — base at y, top at y+height
+    # body rectangle — bright outline for clean silhouette
     body = Rectangle(
         width=width, height=height,
-        color=c, fill_color=fc, fill_opacity=0.85, stroke_width=sw,
+        color=oc, fill_color=fc, fill_opacity=0.90, stroke_width=outline_width,
     ).move_to(np.array([x, center_y, 0]))
 
     parts = [body]
+
+    # roofline cap — thin bright strip at the very top (parapet / cornice)
+    if show_roofline:
+        cap_h = max(0.04, height * 0.012)
+        cap = Rectangle(
+            width=width, height=cap_h,
+            color=oc, fill_color=oc,
+            fill_opacity=0.85, stroke_width=0,
+        ).move_to(np.array([x, top_y - cap_h / 2, 0]))
+        parts.append(cap)
 
     # window grid
     gutter_x, gutter_y = 0.18, 0.22
@@ -181,15 +206,45 @@ def build_building(name: str, x=3.0, y=-2.6,
     grid_h = rows * win_h + (rows - 1) * gutter_y
     x0 = x - grid_w / 2 + win_w / 2          # centre of first window column
     y0 = y + gutter_y + win_h / 2             # centre of bottom window row
+
+    # Brighter window stroke and glass glint color
+    win_stroke = "#7aaabb"             # slightly lighter than window fill
+    glint_w    = win_w * 0.32
+    glint_h    = win_h * 0.28
+
     for row in range(rows):
         for col in range(cols):
             wx = x0 + col * (win_w + gutter_x)
             wy = y0 + row * (win_h + gutter_y)
+
+            # soft glow halo behind the window (drawn first = behind)
+            if window_glow:
+                glow = Rectangle(
+                    width=win_w + 0.07, height=win_h + 0.07,
+                    color=wc, fill_color=wc,
+                    fill_opacity=0.20, stroke_width=0,
+                ).move_to(np.array([wx, wy, 0]))
+                parts.append(glow)
+
+            # main window pane
             win = Rectangle(
                 width=win_w, height=win_h,
-                color=wc, fill_color=wc, fill_opacity=0.70, stroke_width=0.8,
+                color=win_stroke, fill_color=wc,
+                fill_opacity=0.80, stroke_width=1.5,
             ).move_to(np.array([wx, wy, 0]))
             parts.append(win)
+
+            # glass glint — small bright rectangle in the top-left corner
+            glint = Rectangle(
+                width=glint_w, height=glint_h,
+                color="#ffffff", fill_color="#ffffff",
+                fill_opacity=0.22, stroke_width=0,
+            ).move_to(np.array([
+                wx - win_w / 2 + glint_w / 2 + 0.025,
+                wy + win_h / 2 - glint_h / 2 - 0.025,
+                0,
+            ]))
+            parts.append(glint)
 
     if label:
         lc   = label_color or "#e8c547"   # gold
@@ -1163,3 +1218,171 @@ def build_avatar_pod(name: str, x=0.0, y=-2.6,
 # ─────────────────────────────────────────────────────────────────────────────
 #  REGISTRY
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CROSSWALK  (painted street marking — slanted parallel stripes)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#   ┌──────────────────────────────────────┐  ← top border stripe (optional)
+#   ▓▓▓  ▓▓▓  ▓▓▓  ▓▓▓  ▓▓▓  ▓▓▓  ▓▓▓    ← slanted parallelogram stripes
+#   └──────────────────────────────────────┘  ← bottom border stripe (optional)
+#   ──────────────────────────────────────    ← street level (y)
+#
+# Stripes are Polygon parallelograms so the slant is exact with no bounding-box
+# drift.  Border stripes are plain Rectangles spanning the full crosswalk width
+# (including the slant overhang).
+
+def build_crosswalk(
+    name: str,
+    x1: float = -2.25,      # left edge x of the crosswalk
+    x2: float =  2.25,      # right edge x of the crosswalk
+    y: float  = -2.6,       # street / base y (bottom of stripes)
+    stripe_count: int  = 5,
+    stripe_h: float    = 0.55,   # height of each stripe (across the street)
+    slant_angle: float = 0.0,    # degrees from vertical; 35 ≈ classic zebra
+    color: str  = "#d8d4c8",     # warm off-white — aged painted asphalt
+    fill_opacity: float = 0.80,
+    stroke_width: float = 0.0,   # no outline by default — looks cleaner
+    border_stripe: bool   = False,     # draw solid lines at top and bottom
+    border_color: str     = "#ffffff", # white border lines
+    border_fraction: float = 0.25,     # border thickness as fraction of stripe_w
+    border_opacity: float  = 0.90,
+    parent=None, attach=None, attrs=None,
+    prop_registry=None, **kwargs,
+) -> VGroup:
+    """Build a pedestrian crosswalk (zebra stripes) at street level.
+
+    Parameters
+    ----------
+    name          : registry name.
+    x1            : left edge of the crosswalk span.  Default ``-2.25``.
+    x2            : right edge of the crosswalk span.  Default ``2.25``.
+    y             : street base y; bottom of all stripes sits here.
+                    Default ``-2.6`` (PAM floor level).
+    stripe_count  : number of parallel stripes.  Default ``5``.
+    stripe_h      : height of each stripe in Manim units.  Default ``0.55``.
+    slant_angle   : degrees from vertical.  ``0`` = vertical stripes (default).
+                    ``35`` gives a classic UK-style zebra crossing look.
+                    Range ``0``–``60``; values beyond ``60`` look extreme.
+    color         : stripe fill colour.  Default warm off-white ``"#d8d4c8"``.
+    fill_opacity  : stripe opacity.  Default ``0.80``.
+    stroke_width  : outline width on each stripe.  Default ``0.0`` (none).
+    border_stripe : if ``True``, draw a thin solid line at the top and
+                    bottom of the crosswalk.  Default ``False``.
+    border_color  : colour of the border lines.  Default ``"#ffffff"`` (white).
+    border_fraction : border thickness as a fraction of ``stripe_w``.
+                    ``0.25`` gives a border ~¼ the width of a main stripe.
+    border_opacity : opacity of the border lines.  Default ``0.90``.
+    parent        : name of a parent prop, or ``None`` (world coords).
+    attach        : named attachment point on the parent.
+    attrs         : dict of visual overrides — ``"scale"``, ``"inclination"``.
+    prop_registry : live prop dict, needed when *parent* is set.
+
+    Notes
+    -----
+    Stripe width and gap are computed automatically from the span and count::
+
+        total_span  = x2 - x1
+        stripe_w    = total_span / (stripe_count * 2 - 1)
+        gap_w       = stripe_w          # equal stripe / gap widths
+
+    For slanted stripes each main stripe is a ``Polygon`` parallelogram:
+
+        bottom-left  = (sx - stripe_w/2,          y)
+        bottom-right = (sx + stripe_w/2,          y)
+        top-right    = (sx + stripe_w/2 + offset, y + stripe_h)
+        top-left     = (sx - stripe_w/2 + offset, y + stripe_h)
+
+    where ``offset = stripe_h * tan(radians(slant_angle))``.
+
+    The crosswalk sits entirely at ground level (t ≈ 0 in the pan-up shear),
+    so it needs no ``companions`` entry on pan-up shots.
+    """
+    import math
+
+    _node_stub = {"name": name, "kind": "crosswalk",
+                  "parent": parent, "attach": attach,
+                  "attrs": attrs or {}, "x": (x1 + x2) / 2, "y": y}
+    if parent and prop_registry:
+        pos = resolve_position(_node_stub, prop_registry)
+        dx  = float(pos[0]) - (x1 + x2) / 2
+        x1 += dx
+        x2 += dx
+        y   = float(pos[1])
+
+    total_span = x2 - x1
+    unit_w     = total_span / max(1, 2 * stripe_count - 1)
+    stripe_w   = unit_w
+    gap_w      = unit_w
+
+    # horizontal overhang at the top caused by the slant
+    angle_rad  = math.radians(max(0.0, min(slant_angle, 89.0)))
+    offset     = stripe_h * math.tan(angle_rad)   # positive = leans right
+
+    cx = (x1 + x2) / 2    # crosswalk centre x (for attachments)
+
+    parts = []
+
+    # ── optional bottom border stripe ─────────────────────────────────────
+    border_h = stripe_w * border_fraction
+    # full span including the slant overhang so borders align with extremes
+    span_w   = (x2 - x1) + abs(offset)
+    span_cx  = cx + offset / 2   # shift centre to cover the overhang
+
+    if border_stripe:
+        bot_border = Rectangle(
+            width=span_w, height=border_h,
+            color=border_color, fill_color=border_color,
+            fill_opacity=border_opacity, stroke_width=0,
+        ).move_to(np.array([span_cx, y + border_h / 2, 0]))
+        parts.append(bot_border)
+
+    # ── main slanted stripes ───────────────────────────────────────────────
+    for i in range(stripe_count):
+        sx = x1 + stripe_w / 2 + i * (stripe_w + gap_w)
+
+        if abs(angle_rad) < 1e-6:
+            # vertical — plain Rectangle is more numerically stable
+            stripe = Rectangle(
+                width=stripe_w, height=stripe_h,
+                color=color, fill_color=color,
+                fill_opacity=fill_opacity, stroke_width=stroke_width,
+            ).move_to(np.array([sx, y + stripe_h / 2, 0]))
+        else:
+            # parallelogram Polygon
+            bl = [sx - stripe_w / 2,          y,             0]
+            br = [sx + stripe_w / 2,          y,             0]
+            tr = [sx + stripe_w / 2 + offset, y + stripe_h,  0]
+            tl = [sx - stripe_w / 2 + offset, y + stripe_h,  0]
+            stripe = Polygon(bl, br, tr, tl,
+                             color=color,
+                             fill_color=color,
+                             fill_opacity=fill_opacity,
+                             stroke_width=stroke_width)
+        parts.append(stripe)
+
+    # ── optional top border stripe ─────────────────────────────────────────
+    if border_stripe:
+        top_border = Rectangle(
+            width=span_w, height=border_h,
+            color=border_color, fill_color=border_color,
+            fill_opacity=border_opacity, stroke_width=0,
+        ).move_to(np.array([span_cx, y + stripe_h - border_h / 2, 0]))
+        parts.append(top_border)
+
+    group = VGroup(*parts)
+    _apply_attrs(group, attrs or {})
+
+    return _attach_pam_attrs(
+        group, name, "crosswalk",
+        cx, y,
+        surface_y=y + stripe_h,
+        attachments={
+            "centre":      np.array([cx,       y + stripe_h / 2, 0]),
+            "floor":       np.array([cx,       y,                0]),
+            "left-edge":   np.array([x1,       y + stripe_h / 2, 0]),
+            "right-edge":  np.array([x2,       y + stripe_h / 2, 0]),
+        },
+        parent=parent, attach=attach, attrs=attrs,
+    )
