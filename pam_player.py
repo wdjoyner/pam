@@ -38,6 +38,87 @@ Screenplay format
 -----------------
 A JSON array of action objects.  See README.md for the full reference.
 
+Key additions in v0.9.18 — face overlay flicker eliminated at low rt
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Upgrades the v0.9.17 face-overlay fix from an end-state repair to a
+transient-eliminating one.  The v0.9.17 approach corrected the FINAL
+frame by resetting ``head_dot.opacity = 0`` synchronously after
+``self.play()``, but the play itself still interpolated head_dot's
+opacity from 0 toward the target value and rendered intermediate
+frames where the labeled dot peeked through the face PNG.  At
+``rt < 0.05`` this produced visible flicker (5–10 frames of clobbering
+on a 24/30fps render).
+
+  • Fix.  When a figure has a live ``head_face``, focus/focus_reset
+    no longer animates ``fig.group`` for that figure.  Instead it
+    animates a rebuilt VGroup containing ``fig.edge_group`` plus
+    every dot in ``fig.dots`` EXCEPT ``"head"``.  The head dot stays
+    at opacity 0 throughout — no interpolation touches it — so no
+    frame can show the dot above the face.  See the
+    ``_animation_group`` helper in the focus handler.
+
+  • Compatibility.  Figures WITHOUT ``head_face`` still animate
+    ``fig.group`` exactly as before — no behaviour change for any
+    character that hasn't called ``attach_face``.
+
+  • Scope.  No screenplay changes required.  The v0.9.17 post-play
+    repair (``_repair_face_overlays``) is retained as a defensive
+    no-op for opacity and is still meaningful for the
+    ``bring_to_front`` z-order reassertion.
+
+Key additions in v0.9.17 — face overlay survives focus
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Fixes a structural analogue of the v0.9.10 persistent-bubble overlay
+gotcha, this time hitting attached faces (``attach_face``, v0.9.15)
+under ``focus`` / ``focus_reset``.
+
+  • Mechanism.  ``attach_face`` hides the head dot by setting
+    ``fig.dots["head"].opacity = 0`` and adds a ``head_face``
+    ``ImageMobject`` on top.  But ``fig.group`` (a property returning
+    ``VGroup(edge_group, dot_group)``) includes the head dot, so
+    ``focus`` / ``focus_reset`` — which animate
+    ``fig.group.animate.set_opacity(x)`` for ``x > 0`` — re-reveal the
+    dot and re-order it above the face via Manim's painter's algorithm.
+    The result is a labeled dot ("Bevers") clobbering the face PNG.
+
+  • Fix.  After each ``focus`` / ``focus_reset`` play, the handler
+    walks every figure it just animated (bright **and** dim — the
+    dot is also faintly visible behind a dimmed face) and, for any
+    figure with a live ``head_face``, reasserts
+    ``fig.dots["head"].opacity = 0`` synchronously and brings
+    ``head_face`` to the front.
+
+  • Scope.  No screenplay changes required.  No effect on figures
+    without ``attach_face``.  The persistent-bubble case (v0.9.10
+    footnote, below) still requires the explicit
+    ``clear_all_bubbles`` workaround pending the v1.0.0
+    bubble-lifecycle migration.
+
+Key additions in v0.9.14.1 — scene-object teardown
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Closes the despawn asymmetry between the ``props`` and
+``scene_objects`` registries.  Scene objects (added via the
+``"scene_objects"`` block, v0.9.6) live in ``_scene_objects`` and
+were never reachable by ``remove_prop`` (which only looks in the
+prop registry).  The two new verbs operate exclusively on the
+scene-object registry, preserving the design intent that scene
+objects and interactive props remain conceptually and structurally
+distinct.
+
+  • ``"remove_scene_object"`` action — despawn a single scene object
+    by name with a fade-out.  Mirror of ``remove_prop`` but targets
+    ``_scene_objects`` instead of the prop registry.  Sub-keys:
+    ``prop`` (str, required — name parameter is ``prop`` for
+    symmetry with ``remove_prop``), ``rt`` (float, fade-out
+    duration, default 0.5).  Silent no-op if the name is not in
+    ``_scene_objects``; characters and interactive props are
+    explicitly *not* searched.
+
+  • ``"clear_all_scene_objects"`` action — convenience: despawn
+    every scene object in one concurrent fade.  Typical use is at
+    end-of-scene teardown.  Sub-key: ``rt`` (float, fade-out
+    duration, default 0.5).
+
 Key additions in v0.9.12 — physical restraint and overlay center
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   • ``"grab_arm"``, ``"twist_arm_behind"``, ``"release_arm"`` actions —
@@ -292,7 +373,7 @@ from pam import HumanGraph, AlienGraph, DogGraph, GovernorGraph
 from pam.poses import POSES, STANDING_FRONT, STANDING_SIDE, scale_pose
 from pam.poses import DOG_JOINTS, DOG_STANDING
 from pam.props import build_prop, resolve_position
-from pam.actions import ACTION_REGISTRY
+from pam.actions import ACTION_REGISTRY, _resolve_speaker
 
 
 BG_COLOR    = "#0a0e1a"
@@ -401,8 +482,22 @@ def _apply_camera(meta: dict, scene: "MovingCameraScene",
     move    = (meta.get("move")    or "static").lower()
     subject = (meta.get("subject") or "ensemble").lower()
 
+    # Warn (don't fail) on unknown framing / move so typos are visible.
+    if framing not in _FRAMING_CAMERA:
+        print(f"PAMPlayer: unknown framing '{framing}' — falling back to 'wide'. "
+              f"Valid: {sorted(_FRAMING_CAMERA.keys())}")
+    if move not in _MOVE_RT:
+        print(f"PAMPlayer: unknown move '{move}' — falling back to static cut. "
+              f"Valid: {sorted(_MOVE_RT.keys())}")
+
     target_w, target_y = _FRAMING_CAMERA.get(framing, (14.2, -0.5))
-    rt = _MOVE_RT.get(move, 0.0)
+    # _MOVE_RT may legitimately store None (for moves like 'descend' /
+    # 'push-into' that own their own scene.play() — rt comes from the
+    # caller's meta dict, not this table).  In normal dispatch those
+    # moves are intercepted before reaching _apply_camera, but coerce
+    # None to 0.0 here so a direct call (test code, future code path)
+    # doesn't blow up on the `rt > 0` comparison below.
+    rt = _MOVE_RT.get(move, 0.0) or 0.0
 
     # Centre x: wide shots always centre the stage regardless of subject.
     # For other framings, nudge toward the subject but clamp to a modest
@@ -458,7 +553,10 @@ def _camera_anim(meta: dict, scene: "MovingCameraScene",
     subject = (meta.get("subject") or "ensemble").lower()
 
     target_w, target_y = _FRAMING_CAMERA.get(framing, (14.2, -0.5))
-    rt = _MOVE_RT.get(move, 0.0)
+    # See _apply_camera: coerce None (from descend/push-into table entries)
+    # to 0.0 so the `rt == 0.0` test below is well-defined if this helper
+    # is reached with one of those moves.
+    rt = _MOVE_RT.get(move, 0.0) or 0.0
 
     if rt == 0.0:
         return None   # static — handled elsewhere
@@ -504,6 +602,13 @@ def _execute_pan_up(meta: dict, scene: "MovingCameraScene",
     ``rt_return``    — tilt-back duration (default 1.8).
     ``hold``         — hold at tilt peak (default 0.8 s).
     ``shear``        — keystoning shear factor (default 0.18).
+    ``companions``   — list of additional prop / scene-object names that
+                       should receive the same perspective shear as the
+                       building (e.g. a door spawned separately from the
+                       facade).  All companions share the building's
+                       bounding-box coordinate system so they converge
+                       toward the same vanishing point.
+                       Accepts a JSON array or a single string.
     """
     frame = getattr(getattr(scene, "camera", None), "frame", None)
     if frame is None:
@@ -516,6 +621,11 @@ def _execute_pan_up(meta: dict, scene: "MovingCameraScene",
     hold_t       = float(meta.get("hold",      0.8))
     shear_amt    = float(meta.get("shear",     0.18))
     y_squeeze    = float(meta.get("y_squeeze", 0.0))
+
+    # companions: additional props/scene-objects to shear alongside the building
+    raw_companions = meta.get("companions", [])
+    if isinstance(raw_companions, str):
+        raw_companions = [raw_companions]
     # y_squeeze: fraction by which the building top is pulled downward at
     # peak tilt, simulating the foreshortening of a tilted lens.
     # 0.12 = top of building moves down by 12% of building height.
@@ -542,6 +652,22 @@ def _execute_pan_up(meta: dict, scene: "MovingCameraScene",
     if bldg_mob is None:
         print(f"  CAM tilt-up: subject '{subject}' not found, skipping.")
         return
+
+    # ── resolve companion mobs ────────────────────────────────────────────
+    # Companions share the building's coordinate system and are sheared
+    # toward the same vanishing point.
+    companion_mobs = []
+    for cname in raw_companions:
+        cname = cname.strip().lower()
+        cmob = None
+        if scene_objects and cname in scene_objects:
+            cmob = scene_objects[cname]["mob"]
+        if cmob is None:
+            cmob = props.get_raw(cname)
+        if cmob is not None:
+            companion_mobs.append(cmob)
+        else:
+            print(f"  CAM tilt-up: companion '{cname}' not found, skipping.")
 
     # ── geometry ──────────────────────────────────────────────────────────
     tilt_w  = 8.0   # medium-close width
@@ -582,25 +708,65 @@ def _execute_pan_up(meta: dict, scene: "MovingCameraScene",
         else:
             yield mob
 
-    leaf_mobs    = list(_leaves(bldg_mob))
-    orig_pts     = [m.get_points().copy() for m in leaf_mobs]
+    # Build a flat list of (leaf_mob, orig_pts) pairs for the building
+    # AND every companion.  All use the building's bldg_bottom / bldg_cx /
+    # h_range so every element converges toward the same vanishing point.
+    all_mobs = [bldg_mob] + companion_mobs
+    # Per-mob: list of (leaf, original_points) pairs
+    mob_leaf_data = []
+    for m in all_mobs:
+        leaves  = list(_leaves(m))
+        pts_bak = [lf.get_points().copy() for lf in leaves]
+        mob_leaf_data.append((m, leaves, pts_bak))
 
     shear_tracker = ValueTracker(0.0)
 
     def _shear_updater(mob):
         s = shear_tracker.get_value()
-        for leaf, pts0 in zip(leaf_mobs, orig_pts):
-            if len(pts0) == 0:
-                continue
-            pts = pts0.copy()
-            t_vals = np.clip((pts[:, 1] - bldg_bottom) / h_range, 0.0, 1.0)
-            # x: proportional compression toward centre (trapezoid keystone)
-            pts[:, 0] = bldg_cx + (pts0[:, 0] - bldg_cx) * (1.0 - s * t_vals)
-            # y: slight downward pull at top (foreshortening of tilted lens)
-            if y_squeeze > 0:
-                pts[:, 1] = pts0[:, 1] - s * y_squeeze * h_range * t_vals
-            leaf.set_points(pts)
+        for _m, leaves, pts_bak in mob_leaf_data:
+            for leaf, pts0 in zip(leaves, pts_bak):
+                if len(pts0) == 0:
+                    continue
+                pts    = pts0.copy()
+                t_vals = np.clip((pts[:, 1] - bldg_bottom) / h_range, 0.0, 1.0)
 
+                # Choose shear mode by the leaf's y-span relative to the building:
+                #
+                #   TALL leaf  (body rectangle, spans > 40 % of building height)
+                #     → per-point t: base stays full-width, top narrows toward
+                #       bldg_cx.  Correct classic keystone.
+                #
+                #   SHORT leaf  (windows, door, sign — each << building height)
+                #     → center-based symmetric squeeze: the leaf's own center
+                #       shifts toward bldg_cx by the factor for its height,
+                #       then every point compresses symmetrically around that
+                #       NEW center by the same factor.  Windows stay rectangular
+                #       (just smaller and shifted), not skewed.
+                #
+                leaf_y_span = (float(pts0[:, 1].max()) - float(pts0[:, 1].min())
+                               if len(pts0) > 1 else 0.0)
+
+                if leaf_y_span > 0.4 * h_range:
+                    # Tall element: standard per-point keystone toward bldg_cx
+                    pts[:, 0] = bldg_cx + (pts0[:, 0] - bldg_cx) * (1.0 - s * t_vals)
+                else:
+                    # Small element: symmetric squeeze around own shifted center
+                    leaf_cx   = float(np.mean(pts0[:, 0]))
+                    leaf_cy   = float(np.mean(pts0[:, 1]))
+                    t_center  = float(np.clip(
+                        (leaf_cy - bldg_bottom) / h_range, 0.0, 1.0))
+                    scale     = 1.0 - s * t_center
+                    new_cx    = bldg_cx + (leaf_cx - bldg_cx) * scale
+                    pts[:, 0] = new_cx + (pts0[:, 0] - leaf_cx) * scale
+
+                # y: slight downward pull at top (foreshortening of tilted lens)
+                if y_squeeze > 0:
+                    pts[:, 1] = pts0[:, 1] - s * y_squeeze * h_range * t_vals
+
+                leaf.set_points(pts)
+
+    # Register updater on the primary building mob only; the updater
+    # iterates mob_leaf_data which covers companions too.
     bldg_mob.add_updater(_shear_updater)
 
     scene.play(
@@ -620,9 +786,10 @@ def _execute_pan_up(meta: dict, scene: "MovingCameraScene",
         run_time=rt_return, rate_func=smooth,
     )
     bldg_mob.remove_updater(_shear_updater)
-    # Restore exact original geometry
-    for leaf, pts0 in zip(leaf_mobs, orig_pts):
-        leaf.set_points(pts0.copy())
+    # Restore exact original geometry for all mobs
+    for _m, leaves, pts_bak in mob_leaf_data:
+        for leaf, pts0 in zip(leaves, pts_bak):
+            leaf.set_points(pts0.copy())
 
     print(f"  CAM tilt-up '{subject}' peak_cy={end_cy:.2f} "
           f"shear={shear_amt:.2f} rt={rt:.1f}s return={rt_return:.1f}s")
@@ -1292,10 +1459,14 @@ class PAMPlayer(MovingCameraScene):
         title_mob = subtitle_mob = None
         if actions and actions[0].get("action") == "title":
             td = actions.pop(0)
-            title_mob = Text(
-                td.get("text", "PAM"), font="Courier New",
-                font_size=22, color=LABEL_COLOR,
-            ).to_edge(UP, buff=td.get("y_offset", 0.3))
+            title_mob = (
+                Text(
+                    td.get("text", "PAM"), font="Courier New",
+                    font_size=22, color=LABEL_COLOR,
+                )
+                .to_edge(UP, buff=td.get("y_offset", 0.3))
+                .shift(RIGHT * float(td.get("x_offset", 0.0)))
+            )
             parts = [FadeIn(title_mob)]
             st = td.get("subtitle", "")
             if st:
@@ -1350,6 +1521,14 @@ class PAMPlayer(MovingCameraScene):
                     pcap_mob.to_edge(DOWN, buff=1.0)
                 else:
                     pcap_mob.to_edge(DOWN, buff=0.15)
+                # Optional fine nudges (additive to the position keyword).
+                # x_offset shifts right (negative = left); y_offset shifts
+                # up (negative = down).  Same convention as caption /
+                # overlay_caption for consistency.
+                _pcap_xo = float(pcd.get("x_offset", 0.0))
+                _pcap_yo = float(pcd.get("y_offset", 0.0))
+                if _pcap_xo or _pcap_yo:
+                    pcap_mob.shift(RIGHT * _pcap_xo + UP * _pcap_yo)
                 pcap_txt.move_to(pcap_bar.get_center())
                 self.add(pcap_mob)   # no fade-in animation — just appears
                 self.wait(0.001)         # force Manim to commit mob before first play()
@@ -1444,7 +1623,38 @@ class PAMPlayer(MovingCameraScene):
                        if v["deadline"] is not None and now >= v["deadline"]]
             for k in expired:
                 bubble = _persistent_bubbles.pop(k)["bubble"]
+                _clear_persistent_bubble_ref(k)
                 self.play(FadeOut(bubble), run_time=0.25)
+
+        def _clear_persistent_bubble_ref(_key: str) -> None:
+            """Clear the figure-side ``_persistent_bubble`` for the speaker
+            behind *_key*.
+
+            Paired with ``_persistent_bubbles.pop()`` (or ``.clear()``) so
+            that ``morph_to`` and ``act_group_translate`` stop trying to
+            translate a faded bubble.  Introduced in v0.9.14 as part of
+            the bubble lifecycle migration (see BACK_BURNER.md): figures
+            own their bubbles via a figure-side reference, and the dict
+            entry and the reference must be cleared together.
+
+            For ``"char:<n>"`` keys the speaker is ``cast[n]["fig"]``.
+            For ``"prop:<n>"`` keys the speaker is whichever figure backs
+            the prop — currently only ``DogGraph`` via ``prop.pam_dog``.
+            ``GovernorGraph`` (``prop.pam_gov``) and generic prop bubbles
+            do not carry figure-side refs and are silently skipped.
+            """
+            if _key.startswith("char:"):
+                cfig = _get_fig(_key[len("char:"):])
+                if cfig is not None:
+                    cfig._persistent_bubble = None
+                return
+            if _key.startswith("prop:"):
+                prop = _get_prop(_key[len("prop:"):])
+                if prop is None:
+                    return
+                dog = getattr(prop, "pam_dog", None)
+                if dog is not None:
+                    dog._persistent_bubble = None
 
         def _get_fig(name: str) -> HumanGraph | None:
             if name in cast:
@@ -1457,6 +1667,16 @@ class PAMPlayer(MovingCameraScene):
         def _targets(step: dict) -> list[str]:
             who = step.get("who")
             if who is None:
+                # Path C (v0.9.14): when no "who" is specified, fall back
+                # to the "prop" key so prop-only steps (trot_to with
+                # prop key, move_prop, etc.) dispatch with the prop
+                # name as their target.  Dual-registered things (dogs)
+                # resolve via cast lookup in _dispatch_one; plain props
+                # bail safely at the fig-is-None guard since the
+                # character-bound handlers below it need a real fig.
+                prop = step.get("prop")
+                if prop is not None:
+                    return [prop]
                 return [_DEFAULT]
             if who == "all":
                 return list(cast.keys())
@@ -1528,6 +1748,30 @@ class PAMPlayer(MovingCameraScene):
                 elif figure_type == "dog":
                     facing = step.get("facing", spec.get("facing", "right"))
                     fig = DogGraph(offset=offset, style=style, facing=facing)
+                    # Path C dual registration (v0.9.14): also expose this
+                    # DogGraph via the prop registry under the same name so
+                    # trot_to, prop_say, move_prop, etc. resolve to the same
+                    # instance whether addressed via "who" or "prop".
+                    # Mirror of the wrap-and-add pattern in spawn_prop's dog
+                    # branch.  Skip if a prop with this name already exists
+                    # (e.g. spawn_prop landed first; the dual entry would
+                    # conflict).  See BACK_BURNER.md, "Quadruped registration
+                    # (Path C)" for the design.
+                    if props is not None and props.get_raw(name) is None:
+                        # Bind dog.group to a local: the property returns a
+                        # fresh VGroup on each access, so setting attributes
+                        # on dog.group directly would attach them to a
+                        # throwaway object and leave the registered group
+                        # bare.  (Same gotcha noted in spawn_prop's dog
+                        # branch.)
+                        dog_group = fig.group
+                        dog_group.pam_name      = name
+                        dog_group.pam_type      = "dog"
+                        dog_group.pam_x         = float(offset[0])
+                        dog_group.pam_y         = float(offset[1])
+                        dog_group.pam_surface_y = float(offset[1])
+                        dog_group.pam_dog       = fig
+                        props.add(name, dog_group)
                 else:
                     # "human" or unrecognised → default HumanGraph
                     fig = HumanGraph(
@@ -1555,24 +1799,40 @@ class PAMPlayer(MovingCameraScene):
                     else:
                         fig.fade_in(self)
                 cast[name]["fig"] = fig
+                # v0.9.14 (speech tics): wire the tic profile from the
+                # cast entry onto the figure once construction is done.
+                # Stored on the figure (not just on cast[name]) so trigger
+                # handlers can read it via the resolver's `spk.fig`
+                # without an extra cast-side lookup.  Defaults to []
+                # (no tics) when the cast spec didn't declare one.
+                fig.tic_profile = cast[name].get("tic_profile", [])
                 return None
 
+            # Path C (v0.9.14): formerly this guard had an exception
+            # that let trot_to fall through when cast lookup failed,
+            # so the handler's prop-side lookup could find the dog.
+            # Under dual registration (steps B/C) dogs are in cast
+            # too, and _targets now falls back to the "prop" key, so
+            # the exception is no longer needed.
             if fig is None:
-                # trot_to is prop-keyed, not cast-keyed — let it through
-                # even when the name doesn't resolve to a cast figure.
-                if act != "trot_to":
-                    return None
+                return None
 
             # ── trot_to ──────────────────────────────────────────────────
-            # Stays player-owned: DogGraph lives in props, not cast.
+            # Path C (v0.9.14): uses _resolve_speaker so the same dog
+            # is reachable via either "who" or "prop" key, regardless
+            # of how it entered the registries (cast or spawn_prop —
+            # under dual registration both populate cast and props).
+            # Stays player-owned: trot_to needs scene access for its
+            # keyframe loop.
             if act == "trot_to":
-                pname = step.get("prop") or name
-                prop  = props.get(pname)
-                dog   = getattr(prop, "pam_dog", None) if prop else None
+                spk = _resolve_speaker(step, cast=cast, props=props)
+                dog = spk.fig if isinstance(spk.fig, DogGraph) else None
                 if dog:
-                    dog.trot_to(step["x"], self, stride=step.get("stride", 0.14))
+                    dog.trot_to(step["x"], self,
+                                stride=step.get("stride", 0.14))
                 else:
-                    print(f"PAMPlayer: trot_to — '{pname}' is not a DogGraph, skipping.")
+                    print(f"PAMPlayer: trot_to — '{spk.name}' is not a "
+                          f"DogGraph, skipping.")
                 return None
 
             # ── say ──────────────────────────────────────────────────────
@@ -1602,6 +1862,7 @@ class PAMPlayer(MovingCameraScene):
                 if (_persist or _duration is not None) \
                         and _key in _persistent_bubbles:
                     _old = _persistent_bubbles.pop(_key)["bubble"]
+                    _clear_persistent_bubble_ref(_key)
                     self.play(FadeOut(_old), run_time=0.2)
 
                 _bubble = fig.say(
@@ -1830,10 +2091,22 @@ class PAMPlayer(MovingCameraScene):
                 multi = True
                 for cname, spec in step.get("characters", {}).items():
                     ft = spec.get("figure_type", "human")
+                    # Path C (v0.9.14): default pose must be type-aware.
+                    # Dogs use DOG_STANDING (joint set is "spine_front",
+                    # "spine_mid", etc., not the humanoid set).  Governors
+                    # are pose-less (single mobject, no skeleton).
+                    # Pre-Path-C this defaulted unconditionally to
+                    # "standing_front" — fine for humanoids, crashes on
+                    # a DogGraph at set_pose time with KeyError on the
+                    # humanoid joint names.
+                    _default_pose = {
+                        "dog":      "dog_standing",
+                        "governor": None,
+                    }.get(ft, "standing_front")
                     cast[cname] = {
                         "fig":         None,
                         "figure_type": ft,
-                        "pose":        spec.get("pose", "standing_front"),
+                        "pose":        spec.get("pose", _default_pose),
                         "offset":      spec.get("offset", [0, 0, 0]),
                         "style":       spec.get("style", {}),
                         "build":       spec.get("build", "default"),
@@ -1844,7 +2117,43 @@ class PAMPlayer(MovingCameraScene):
                         "uniforms":    spec.get("uniforms", {}),
                         # prop-characters carry spawn coords in cast block
                         "spawn":       spec.get("spawn", {}),
+                        # v0.9.14: speech-tic profile.  List of
+                        #   {"fragment": "<name>", "triggers": ["react", ...]}
+                        # entries.  Wired onto fig.tic_profile at fade_in
+                        # time; consumed by the react / sentence_end / etc.
+                        # trigger handlers in actions.py.  See pam/tics.py
+                        # for the fragment registry and the body-type
+                        # applicability semantics.
+                        "tic_profile": spec.get("tic_profile", []),
+                        # v0.9.17: expression variants defined in
+                        # tntd_characters.json under "expressions".
+                        # Passed through to act_attach_face, which calls
+                        # face_builder.register_variants() on first use.
+                        "expressions": spec.get("expressions", {}),
                     }
+                continue
+
+            # ── faces ────────────────────────────────────────────────────
+            # Header-level face definition block.  Loads character face
+            # data from the screenplay JSON into face_builder.FACE_DATA,
+            # keeping project-specific face definitions out of the library
+            # source code.  Must appear before any attach_face steps.
+            #
+            # JSON format mirrors the cast block:
+            #   {"action": "faces", "characters": {"bevers": {...}, ...}}
+            #
+            # See face_builder.py docstring (FACES BLOCK) for the full
+            # schema.  Expression variants are still registered lazily by
+            # act_attach_face via register_variants(); the faces block only
+            # carries base character definitions.
+            if act == "faces":
+                try:
+                    from pam.face_builder import load_faces
+                    load_faces(step.get("characters", {}))
+                except ImportError:
+                    print("PAMPlayer: faces — face_builder.py not found "
+                          "in pam/.  Face attachment will use only the "
+                          "example entries built into face_builder.py.")
                 continue
 
             # ── scene_props ──────────────────────────────────────────────
@@ -1960,6 +2269,68 @@ class PAMPlayer(MovingCameraScene):
                     else:
                         self.remove(prop)   # instant, no animation
                     del props[pname]
+                    # Path C (v0.9.14): symmetric counterpart to step C's
+                    # dual-entry on spawn_prop and step B's dual-entry on
+                    # cast fade_in.  When a dual-registered dog is
+                    # removed, the cast entry under the same name still
+                    # points at the now-faded DogGraph; subsequent
+                    # iteration (e.g. fade_out who="all") would try to
+                    # re-fade the removed mobjects, which Manim handles
+                    # by briefly re-adding them — visible as the dog
+                    # reappearing for a few frames before disappearing
+                    # again.  Clear the cast entry to prevent that.
+                    # Guarded on pam_dog so plain props sharing a name
+                    # with an unrelated cast member don't get clobbered.
+                    if (cast is not None
+                            and getattr(prop, "pam_dog", None) is not None):
+                        cast.pop(pname, None)
+                continue
+
+            # ── remove_scene_object ──────────────────────────────────────
+            # Despawn a single scene-object entry (declared via the
+            # "scene_objects" block) with a fade-out.  Mirror of
+            # remove_prop targeted at _scene_objects.  Does NOT search
+            # the prop registry or the cast — by design, since scene
+            # objects and interactive props are distinct categories
+            # (see top-of-file v0.9.14.1 docstring).
+            #
+            # JSON keys:
+            #   "prop" — scene-object name (required; the parameter is
+            #            called "prop" for symmetry with remove_prop).
+            #   "rt"   — fade-out duration in seconds (default 0.5).
+            #            Use rt=0 for an instant remove with no animation.
+            if act == "remove_scene_object":
+                oname = step.get("prop")
+                entry = _scene_objects.pop(oname, None)
+                if entry is not None:
+                    mob = entry["mob"]
+                    rt  = step.get("rt", 0.5)
+                    if rt > 0:
+                        self.play(FadeOut(mob), run_time=rt)
+                    else:
+                        self.remove(mob)
+                continue
+
+            # ── clear_all_scene_objects ──────────────────────────────────
+            # Convenience: despawn every entry in _scene_objects at once
+            # via concurrent FadeOuts.  Intended for end-of-scene teardown
+            # when buildings / facades / backdrops should all be cleared
+            # in a single animated step.
+            #
+            # JSON keys:
+            #   "rt" — fade-out duration in seconds (default 0.5).
+            #          Applied uniformly across all scene objects since
+            #          they fade concurrently in one play() call.
+            if act == "clear_all_scene_objects":
+                rt = step.get("rt", 0.5)
+                if _scene_objects:
+                    mobs = [entry["mob"] for entry in _scene_objects.values()]
+                    _scene_objects.clear()
+                    if rt > 0:
+                        self.play(*[FadeOut(m) for m in mobs], run_time=rt)
+                    else:
+                        for m in mobs:
+                            self.remove(m)
                 continue
 
             # ── spawn_prop ───────────────────────────────────────────────
@@ -2022,6 +2393,45 @@ class PAMPlayer(MovingCameraScene):
                     dog_group.pam_surface_y = y
                     dog_group.pam_dog       = dog
                     props.add(pname, dog_group)
+                    # Path C dual registration (v0.9.14): mirror entry on
+                    # the cast side so this DogGraph is also reachable via
+                    # `who: "<pname>"` for verbs like `say`, `walk_to`, and
+                    # other cast-style actions.  Three cases:
+                    #
+                    #   1. No cast entry for pname     → create fresh entry.
+                    #   2. Cast entry exists, dog-typed (or no figure_type) →
+                    #      bind .fig to the live DogGraph.  Handles the
+                    #      idiom where a `cast` action pre-declares a
+                    #      template entry and `spawn_prop` materialises it.
+                    #   3. Cast entry exists, non-dog figure_type → name
+                    #      collision; warn and skip the cast write to
+                    #      avoid clobbering an unrelated character.
+                    #
+                    # See BACK_BURNER.md, "Quadruped registration (Path C)".
+                    existing = cast.get(pname)
+                    if existing is None:
+                        cast[pname] = {
+                            "fig":         dog,
+                            "figure_type": "dog",
+                            "pose":        None,
+                            "offset":      [x, y, 0],
+                            "style":       style,
+                            "build":       "dog",
+                            "facing":      facing,
+                        }
+                    elif existing.get("figure_type", "dog") == "dog":
+                        existing["fig"] = dog
+                        # Fill in metadata the cast block may have omitted.
+                        existing.setdefault("figure_type", "dog")
+                        existing.setdefault("offset",      [x, y, 0])
+                        existing.setdefault("style",       style)
+                        existing.setdefault("facing",      facing)
+                    else:
+                        print(f"PAMPlayer spawn_prop: cast entry "
+                              f"'{pname}' is figure_type="
+                              f"{existing.get('figure_type')!r}, not "
+                              f"'dog'; skipping cast side of dual "
+                              f"registration to avoid clobbering.")
                     dog.fade_in(self, rt_edges=rt, rt_dots=rt * 0.7)
                     continue
 
@@ -2093,10 +2503,21 @@ class PAMPlayer(MovingCameraScene):
                 continue
 
             # ── move_prop ────────────────────────────────────────────────
-            # Instantly reposition a prop (no animation).
+            # Instantly reposition a prop (no animation, or animated if rt>0).
+            #
+            # Path C (v0.9.14): two changes.
+            #  - Use _resolve_speaker so the same dog-group is reachable
+            #    via either "who" or "prop" key consistently with
+            #    trot_to / prop_say.
+            #  - For dog-group props, sync the wrapped DogGraph's
+            #    `offset` so subsequent trot_to computes dx_total from
+            #    the new position rather than the stale pre-move
+            #    location.  This fixes the offset-desync bug listed
+            #    under "Quadruped registration (Path C)" in BACK_BURNER.
             if act == "move_prop":
-                pname = step.get("prop")
-                prop  = _get_prop(pname)
+                spk   = _resolve_speaker(step, cast=cast, props=props)
+                pname = spk.name
+                prop  = spk.prop
                 if prop:
                     tx = step.get("x", prop.pam_x)
                     ty = step.get("y", prop.pam_y)
@@ -2108,6 +2529,12 @@ class PAMPlayer(MovingCameraScene):
                         prop.move_to(np.array([tx, ty, 0]))
                     prop.pam_x = tx
                     prop.pam_y = ty
+                    # Sync the wrapped DogGraph's offset (if any) so
+                    # subsequent trot_to / walk_to start from the new
+                    # position.  No-op for plain props.
+                    dog = getattr(prop, "pam_dog", None)
+                    if dog is not None:
+                        dog.offset = np.array([tx, ty, 0.0])
                     # Keep scene-graph node in sync if present
                     node = getattr(prop, "pam_node", None)
                     if node:
@@ -2310,14 +2737,25 @@ class PAMPlayer(MovingCameraScene):
 
             # ── prop_say ─────────────────────────────────────────────────
             if act == "prop_say":
-                pname     = step.get("prop")
-                prop      = _get_prop(pname)
+                # Path C (v0.9.14): use _resolve_speaker so the speaker
+                # is reachable via either "who" or "prop" key.  Dogs
+                # benefit directly (same DogGraph instance reachable
+                # from both registries).  GovernorGraph and generic
+                # props still discriminate via prop attributes below.
+                spk       = _resolve_speaker(step, cast=cast, props=props)
+                pname     = spk.name
+                prop      = spk.prop
                 text      = step.get("text", "")
                 hold      = step.get("hold", 1.4)
                 font_size = step.get("font_size", 18)
                 rt_in     = step.get("rt_in",  0.35)
                 rt_out    = step.get("rt_out", 0.25)
                 side      = step.get("side", "right")
+                # v0.9.18: optional vertical nudge.  Currently only the
+                # GovernorGraph branch consumes this — DogGraph and the
+                # generic-prop branch ignore it.  Default 0.0 so existing
+                # screenplays are unchanged.
+                y_offset  = float(step.get("y_offset", 0.0))
 
                 if not prop or not text:
                     continue
@@ -2343,6 +2781,7 @@ class PAMPlayer(MovingCameraScene):
                     if (_persist or _duration is not None) \
                             and _key in _persistent_bubbles:
                         _old = _persistent_bubbles.pop(_key)["bubble"]
+                        _clear_persistent_bubble_ref(_key)
                         self.play(FadeOut(_old), run_time=0.2)
 
                     _bubble = gov.say(
@@ -2354,6 +2793,7 @@ class PAMPlayer(MovingCameraScene):
                         post_wait=PADDING_WAIT if not (_persist or _duration is not None) else 0.0,
                         extra_anims=_cam_extra,
                         persist=(_persist or _duration is not None),
+                        y_offset=y_offset,
                     )
                     if _bubble is not None:
                         if _duration is not None:
@@ -2367,7 +2807,10 @@ class PAMPlayer(MovingCameraScene):
                     continue
 
                 # ── DogGraph: delegate to its say() method ────────────────
-                dog = getattr(prop, "pam_dog", None)
+                # Path C (v0.9.14): use the resolver's fig (already
+                # populated from cast for dual-registered dogs, or
+                # from prop.pam_dog for legacy spawn_prop'd dogs).
+                dog = spk.fig if isinstance(spk.fig, DogGraph) else None
                 if dog is not None:
                     _persist  = bool(step.get("persist", False))
                     _duration = step.get("duration")
@@ -2376,6 +2819,7 @@ class PAMPlayer(MovingCameraScene):
                     if (_persist or _duration is not None) \
                             and _key in _persistent_bubbles:
                         _old = _persistent_bubbles.pop(_key)["bubble"]
+                        _clear_persistent_bubble_ref(_key)
                         self.play(FadeOut(_old), run_time=0.2)
 
                     _bubble = dog.say(
@@ -2504,6 +2948,7 @@ class PAMPlayer(MovingCameraScene):
                 # first so bubbles don't stack visually.
                 if (_persist or _duration is not None) and _key in _persistent_bubbles:
                     _old = _persistent_bubbles.pop(_key)["bubble"]
+                    _clear_persistent_bubble_ref(_key)
                     self.play(FadeOut(_old), run_time=0.2)
 
                 _fade_anims = [FadeIn(bubble, scale=0.88)] + (_cam_extra or [])
@@ -2569,6 +3014,7 @@ class PAMPlayer(MovingCameraScene):
                     continue
                 entry = _persistent_bubbles.pop(_key, None)
                 if entry is not None:
+                    _clear_persistent_bubble_ref(_key)
                     _bubble = entry["bubble"]
                     _default_rt = getattr(_bubble, "pam_rt_out", 0.25)
                     rt = step.get("run_time", step.get("rt", _default_rt))
@@ -2590,6 +3036,11 @@ class PAMPlayer(MovingCameraScene):
                 if _persistent_bubbles:
                     fades = [FadeOut(v["bubble"])
                              for v in _persistent_bubbles.values()]
+                    # Walk-and-talk follow (v0.9.14): clear every figure-
+                    # side ref before bulk-clearing the dict, paired with
+                    # the per-bubble pops elsewhere in this file.
+                    for _k in _persistent_bubbles:
+                        _clear_persistent_bubble_ref(_k)
                     _persistent_bubbles.clear()
                     self.play(*fades, run_time=rt)
                 continue
@@ -2666,11 +3117,16 @@ class PAMPlayer(MovingCameraScene):
                     )
                     cap_card = VGroup(bar, cap_mob)
 
-                    # Position using explicit PAM-frame coordinates:
-                    # frame centre y=-0.5, height=14.2*(9/16)=7.99
-                    # bottom edge ≈ y=-4.5, top edge ≈ y=3.5
-                    _frame_cy = -0.5
-                    _frame_h  = 14.2 * 9 / 16
+                    # Track the current camera frame instead of assuming
+                    # the default centre (y=-0.5).  This lets captions
+                    # appear correctly during shots where the camera has
+                    # been repositioned (e.g. an opening hold on the sky).
+                    # Frame width is also read live, so "top"/"bottom"
+                    # anchor to the visible frame edges even after a zoom.
+                    _frame_cx = float(self.camera.frame.get_center()[0])
+                    _frame_cy = float(self.camera.frame.get_center()[1])
+                    _frame_w  = float(self.camera.frame.width)
+                    _frame_h  = _frame_w * 9 / 16
                     _bar_h    = cap_mob.height + 0.28
                     if cap_pos == "top":
                         _bar_cy = _frame_cy + _frame_h / 2 - _bar_h / 2 - 0.15
@@ -2678,7 +3134,11 @@ class PAMPlayer(MovingCameraScene):
                         _bar_cy = _frame_cy - _frame_h / 2 + _bar_h / 2 + 1.0
                     else:   # "bottom" default
                         _bar_cy = _frame_cy - _frame_h / 2 + _bar_h / 2 + 0.15
-                    cap_card.move_to(np.array([0.0, _bar_cy, 0]))
+                    # Optional fine nudges (additive to the position keyword).
+                    _cap_xo = float(step.get("x_offset", 0.0))
+                    _cap_yo = float(step.get("y_offset", 0.0))
+                    cap_card.move_to(
+                        np.array([_frame_cx + _cap_xo, _bar_cy + _cap_yo, 0]))
                     cap_mob.move_to(bar.get_center())
 
                     self.play(FadeIn(cap_card), run_time=rt_in)
@@ -2732,8 +3192,11 @@ class PAMPlayer(MovingCameraScene):
                     )
                     _oc_card = VGroup(_oc_bar, _oc_txt)
 
-                    _frame_cy = -0.5
-                    _frame_h  = 14.2 * 9 / 16
+                    # Track current camera frame (see caption handler).
+                    _frame_cx = float(self.camera.frame.get_center()[0])
+                    _frame_cy = float(self.camera.frame.get_center()[1])
+                    _frame_w  = float(self.camera.frame.width)
+                    _frame_h  = _frame_w * 9 / 16
                     _bar_h    = _oc_txt.height + 0.28
                     if cap_pos == "top":
                         _bar_cy = _frame_cy + _frame_h / 2 - _bar_h / 2 - 0.15
@@ -2743,7 +3206,11 @@ class PAMPlayer(MovingCameraScene):
                         _bar_cy = _frame_cy + 0.5  # slightly above mid to clear characters
                     else:
                         _bar_cy = _frame_cy - _frame_h / 2 + _bar_h / 2 + 0.15
-                    _oc_card.move_to(np.array([0.0, _bar_cy, 0]))
+                    # Optional fine nudges (additive to the position keyword).
+                    _oc_xo = float(step.get("x_offset", 0.0))
+                    _oc_yo = float(step.get("y_offset", 0.0))
+                    _oc_card.move_to(
+                        np.array([_frame_cx + _oc_xo, _bar_cy + _oc_yo, 0]))
                     _oc_txt.move_to(_oc_bar.get_center())
 
                     # Start fully transparent
@@ -2843,15 +3310,135 @@ class PAMPlayer(MovingCameraScene):
                 on_names  = step.get("on",  [])
                 dim_names = step.get("dim", [])
 
+                # Names of mobjects attached to a figure but stored OUTSIDE
+                # fig.group (which is a property returning VGroup(edge_group,
+                # dot_group) — see figure.py).  Without this, attached faces
+                # (v0.9.15), torso icons (v0.9.16), and harnesses stay at
+                # full opacity while the body dims, producing a lit face on
+                # a ghostly body.
+                _attach_attrs = ("head_face", "torso_icon", "harness")
+
+                def _animate_attachments(_fig, _opacity, _anims):
+                    for _attr in _attach_attrs:
+                        _att = getattr(_fig, _attr, None)
+                        if _att is not None:
+                            _anims.append(_att.animate.set_opacity(_opacity))
+
+                # v0.9.18: animation target selection for the body opacity.
+                #
+                # For figures WITHOUT an attached face, animate fig.group
+                # (edges + all dots).  Default behaviour, unchanged.
+                #
+                # For figures WITH an attached head_face, animate a
+                # head-dot-EXCLUDED group: edges + every dot except
+                # fig.dots["head"].  The head dot must remain at opacity 0
+                # throughout the animation, not just at the end.
+                #
+                # Why the change: v0.9.17 fixed the END state by repairing
+                # head_dot.opacity = 0 synchronously AFTER self.play(),
+                # but the play() itself still interpolated head_dot from
+                # 0 toward the target opacity and rendered intermediate
+                # frames where the labeled dot peeks through the face PNG.
+                # At rt < 0.05, that transient flicker became visible as
+                # 5–10 frames of clobbering.  By keeping head_dot out of
+                # the animation target entirely, no intermediate frames
+                # touch it at all.  _repair_face_overlays is kept as
+                # belt-and-suspenders for the bring_to_front z-order
+                # reassertion, even though the opacity reset is now a
+                # no-op for face-attached figures.
+                def _animation_group(_fig):
+                    if getattr(_fig, "head_face", None) is None:
+                        return _fig.group   # default: animate everything
+                    # Face attached: rebuild without the head dot.
+                    _non_head = [_d for _k, _d in _fig.dots.items() if _k != "head"]
+                    return VGroup(_fig.edge_group, *_non_head)
+
+                # v0.9.17 / v0.9.18: head_face overlay repair.  See ref-doc
+                # §8.4 ("The focus / focus_reset re-paint gotcha", Example B).
+                #
+                # Mechanism (original v0.9.17 analysis): attach_face sets
+                # fig.dots["head"].opacity = 0 and adds an ImageMobject
+                # (fig.head_face) above it.  fig.group includes the head
+                # dot, so animating fig.group.set_opacity(x) for any x > 0
+                # re-revealed the dot AND the play() call also re-ordered
+                # the dot above the face image via Manim's painter's
+                # algorithm.  v0.9.18 prevents the re-reveal by excluding
+                # head_dot from the animation target (see _animation_group
+                # above); this repair stays for the bring_to_front pass.
+                _touched = []
+
+                def _repair_face_overlays():
+                    for _fig in _touched:
+                        _face = getattr(_fig, "head_face", None)
+                        if _face is None:
+                            continue
+                        _head = (
+                            _fig.dots.get("head")
+                            if hasattr(_fig, "dots") else None
+                        )
+                        if _head is not None:
+                            _head.set_opacity(0)   # no-op under v0.9.18
+                                                   # but defends against any
+                                                   # future regression
+                        self.bring_to_front(_face)
+
+                # v0.9.18.1: keep each face-attached figure's head_face at
+                # the FRONT of the z-order for the DURATION of the focus
+                # animation, not just after it.
+                #
+                # v0.9.18 excluded the head DOT from the animation target,
+                # but the animated group still contains fig.edge_group and
+                # the non-head dots — including the neck edge and the
+                # shoulder dots/struts that the face PNG (a head+neck+
+                # shoulders bust) covers in the static frame.  Manim's
+                # play() re-adds the animated group to the front of the
+                # scene each frame, so those covered body elements paint
+                # ABOVE the face for the animation's duration, then snap
+                # back behind it when _repair_face_overlays runs the final
+                # bring_to_front.  At any rt this shows as a brief flash of
+                # neck/shoulder lines over the face.
+                #
+                # Rather than enumerate exactly which edges/dots the bust
+                # covers (build-specific, and it would drift), we re-assert
+                # bring_to_front(face) every frame via an updater for the
+                # span of the play.  This holds the face on top regardless
+                # of what is re-added behind it.  The updater is removed
+                # immediately after the play; the steady-state z-order is
+                # then handled by _repair_face_overlays as before.  Nothing
+                # persistent changes, so no interaction with bubble/caption
+                # z-order outside the focus window.
+                _face_front_keepers = []
+
+                def _install_face_front_keepers():
+                    for _fig in _touched:
+                        _face = getattr(_fig, "head_face", None)
+                        if _face is None:
+                            continue
+                        def _keeper(_m, _f=_face):
+                            self.bring_to_front(_f)
+                        _face.add_updater(_keeper)
+                        _face_front_keepers.append((_face, _keeper))
+
+                def _remove_face_front_keepers():
+                    for _face, _keeper in _face_front_keepers:
+                        _face.remove_updater(_keeper)
+                    _face_front_keepers.clear()
+
                 if act == "focus_reset" or on_names == ["all"]:
                     anims = []
                     for cname, cspec in cast.items():
                         fig = cspec.get("fig")
                         if fig is not None and hasattr(fig, "group"):
-                            anims.append(fig.group.animate.set_opacity(1.0))
+                            anims.append(
+                                _animation_group(fig).animate.set_opacity(1.0))
+                            _animate_attachments(fig, 1.0, anims)
+                            _touched.append(fig)
                         cspec["opacity"] = 1.0
                     if anims:
+                        _install_face_front_keepers()
                         self.play(*anims, run_time=rt, rate_func=smooth)
+                        _remove_face_front_keepers()
+                    _repair_face_overlays()
                     print(f"  FOCUS reset → all figures full opacity")
                 else:
                     if dim_names == "all_others":
@@ -2861,18 +3448,27 @@ class PAMPlayer(MovingCameraScene):
                         fig = _get_fig(cname)
                         if fig is not None and hasattr(fig, "group"):
                             anims.append(
-                                fig.group.animate.set_opacity(bright_opacity))
+                                _animation_group(fig).animate
+                                    .set_opacity(bright_opacity))
+                            _animate_attachments(fig, bright_opacity, anims)
+                            _touched.append(fig)
                         if cname in cast:
                             cast[cname]["opacity"] = bright_opacity
                     for cname in dim_names:
                         fig = _get_fig(cname)
                         if fig is not None and hasattr(fig, "group"):
                             anims.append(
-                                fig.group.animate.set_opacity(dim_opacity))
+                                _animation_group(fig).animate
+                                    .set_opacity(dim_opacity))
+                            _animate_attachments(fig, dim_opacity, anims)
+                            _touched.append(fig)
                         if cname in cast:
                             cast[cname]["opacity"] = dim_opacity
                     if anims:
+                        _install_face_front_keepers()
                         self.play(*anims, run_time=rt, rate_func=smooth)
+                        _remove_face_front_keepers()
+                    _repair_face_overlays()
                     print(f"  FOCUS on={on_names} dim={dim_names} "
                           f"opacity={dim_opacity} rt={rt}s")
                 continue
@@ -2902,16 +3498,25 @@ class PAMPlayer(MovingCameraScene):
                             continue
 
                         if is_prop_loco or sa == "trot_to":
-                            # Prop-character path (dog)
-                            prop = props.get(tname)
-                            dog  = getattr(prop, "pam_dog", None) if prop else None
+                            # Path C (v0.9.14): _resolve_speaker handles
+                            # both cast and prop entries (dual reg),
+                            # so cast-loaded dogs work too.  isinstance
+                            # check ensures we got a DogGraph (not a
+                            # chair or humanoid that happens to share
+                            # a name).
+                            spk = _resolve_speaker(sub, cast=cast,
+                                                   props=props)
+                            dog = (spk.fig
+                                   if isinstance(spk.fig, DogGraph)
+                                   else None)
                             if dog:
                                 stride = sub.get("stride", 0.14)
                                 plan = dog._trot_plan(x, stride=stride)
                                 locomotion[tname] = (dog, plan, "dog")
                             else:
                                 print(f"PAMPlayer: parallel trot_to — "
-                                      f"'{tname}' is not a DogGraph, skipping.")
+                                      f"'{tname}' is not a DogGraph, "
+                                      f"skipping.")
                         else:
                             # Humanoid cast path
                             fig = _get_fig(tname)
@@ -2949,6 +3554,22 @@ class PAMPlayer(MovingCameraScene):
                                 else:
                                     all_anims.extend(
                                         mover._pose_anims(pose, new_off))
+                                # Walk-and-talk follow inside parallel
+                                # (v0.9.14): parallel locomotion bypasses
+                                # morph_to entirely (it builds keyframe
+                                # anims inline via _pose_anims / dots /
+                                # lines), so the bubble-follow hook in
+                                # figure.py is not exercised here.  Mirror
+                                # it at this site so persistent bubbles
+                                # follow their speakers through parallel
+                                # walks / runs / trots too.  Works for
+                                # both dog and humanoid branches since
+                                # mover and new_off are in scope for both.
+                                bubble = getattr(mover, "_persistent_bubble", None)
+                                if bubble is not None:
+                                    all_anims.append(bubble.animate.move_to(
+                                        new_off + bubble.pam_follows_offset
+                                    ))
                                 mover.pose = pose
                                 mover.offset = new_off
                         if all_anims:
@@ -2982,12 +3603,6 @@ class PAMPlayer(MovingCameraScene):
                 continue
 
             # ── normal sequential action ─────────────────────────────────
-            # Special case: trot_to keyed by "prop" bypasses _targets entirely
-            # since the dog lives in props, not cast.
-            if act == "trot_to" and "prop" in step and "who" not in step:
-                _dispatch_one(step, step["prop"])
-                continue
-
             # Special case: group_translate addresses multiple characters at
             # once — bypass _targets and call the handler once with a sentinel
             # name, passing the full cast so the handler can iterate itself.
