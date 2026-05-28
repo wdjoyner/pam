@@ -50,7 +50,50 @@ DEFAULT_STYLE = dict(
     head_font    = "Courier New",
     head_font_sz = 14,
     highlight_color = "#7ec8ff",
+    # ── speech bubble (v0.9.16) ──
+    # bubble_color drives both the border (full saturation) and the fill
+    # (blended 10% toward white).  If absent at runtime, say() falls back
+    # to edge_color.  bubble_text_color overrides the default dark text
+    # (head_color) on tinted-white fills — supply only if head_color is
+    # too dark or clashes.
+    bubble_color      = None,
+    bubble_text_color = None,
 )
+
+
+def _blend_to_white(hex_color: str, t: float = 0.10) -> str:
+    """
+    Blend *hex_color* toward white by mixing ``t`` fraction of the colour
+    with ``1 - t`` fraction of white.  Linear interpolation in 0–255 RGB
+    space, clamped.
+
+    At ``t = 0.10`` the result is ~90 % white with 10 % of the input
+    colour — pale enough that dark text remains legible, saturated
+    enough to read as a tinted-white bubble background.
+
+    Parameters
+    ----------
+    hex_color : str
+        Source colour, e.g. ``"#cc3333"``.
+    t : float, optional
+        Mix fraction of the source colour (default ``0.10``).  ``0.0``
+        returns pure white; ``1.0`` returns the input unchanged.
+
+    Returns
+    -------
+    str
+        Resulting hex colour, e.g. ``"#fdebeb"`` for
+        ``_blend_to_white("#cc3333", 0.10)``.
+    """
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    rw = int(round(r * t + 255 * (1.0 - t)))
+    gw = int(round(g * t + 255 * (1.0 - t)))
+    bw = int(round(b * t + 255 * (1.0 - t)))
+    rw = max(0, min(255, rw))
+    gw = max(0, min(255, gw))
+    bw = max(0, min(255, bw))
+    return f"#{rw:02x}{gw:02x}{bw:02x}"
 
 
 def _style_from_color(hex_color: str) -> dict:
@@ -113,6 +156,176 @@ GENDER_DEFAULTS = {
     "alien_male":   {"build": "alien",        "height": 1.0, "torso_y": None},
     "alien_female": {"build": "alien_female", "height": 1.0, "torso_y": None},
 }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CLOTHED LIMB HELPERS  (v0.9.16)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Clothed-limb mode replaces the plain Line on arm/leg edges with a filled
+# Polygon "band" — uniform-width or tapered (thicker proximally, narrower
+# distally).  Bands live in the same self.lines dict as Lines so the rest
+# of figure.py (edge_group, fade_in/out, etc.) treats them uniformly.
+# Pose changes animate via .animate.become(new_band) since Polygons do
+# not support put_start_and_end_on; the band's width spec is stored per
+# edge in self._band_specs so each new band can be rebuilt on the fly.
+#
+# Style schema (under "style" in tntd_characters.json):
+#
+#   "clothed_limbs": {
+#       "mode":               "uniform" | "tapered",   # required
+#       "arm_proximal_width": 0.10,                    # at shoulder
+#       "arm_distal_width":   0.06,                    # at wrist
+#       "leg_proximal_width": 0.14,                    # at hip
+#       "leg_distal_width":   0.09,                    # at ankle
+#       "fill_color":         "#xxxxxx",   # default: style.edge_color
+#       "stroke_color":       "#xxxxxx",   # default: dark warm "#18120c"
+#       "stroke_width":       1.8
+#   }
+#
+# In uniform mode, distal widths are ignored and proximal width is used
+# throughout each limb.  In tapered mode, the elbow / knee width is the
+# arithmetic mean of the two segment-endpoint widths, so the taper is
+# continuous across the joint.
+
+# Joint rank used to decide which end of a limb edge is "proximal":
+#   0 = shoulder / hip (closest to torso)
+#   1 = elbow / knee   (mid)
+#   2 = wrist / ankle  (distal)
+_LIMB_RANK = {
+    "lshoulder": 0, "rshoulder": 0, "lhip": 0, "rhip": 0,
+    "lelbow":    1, "relbow":    1, "lknee": 1, "rknee": 1,
+    "lwrist":    2, "rwrist":    2, "lankle": 2, "rankle": 2,
+}
+
+# Arm joints — used to discriminate arm edges from leg edges.
+_ARM_JOINTS = {"lshoulder", "rshoulder", "lelbow", "relbow",
+               "lwrist", "rwrist"}
+_LEG_JOINTS = {"lhip", "rhip", "lknee", "rknee", "lankle", "rankle"}
+
+# Default fallback stroke for bands when style doesn't supply one.
+# Matches face_builder's OUTLINE_COLOR for visual consistency.
+_BAND_DEFAULT_STROKE = "#18120c"
+
+
+def _classify_limb_edge(a: str, b: str, clothing: dict) -> dict | None:
+    """
+    Decide whether edge (a, b) is a clothed limb segment and, if so, return
+    the band parameters needed to render it.
+
+    Returns
+    -------
+    dict | None
+        ``None`` if the edge is not an arm/leg segment, otherwise a dict::
+
+            {
+                "proximal":  str,    # the proximal endpoint name
+                "distal":    str,    # the distal   endpoint name
+                "w_proximal": float, # band half-width at proximal end ×2
+                "w_distal":   float, # band half-width at distal   end ×2
+            }
+
+        Widths returned are full band widths (not half-widths) for clarity;
+        ``_build_band`` divides by two internally.
+    """
+    if a not in _LIMB_RANK or b not in _LIMB_RANK:
+        return None
+    # Determine proximal/distal end.
+    if _LIMB_RANK[a] < _LIMB_RANK[b]:
+        prox, dist = a, b
+    elif _LIMB_RANK[b] < _LIMB_RANK[a]:
+        prox, dist = b, a
+    else:
+        # Same rank (e.g. lshoulder-rshoulder, lhip-rhip) — not a limb.
+        return None
+
+    is_arm = a in _ARM_JOINTS and b in _ARM_JOINTS
+    is_leg = a in _LEG_JOINTS and b in _LEG_JOINTS
+    if not (is_arm or is_leg):
+        return None  # mixed (shouldn't occur in a sane skeleton)
+
+    mode = clothing.get("mode", "uniform")
+    if is_arm:
+        wp_full = float(clothing.get("arm_proximal_width", 0.10))
+        wd_full = float(clothing.get("arm_distal_width",   0.06))
+    else:
+        wp_full = float(clothing.get("leg_proximal_width", 0.14))
+        wd_full = float(clothing.get("leg_distal_width",   0.09))
+
+    if mode == "uniform":
+        wd_full = wp_full
+
+    # Compute per-endpoint widths.  Rank-0→1 segments use (wp_full,
+    # mean).  Rank-1→2 segments use (mean, wd_full).  Rank-0→2 (direct
+    # shoulder→wrist, never present in standard skeletons) uses
+    # (wp_full, wd_full).
+    rp, rd = _LIMB_RANK[prox], _LIMB_RANK[dist]
+    mid = 0.5 * (wp_full + wd_full)
+    if rp == 0 and rd == 1:
+        w_p, w_d = wp_full, mid
+    elif rp == 1 and rd == 2:
+        w_p, w_d = mid, wd_full
+    else:
+        w_p, w_d = wp_full, wd_full
+
+    return {
+        "proximal":   prox,
+        "distal":     dist,
+        "w_proximal": w_p,
+        "w_distal":   w_d,
+    }
+
+
+def _build_band(pa, pb, w_a, w_b,
+                fill: str, stroke: str, stroke_w: float):
+    """
+    Build a filled quadrilateral "band" between world-space points pa and pb,
+    with width w_a at pa and w_b at pb (drawn perpendicular to the band axis).
+
+    Degenerate (coincident endpoints) → invisible polygon, matching the
+    coincident-Line opacity-0 convention in HumanGraph._build.
+
+    Parameters
+    ----------
+    pa, pb : np.ndarray
+        World-space endpoints, shape (3,).
+    w_a, w_b : float
+        Full band widths at pa and pb respectively (each end's two
+        corners are placed at ±w/2 perpendicular to the band axis).
+    fill, stroke : str
+        Hex colours for fill and stroke.
+    stroke_w : float
+        Stroke width.
+    """
+    pa = np.asarray(pa, dtype=float)
+    pb = np.asarray(pb, dtype=float)
+    axis = pb - pa
+    length = float(np.linalg.norm(axis))
+    if length < 0.01:
+        # Degenerate — build a tiny invisible placeholder.
+        poly = Polygon(
+            pa, pa + np.array([0.001, 0, 0]),
+            pa + np.array([0.001, 0.001, 0]),
+            pa + np.array([0, 0.001, 0]),
+        )
+        poly.set_fill(opacity=0)
+        poly.set_stroke(opacity=0)
+        return poly
+
+    # Perpendicular in the xy-plane.
+    perp = np.array([-axis[1], axis[0], 0.0]) / length
+
+    half_a = 0.5 * w_a
+    half_b = 0.5 * w_b
+    p0 = pa + perp * half_a
+    p1 = pb + perp * half_b
+    p2 = pb - perp * half_b
+    p3 = pa - perp * half_a
+
+    poly = Polygon(p0, p1, p2, p3)
+    poly.set_fill(color=fill, opacity=1.0)
+    poly.set_stroke(color=stroke, width=stroke_w)
+    return poly
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -312,6 +525,25 @@ class HumanGraph:
         self._scale_sx = scale_sx
         self._scale_sy = scale_sy
         self._scale_anchor = scale_anchor
+        # Walk-and-talk follow (v0.9.14): a persistent speech bubble
+        # registered on this figure, or None.  Set by say(persist=True),
+        # cleared by clear_bubble / clear_all_bubbles.  Read by
+        # morph_to and act_group_translate to translate the bubble in
+        # lockstep with the speaker.  AlienGraph inherits this default
+        # via super().__init__.
+        self._persistent_bubble = None
+        # Facing direction (v0.9.16): "right" or "left".  Updated by
+        # walk_to / run_to based on the sign of dx_total.  Read by the
+        # shoe-attach updater so shoes orient correctly during walks.
+        # Default "right" matches the convention used by walk_cycle
+        # and standing_side poses.
+        self.facing = "right"
+        # Clothed-limb band specs (v0.9.16): maps edge (a, b) → dict of
+        # {pa_name, pb_name, w_proximal, w_distal, fill, stroke,
+        # stroke_w} so _safe_line_anim can rebuild the band on each
+        # pose change via .animate.become().  Empty for figures
+        # without clothed_limbs in their style.
+        self._band_specs: dict[tuple[str, str], dict] = {}
         self.dots: dict[str, Mobject] = {}
         self.lines: dict[tuple[str, str], Line] = {}
         self._build()
@@ -365,11 +597,25 @@ class HumanGraph:
         Uses the scaled pose so mobjects start at the correct positions.
         Joints and edges are taken from the build-specific lists if present
         (e.g. ALIEN_JOINTS / ALIEN_EDGES for the alien build), otherwise
-        the standard JOINTS / EDGES lists are used."""
+        the standard JOINTS / EDGES lists are used.
+
+        v0.9.16: if ``style["clothed_limbs"]`` is set, arm and leg edges
+        are rendered as filled Polygon bands (uniform or tapered) instead
+        of plain Lines.  Band specs are stored in ``self._band_specs``
+        for pose-anim rebuild via ``.animate.become()`` (Polygons do not
+        support put_start_and_end_on).
+        """
         s = self.style
         sp = self._apply_scale(self.pose)
         _joints = self._bp.get("joints", JOINTS)
         _edges  = self._bp.get("edges",  EDGES)
+        # Resolve clothed-limb config once.  ``None`` (the common case)
+        # → no bands, fall through to plain Lines for every edge.
+        clothing      = s.get("clothed_limbs") or None
+        cloth_fill    = (clothing or {}).get("fill_color")   or s["edge_color"]
+        cloth_stroke  = (clothing or {}).get("stroke_color") or _BAND_DEFAULT_STROKE
+        cloth_swidth  = float((clothing or {}).get("stroke_width", 1.8))
+
         for name in _joints:
             p = sp[name] + self.offset
             if name == "head":
@@ -395,14 +641,45 @@ class HumanGraph:
         for a, b in _edges:
             pa, pb = sp[a] + self.offset, sp[b] + self.offset
             coincident = np.linalg.norm(pa - pb) < 0.01
-            ln = Line(
-                pa,
-                pb if not coincident else pa + np.array([0.001, 0, 0]),
-                color=s["edge_color"], stroke_width=s["edge_width"],
-            )
-            if coincident:
-                ln.set_opacity(0)
-            self.lines[(a, b)] = ln
+
+            # Clothed-limb path: build a Polygon band instead of a Line.
+            band_info = None
+            if clothing is not None:
+                band_info = _classify_limb_edge(a, b, clothing)
+
+            if band_info is not None:
+                # Determine per-endpoint widths in (a, b) order so the
+                # spec matches the dict-key orientation used by
+                # _safe_line_anim / set_pose.
+                if band_info["proximal"] == a:
+                    w_a, w_b = band_info["w_proximal"], band_info["w_distal"]
+                else:
+                    w_a, w_b = band_info["w_distal"], band_info["w_proximal"]
+
+                band = _build_band(
+                    pa, pb, w_a, w_b,
+                    fill=cloth_fill, stroke=cloth_stroke,
+                    stroke_w=cloth_swidth,
+                )
+                if coincident:
+                    band.set_opacity(0)
+                self.lines[(a, b)] = band
+                # Stash spec so _safe_line_anim can rebuild this band
+                # when the pose changes.
+                self._band_specs[(a, b)] = dict(
+                    w_a=w_a, w_b=w_b,
+                    fill=cloth_fill, stroke=cloth_stroke,
+                    stroke_w=cloth_swidth,
+                )
+            else:
+                ln = Line(
+                    pa,
+                    pb if not coincident else pa + np.array([0.001, 0, 0]),
+                    color=s["edge_color"], stroke_width=s["edge_width"],
+                )
+                if coincident:
+                    ln.set_opacity(0)
+                self.lines[(a, b)] = ln
 
         # ── two-zone color: recolor torso parts if torso_color is set ────
         if self._torso_color:
@@ -422,6 +699,59 @@ class HumanGraph:
     def group(self) -> VGroup:
         """All mobjects (edges + dots) as a single VGroup."""
         return VGroup(self.edge_group, self.dot_group)
+
+    def get_near_arm(self, view: str) -> VGroup | None:
+        """Return a VGroup of the camera-facing arm's edges for a side view.
+
+        Used by ``act_attach_face`` when a panel bib (``cloth_style="panel"``)
+        is attached in side view, to re-add the near arm to the scene so it
+        draws on top of the bib.  The returned VGroup contains live edge
+        references (not copies), so the arm tracks subsequent walk / wave /
+        gesture animations — both rendering passes (once inside ``edge_group``,
+        once standalone at the end of the scene's mobject list) use the
+        same underlying ``Line`` / band mobject.
+
+        Convention for the "near" arm
+        -----------------------------
+        When the character faces -x (``view="lside"``), the camera sees the
+        anatomically LEFT side of the body — i.e., the character's RIGHT
+        side has rotated toward the camera.  So the near arm is the right
+        anatomical arm (``r`` prefix on the joints).  When the character
+        faces +x (``view="rside"``), the near arm is the left arm.
+
+        **If the occlusion comes out backwards** in your first side-view
+        render (the bib still draws on top of the arm, or the far arm gets
+        re-added instead of the near one), flip the ``arm_prefix``
+        assignment below — the convention depends on which way the rotation
+        goes (clockwise vs counter-clockwise from above) and can differ
+        from this default.
+
+        Parameters
+        ----------
+        view : str
+            ``"lside"`` or ``"rside"``.  Other values return None.
+
+        Returns
+        -------
+        VGroup or None
+            VGroup of arm edges (upper arm + lower arm = 2 edges for a
+            standard human/alien figure).  Returns None for front view,
+            for unknown view values, or if no expected joint pair is in
+            ``self.lines`` (e.g. truncated alien builds).
+        """
+        if view not in ("lside", "rside"):
+            return None
+        # Flip these two lines if first render shows the wrong arm:
+        arm_prefix = "r" if view == "lside" else "l"
+        # ────────────────────────────────────────────────────────────────
+        pairs = [
+            (f"{arm_prefix}shoulder", f"{arm_prefix}elbow"),
+            (f"{arm_prefix}elbow",    f"{arm_prefix}wrist"),
+        ]
+        edges = [self.lines[pair] for pair in pairs if pair in self.lines]
+        if not edges:
+            return None
+        return VGroup(*edges)
 
     # ── persistent scale ────────────────────────────────────────────────────
 
@@ -456,12 +786,40 @@ class HumanGraph:
 
     # ── low-level animation helpers ──────────────────────────────────────────
 
-    @staticmethod
-    def _safe_line_anim(line, pa, pb):
-        if np.linalg.norm(pa - pb) > 0.01:
-            return [line.animate.put_start_and_end_on(pa, pb).set_opacity(1)]
-        else:
+    def _safe_line_anim(self, key, line, pa, pb):
+        """
+        Return the list of animations needed to move *line* (which may be
+        a Line or a Polygon band) so its endpoints sit at *pa* and *pb*.
+
+        For plain Line: uses ``put_start_and_end_on`` as before.
+        For a Polygon band (clothed-limb mode): rebuilds the band from
+        its stored spec at the new endpoints and animates via ``become``,
+        which Manim interpolates point-by-point.
+
+        Coincident endpoints → fade to opacity 0 (same convention as the
+        original Line-only helper).
+
+        Parameters
+        ----------
+        key : tuple[str, str]
+            The (a, b) edge key, used to look up the band spec in
+            ``self._band_specs``.
+        line : Mobject
+            The current Line or Polygon for this edge.
+        pa, pb : np.ndarray
+            Target world-space endpoints, shape (3,).
+        """
+        if np.linalg.norm(pa - pb) <= 0.01:
             return [line.animate.set_opacity(0)]
+        if key in self._band_specs:
+            spec = self._band_specs[key]
+            new_band = _build_band(
+                pa, pb, spec["w_a"], spec["w_b"],
+                fill=spec["fill"], stroke=spec["stroke"],
+                stroke_w=spec["stroke_w"],
+            )
+            return [line.animate.become(new_band)]
+        return [line.animate.put_start_and_end_on(pa, pb).set_opacity(1)]
 
     def _pose_anims(self, target, off):
         """Return a list of `.animate` calls to reach target + off.
@@ -471,7 +829,7 @@ class HumanGraph:
         for n in self.dots:
             anims.append(self.dots[n].animate.move_to(t[n] + off))
         for (a, b), line in self.lines.items():
-            anims += self._safe_line_anim(line, t[a] + off, t[b] + off)
+            anims += self._safe_line_anim((a, b), line, t[a] + off, t[b] + off)
         return anims
 
     # ── core animation methods ───────────────────────────────────────────────
@@ -511,6 +869,17 @@ class HumanGraph:
         """
         new_off = self.offset + np.array([dx, dy, 0.0])
         anims = self._pose_anims(target_pose, new_off)  # applies scale
+        # Walk-and-talk follow (v0.9.14): if this figure has a
+        # persistent bubble, animate it alongside the figure so the
+        # bubble translates smoothly through the keyframe rather than
+        # snapping after scene.play returns.  Rigid translation by the
+        # offset captured at say(persist=True) time.  See bubble
+        # lifecycle migration in BACK_BURNER.md for the ownership
+        # rationale.
+        if self._persistent_bubble is not None:
+            anims.append(self._persistent_bubble.animate.move_to(
+                new_off + self._persistent_bubble.pam_follows_offset
+            ))
         scene.play(*anims, run_time=rt, rate_func=rate)
         self.pose = target_pose       # store unscaled
         self.offset = new_off
@@ -525,8 +894,18 @@ class HumanGraph:
         for (a, b), line in self.lines.items():
             pa, pb = t[a] + new_off, t[b] + new_off
             if np.linalg.norm(pa - pb) > 0.01:
-                line.put_start_and_end_on(pa, pb)
-                line.set_opacity(1)
+                if (a, b) in self._band_specs:
+                    # Clothed-limb band — rebuild from spec at new endpoints.
+                    spec = self._band_specs[(a, b)]
+                    new_band = _build_band(
+                        pa, pb, spec["w_a"], spec["w_b"],
+                        fill=spec["fill"], stroke=spec["stroke"],
+                        stroke_w=spec["stroke_w"],
+                    )
+                    line.become(new_band)
+                else:
+                    line.put_start_and_end_on(pa, pb)
+                    line.set_opacity(1)
             else:
                 line.set_opacity(0)
         self.pose = target_pose       # store unscaled
@@ -559,7 +938,7 @@ class HumanGraph:
         for n in self.dots:
             anims.append(self.dots[n].animate.move_to(edge_on[n]))
         for (a, b), line in self.lines.items():
-            anims += self._safe_line_anim(line, edge_on[a], edge_on[b])
+            anims += self._safe_line_anim((a, b), line, edge_on[a], edge_on[b])
         scene.play(*anims, run_time=rt_squash,
                    rate_func=there_and_back_with_pause)
 
@@ -637,10 +1016,16 @@ class HumanGraph:
         The figure must already be in a side-view pose (call `turn`
         first if needed).  The walk cycle repeats as many full cycles
         as needed, plus a partial tail, then settles to standing_side.
+
+        v0.9.16: updates ``self.facing`` to ``"right"`` if dx_total > 0,
+        else ``"left"`` — used by the shoe-attach updater to mirror
+        shoe orientation during walks.  No-op walks (|dx| < 0.01) leave
+        facing unchanged.
         """
         dx_total = x_target - self.offset[0]
         if abs(dx_total) < 0.01:
             return
+        self.facing = "right" if dx_total > 0 else "left"
         cycle = self._bp["walk_cycle"]
         n_kf = len(cycle)
         dx_per_kf = dx_total / max(n_kf, abs(dx_total / 0.30))
@@ -660,10 +1045,14 @@ class HumanGraph:
     def run_to(self, x_target: float, scene: Scene,
                rt_per_kf=0.12, rate=smooth):
         """Run (side-view) to *x_target*.  Same logic as walk_to but
-        uses the run cycle and faster timing."""
+        uses the run cycle and faster timing.
+
+        v0.9.16: updates ``self.facing`` to ``"right"`` if dx_total > 0,
+        else ``"left"`` — see walk_to for rationale."""
         dx_total = x_target - self.offset[0]
         if abs(dx_total) < 0.01:
             return
+        self.facing = "right" if dx_total > 0 else "left"
         cycle = self._bp["run_cycle"]
         n_kf = len(cycle)
         steps = max(n_kf, int(round(abs(dx_total) / 0.35)))
@@ -1003,6 +1392,17 @@ class HumanGraph:
 
         is_os = bubble_style in ("os", "phone")
 
+        # ── colour resolution (v0.9.16) ──────────────────────────────────
+        # Normal (non-OS) bubbles use a tinted-white fill with a coloured
+        # border driven by style["bubble_color"], falling back to
+        # edge_color for characters that haven't declared one yet.
+        # Text colour defaults to head_color (the dark variant in every
+        # palette) for legibility on the pale fill; bubble_text_color
+        # overrides if a character needs a different tone.
+        bubble_col = s.get("bubble_color") or s["edge_color"]
+        bubble_fill = _blend_to_white(bubble_col, 0.10)
+        bubble_text = s.get("bubble_text_color") or s["head_color"]
+
         # ── pre-wrap text to fit max_bubble_w ────────────────────────────
         # Courier New at font_size 20 ≈ 0.113 world units per character.
         # Scale linearly with font_size so wrapping is always accurate.
@@ -1012,8 +1412,9 @@ class HumanGraph:
         chars_per_line = max(10, int(usable_w / char_w))
         wrapped = textwrap.fill(text, width=chars_per_line)
 
-        # O.S. bubbles use a cooler text colour to distinguish them
-        txt_color = "#a8d8f0" if is_os else s["highlight_color"]
+        # O.S. bubbles keep their cool-blue scheme; normal bubbles use
+        # the dark bubble_text on tinted-white fill.
+        txt_color = "#a8d8f0" if is_os else bubble_text
         txt = Text(
             wrapped, font=s["head_font"], font_size=font_size,
             color=txt_color, weight=BOLD,
@@ -1056,12 +1457,13 @@ class HumanGraph:
                 np.array([tail_x + 0.08, ty0 - 0.28, 0]),
             ])
         else:
-            # ── standard bubble ───────────────────────────────────────────
+            # ── standard bubble (v0.9.16: tinted-white fill, coloured
+            # border, dark text) ─────────────────────────────────────────
             box = RoundedRectangle(
                 width=bw, height=bh,
                 corner_radius=0.15,
-                color=s["head_stroke"], fill_color=s["head_color"],
-                fill_opacity=0.95, stroke_width=2,
+                color=bubble_col, fill_color=bubble_fill,
+                fill_opacity=1.0, stroke_width=2.4,
             ).move_to(np.array([bx, by, 0]))
             txt.move_to(box.get_center())
 
@@ -1070,8 +1472,8 @@ class HumanGraph:
                 np.array([tail_x - 0.12, by - bh / 2, 0]),
                 np.array([tail_x + 0.12, by - bh / 2, 0]),
                 np.array([tail_x,        by - bh / 2 - 0.28, 0]),
-                color=s["head_stroke"], fill_color=s["head_color"],
-                fill_opacity=0.95, stroke_width=1.5,
+                color=bubble_col, fill_color=bubble_fill,
+                fill_opacity=1.0, stroke_width=1.8,
             )
 
         bubble = VGroup(box, tail, txt)
@@ -1082,11 +1484,319 @@ class HumanGraph:
             # Caller owns dismissal — stash rt_out so clear_bubble can
             # match the original fade-out duration.
             bubble.pam_rt_out = rt_out
+            # Walk-and-talk follow (v0.9.14): capture the bubble's
+            # offset from the figure at creation time and register the
+            # bubble on the figure so morph_to and act_group_translate
+            # can translate it in lockstep with the speaker.  Rigid
+            # translation — the tail is frozen relative to the bubble
+            # body, matching the v1 commitment.  The figure-side
+            # reference is cleared by clear_bubble / clear_all_bubbles.
+            bubble.pam_follows_offset = np.array(
+                [bx - self.offset[0], by - self.offset[1], 0.0]
+            )
+            self._persistent_bubble = bubble
             return bubble
         scene.play(FadeOut(bubble), run_time=rt_out)
         if post_wait > 0:
             scene.wait(post_wait)
         return None
+
+    # ── attach methods (v0.9.16) ────────────────────────────────────────────
+    #
+    # The three attach_* methods below follow the same pattern as
+    # act_attach_face in actions.py: build a small VGroup (or pair of
+    # Mobjects), position it at the relevant joint(s), install an
+    # updater closure that tracks the joint(s) every frame, and stash
+    # the mobjects + updaters as named attributes on self so
+    # detach_*, fade_out, and act_fade_out can tear them down cleanly.
+    #
+    # Compatibility:
+    #   • Silent no-op on figures missing the relevant joints
+    #     (DogGraph has no wrists/ankles; GovernorGraph isn't a
+    #     HumanGraph subclass).
+    #   • Idempotent: re-calling an attach method tears down the prior
+    #     attachment first.
+    #
+    # All attachments are decorative — they don't alter pose data, joint
+    # positions, or hit detection.  They are not stored in self.dots or
+    # self.lines and are not affected by pose-anim machinery; the
+    # updater alone keeps them on-character.
+
+    def _torso_anchor(self) -> np.ndarray:
+        """
+        Compute the current world-space torso anchor for icon attachment.
+
+        X-coordinate comes from ``self.offset[0]`` (the figure's horizontal
+        anchor — the bilateral centerline for both human and alien builds).
+        Y-coordinate is the midpoint of the ``lshoulder`` and ``lhip`` dot
+        centres, placing the anchor at chest height between the shoulder
+        bar and the hip bar.
+
+        This mirrors the prop-torso convention in
+        ``actions.py::_drag_attached_props`` so prop and icon attachment
+        agree on what "torso" means.  In particular:
+
+        * **Human** (single ``torso`` joint): anchor lands on the spine,
+          mid-torso.
+        * **Alien** (split ``torso_left``/``torso_right``): anchor lands
+          on the bilateral centerline between the two torso joints, mid
+          way between shoulders and hips — correctly centred even though
+          ``lshoulder`` and ``lhip`` are themselves both displaced to
+          the figure's left.
+
+        Note: a left-anchored / right-anchored variant (e.g. for a
+        sash, a badge on one shoulder, or paired insignia) is not yet
+        coded — would be a clean extension via an additional
+        ``side="center"|"left"|"right"`` argument on ``attach_torso_icon``.
+        """
+        sh = self.dots["lshoulder"].get_center()
+        hp = self.dots["lhip"].get_center()
+        return np.array([self.offset[0], (sh[1] + hp[1]) * 0.5, 0.0])
+
+    def attach_torso_icon(self, icon, scene: Scene):
+        """
+        Anchor a pre-built VGroup *icon* to the torso, tracking it every
+        frame.  Idempotent — tears down any prior torso icon first.
+
+        Parameters
+        ----------
+        icon : VMobject | VGroup
+            The icon Mobject, already styled and at its natural scale.
+            Built by the caller from native Manim VMobjects (Circle,
+            Rectangle, Polygon, Text, etc.) per the Chris Ware flat-
+            cartoon house style; figure.py does not provide an icon
+            factory in this revision.  See actions._build_torso_icon
+            for an example helper if one ships later.
+        scene : Scene
+            The Manim scene to add the icon to.
+
+        Returns
+        -------
+        VMobject
+            The icon (after positioning + updater install), for
+            chaining / inspection.
+
+        Side effects
+        ------------
+        Sets ``self.torso_icon`` and ``self.torso_icon_updater``.
+
+        Compatibility
+        -------------
+        Silent no-op if either ``lshoulder`` or ``lhip`` is missing
+        from ``self.dots`` (e.g. quadruped-style figures).
+        """
+        if "lshoulder" not in self.dots or "lhip" not in self.dots:
+            return None
+
+        self.detach_torso_icon(scene)   # idempotent reset
+
+        icon.move_to(self._torso_anchor())
+
+        def _follow_torso(m, fig=self):
+            m.move_to(fig._torso_anchor())
+
+        icon.add_updater(_follow_torso)
+        scene.add(icon)
+        self.torso_icon         = icon
+        self.torso_icon_updater = _follow_torso
+        return icon
+
+    def detach_torso_icon(self, scene: Scene):
+        """
+        Remove an attached torso icon: stop the updater, remove from scene,
+        clear refs.  No-op if no icon attached.  Safe to call repeatedly.
+        """
+        icon = getattr(self, "torso_icon", None)
+        if icon is None:
+            return
+        updater = getattr(self, "torso_icon_updater", None)
+        if updater is not None:
+            icon.remove_updater(updater)
+        scene.remove(icon)
+        self.torso_icon         = None
+        self.torso_icon_updater = None
+
+    def attach_gloves(self, color: str, size: float | None,
+                      scene: Scene,
+                      stroke_color: str = _BAND_DEFAULT_STROKE,
+                      stroke_width: float = 2.0):
+        """
+        Attach a flat-cartoon mitten ellipse to each wrist, tracking
+        every frame.  Idempotent — tears down prior gloves first.
+
+        Detail budget: a coloured mass.  No fingers, no thumb, no
+        articulation.  Single ellipse per hand, bold dark outline.
+
+        Parameters
+        ----------
+        color : str
+            Glove fill hex colour (e.g. ``"#cc3333"``).
+        size : float | None
+            Glove width in world units.  ``None`` (default) picks
+            ``0.22 * self._scale_sy`` — slightly larger than the
+            0.14 wrist node so the glove visually contains the joint.
+            Height is ``0.85 * size`` (slight oval — mitten-ish).
+        scene : Scene
+            The Manim scene.
+        stroke_color : str, optional
+            Outline colour, default ``"#18120c"`` (warm dark, matches
+            face_builder).
+        stroke_width : float, optional
+            Outline weight (default 2.0).
+
+        Returns
+        -------
+        dict | None
+            ``{"l": <Ellipse>, "r": <Ellipse>}`` on success, or ``None``
+            if wrist joints are not present.
+
+        Side effects
+        ------------
+        Sets ``self.gloves`` (dict) and ``self.glove_updaters`` (dict).
+        """
+        if "lwrist" not in self.dots or "rwrist" not in self.dots:
+            return None
+
+        self.detach_gloves(scene)   # idempotent reset
+
+        if size is None:
+            size = 0.22 * self._scale_sy
+        w = size
+        h = 0.85 * size
+
+        gloves: dict[str, Ellipse] = {}
+        updaters: dict[str, callable] = {}
+
+        for side, joint in (("l", "lwrist"), ("r", "rwrist")):
+            glove = Ellipse(width=w, height=h)
+            glove.set_fill(color=color, opacity=1.0)
+            glove.set_stroke(color=stroke_color, width=stroke_width)
+            glove.move_to(self.dots[joint].get_center())
+
+            def _follow_wrist(m, fig=self, j=joint):
+                m.move_to(fig.dots[j].get_center())
+
+            glove.add_updater(_follow_wrist)
+            scene.add(glove)
+            gloves[side]   = glove
+            updaters[side] = _follow_wrist
+
+        self.gloves          = gloves
+        self.glove_updaters  = updaters
+        return gloves
+
+    def detach_gloves(self, scene: Scene):
+        """
+        Remove attached gloves cleanly.  No-op if none attached.
+        """
+        gloves = getattr(self, "gloves", None)
+        if not gloves:
+            return
+        updaters = getattr(self, "glove_updaters", {}) or {}
+        for side, glove in gloves.items():
+            upd = updaters.get(side)
+            if upd is not None:
+                glove.remove_updater(upd)
+            scene.remove(glove)
+        self.gloves         = None
+        self.glove_updaters = None
+
+    def attach_shoes(self, color: str, size: float | None,
+                     scene: Scene,
+                     stroke_color: str = _BAND_DEFAULT_STROKE,
+                     stroke_width: float = 2.0):
+        """
+        Attach a flat-cartoon elongated ellipse to each ankle, tracking
+        position and facing direction every frame.  Idempotent — tears
+        down prior shoes first.
+
+        The shoe is rendered with the ankle joint at the top of the
+        shoe (~60% of the way up its short axis), so the foot sits on
+        top of the shoe and the shoe rests on the floor line.  When
+        ``self.facing`` changes (set by walk_to / run_to from the sign
+        of dx_total), the shoe is mirrored about the vertical axis so
+        it points in the new direction.
+
+        Detail budget: a coloured mass with a 3:1 aspect ratio reading
+        as a flat shoe at small scale.  No laces, no sole detail, no
+        heel articulation.
+
+        Parameters
+        ----------
+        color : str
+            Shoe fill hex colour.
+        size : float | None
+            Shoe length in world units.  ``None`` picks
+            ``0.32 * self._scale_sy``.  Height is ``0.40 * size``
+            (3:1 flattening).
+        scene : Scene
+            The Manim scene.
+        stroke_color, stroke_width : optional
+            Outline styling, same defaults as ``attach_gloves``.
+
+        Returns
+        -------
+        dict | None
+            ``{"l": <Ellipse>, "r": <Ellipse>}`` on success, or ``None``
+            if ankle joints are not present.
+        """
+        if "lankle" not in self.dots or "rankle" not in self.dots:
+            return None
+
+        self.detach_shoes(scene)   # idempotent reset
+
+        if size is None:
+            size = 0.32 * self._scale_sy
+        length = size
+        height = 0.40 * size
+        y_drop = 0.30 * height   # ankle sits ~60% up the shoe's short axis
+
+        shoes: dict[str, Ellipse] = {}
+        updaters: dict[str, callable] = {}
+
+        for side, joint in (("l", "lankle"), ("r", "rankle")):
+            shoe = Ellipse(width=length, height=height)
+            shoe.set_fill(color=color, opacity=1.0)
+            shoe.set_stroke(color=stroke_color, width=stroke_width)
+            shoe.move_to(self.dots[joint].get_center()
+                         + np.array([0, -y_drop, 0]))
+            # Track applied facing on the mobject so the updater
+            # only flips when fig.facing actually changes.  Initial
+            # state matches the figure's current facing — no flip
+            # needed on first frame for either "right" or "left".
+            shoe.pam_facing = self.facing
+
+            def _follow_ankle(m, fig=self, j=joint, yd=y_drop):
+                m.move_to(fig.dots[j].get_center()
+                          + np.array([0, -yd, 0]))
+                if getattr(m, "pam_facing", "right") != fig.facing:
+                    m.flip(UP)   # mirror about y-axis → l/r swap
+                    m.pam_facing = fig.facing
+
+            shoe.add_updater(_follow_ankle)
+            scene.add(shoe)
+            shoes[side]    = shoe
+            updaters[side] = _follow_ankle
+
+        self.shoes         = shoes
+        self.shoe_updaters = updaters
+        return shoes
+
+    def detach_shoes(self, scene: Scene):
+        """
+        Remove attached shoes cleanly.  No-op if none attached.
+        """
+        shoes = getattr(self, "shoes", None)
+        if not shoes:
+            return
+        updaters = getattr(self, "shoe_updaters", {}) or {}
+        for side, shoe in shoes.items():
+            upd = updaters.get(side)
+            if upd is not None:
+                shoe.remove_updater(upd)
+            scene.remove(shoe)
+        self.shoes         = None
+        self.shoe_updaters = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1172,6 +1882,27 @@ _DOG_DEFAULT_STYLE = dict(
     highlight_color = "#7ec8ff",
 )
 
+# ── Harness geometry (v0.9.X) ────────────────────────────────────────────────
+# Right-triangle "service-vest" icon anchored at spine_mid.  Three vertices:
+#
+#   A = spine_mid + (HARNESS_X_TAIL, 0, 0)         — tail-ward, at back level
+#                                                    (narrow apex toward tail)
+#   B = spine_mid + (HARNESS_X_HEAD, 0, 0)         — head-ward, at back level
+#                                                    (wide 90° corner)
+#   C = spine_mid + (HARNESS_X_HEAD, HARNESS_Y_DROP, 0)
+#                                                  — drops down to front-leg
+#                                                    attach level (second
+#                                                    sharp corner)
+#
+# All values face-local at scale=1.0; offsets are signed by self.facing
+# (negated for facing="left" so the wide end stays on the head side).
+# Defaults are derived from DOG_STANDING so the harness sits cleanly between
+# the back and front-leg attachment when the dog stands still.
+HARNESS_X_TAIL_OFFSET = -0.40   # vertex A x-offset from spine_mid (tail-ward)
+HARNESS_X_HEAD_OFFSET = +0.45   # vertex B x-offset from spine_mid (head-ward)
+HARNESS_Y_DROP        = -0.25   # vertex C y-offset (down to front-leg level)
+HARNESS_NAMETAG_DY    = +0.04   # nametag anchor offset above top-edge midpoint
+
 
 class DogGraph:
     """
@@ -1221,9 +1952,26 @@ class DogGraph:
         if len(_off) == 2:
             _off = [_off[0], _off[1], 0.0]
         self.offset = np.array(_off, dtype=float)
+        # Walk-and-talk follow (v0.9.14): a persistent speech bubble
+        # registered on this figure, or None.  Set by say(persist=True),
+        # cleared by clear_bubble / clear_all_bubbles.  Read by morph_to
+        # and act_group_translate to translate the bubble in lockstep
+        # with the speaker (trot-and-talk).  Future CatGraph variants
+        # inherit this default since cats are DogGraph instances with
+        # parameter swaps, not a separate class.
+        self._persistent_bubble = None
         self.dots: dict[str, Mobject] = {}
         self.lines: dict[tuple[str, str], Line] = {}
+        # Harness (v0.9.X): triangle icon anchored at spine_mid, built lazily
+        # if self.style["harness_style"] is set (only "standard" implemented;
+        # "service" reserved).  See _build_harness() and
+        # get_harness_nametag_anchor().
+        self.harness: Polygon | None = None
         self._build()
+        # Build harness AFTER _build() so self.dots["spine_mid"] exists for
+        # the live-tracking updater.
+        if self.style.get("harness_style"):
+            self._build_harness()
 
     def _build(self):
         s = self.style
@@ -1278,6 +2026,105 @@ class DogGraph:
     def group(self) -> VGroup:
         return VGroup(self.edge_group, self.dot_group)
 
+    # ── harness  (v0.9.X) ────────────────────────────────────────────────────
+
+    def _build_harness(self) -> Polygon:
+        """Build the triangle harness icon and install its tracking updater.
+
+        Three-vertex Polygon anchored at ``spine_mid`` with the wide 90°
+        corner on the head side and the narrow apex toward the tail (see
+        the geometry diagram above ``HARNESS_X_TAIL_OFFSET``).  Vertices
+        flip horizontally when ``self.facing == "left"`` so the wide end
+        always stays on the head side regardless of which way the dog is
+        oriented.
+
+        Sets ``self.harness`` to the Polygon and installs a per-frame
+        updater that re-anchors it to the live position of
+        ``self.dots["spine_mid"]``.  The polygon shape is rigid — only
+        translation tracks; the harness does not deform during pose
+        changes (trot cycle, sit, etc.).  This matches its read as an
+        icon/badge rather than a deformable strap.
+
+        Reads from ``self.style``:
+          ``harness_style`` : str
+              Currently ``"standard"`` only; ``"service"`` is reserved.
+              Value is read but not yet branched on — geometry is the
+              same for both at present.
+          ``harness_color`` : hex
+              Fill color.  Defaults to ``self.style["edge_color"]`` so
+              the harness reads as part of the skeleton.
+
+        Returns
+        -------
+        Polygon
+            The built harness mobject (also accessible as ``self.harness``).
+            Caller is responsible for adding it to the scene; ``fade_in``
+            does this automatically as part of the dog's introduction.
+        """
+        sign  = +1 if self.facing == "right" else -1
+        color = self.style.get("harness_color", self.style["edge_color"])
+
+        # Vertex positions in world space, using the current standing-pose
+        # spine_mid (the Polygon will be translated each frame by the
+        # updater so motion through morph_to / trot_to is handled).
+        sm = self.pose["spine_mid"] + self.offset
+        A = sm + np.array([sign * HARNESS_X_TAIL_OFFSET, 0,                0])
+        B = sm + np.array([sign * HARNESS_X_HEAD_OFFSET, 0,                0])
+        C = sm + np.array([sign * HARNESS_X_HEAD_OFFSET, HARNESS_Y_DROP,   0])
+
+        panel = Polygon(
+            A, B, C,
+            color=color,
+            fill_color=color,
+            fill_opacity=1.0,
+            stroke_width=self.style.get("edge_width", 2.5),
+        )
+
+        # Bounding-box-center offset from spine_mid is constant for a rigid
+        # polygon — derive it once so the updater can use a simple move_to.
+        #   x_center = (A_x + B_x) / 2 = sm_x + sign*(HARNESS_X_TAIL + HARNESS_X_HEAD)/2
+        #   y_center = (0 + 0 + HARNESS_Y_DROP) / 2 / ... actually bbox is
+        #   the rectangular bounding box of vertices, not centroid.
+        bbox_x_offset = sign * (HARNESS_X_TAIL_OFFSET + HARNESS_X_HEAD_OFFSET) / 2
+        bbox_y_offset = HARNESS_Y_DROP / 2   # mid between back (0) and drop
+        bbox_offset   = np.array([bbox_x_offset, bbox_y_offset, 0])
+
+        spine_mid_dot = self.dots["spine_mid"]
+        def _follow_spine_mid(m):
+            m.move_to(spine_mid_dot.get_center() + bbox_offset)
+        panel.add_updater(_follow_spine_mid)
+
+        # Stash the updater for cleanup paths (parallels head_face_updater
+        # in act_attach_face).
+        self.harness          = panel
+        self._harness_updater = _follow_spine_mid
+        return panel
+
+    def get_harness_nametag_anchor(self) -> np.ndarray | None:
+        """World-space anchor point for a nametag prop on the harness top
+        edge midpoint, ``HARNESS_NAMETAG_DY`` above the back line.
+
+        Returns the live position so the anchor stays correct as the dog
+        walks, morphs, or rescales.  Returns ``None`` if the dog has no
+        harness (``self.harness is None``).
+
+        Examples
+        --------
+        Attach a Text nametag at the harness top in a scene::
+
+            anchor = rex.get_harness_nametag_anchor()
+            if anchor is not None:
+                tag = Text("REX", font_size=18).move_to(anchor + UP * 0.05)
+                scene.add(tag)
+        """
+        if self.harness is None:
+            return None
+        sm = self.dots["spine_mid"].get_center()
+        sign = +1 if self.facing == "right" else -1
+        # Top-edge midpoint is at spine_mid + (mean of A and B x-offsets, 0).
+        mid_x_offset = sign * (HARNESS_X_TAIL_OFFSET + HARNESS_X_HEAD_OFFSET) / 2
+        return sm + np.array([mid_x_offset, HARNESS_NAMETAG_DY, 0])
+
     # ── core animation ───────────────────────────────────────────────────────
 
     def fade_in(self, scene: Scene, rt_edges=1.2, rt_dots=0.8):
@@ -1289,10 +2136,16 @@ class DogGraph:
             *[GrowFromCenter(d) for d in self.dots.values()],
             lag_ratio=0.04, run_time=rt_dots,
         ))
+        # Harness (v0.9.X): fades in last so it overlays the bones it
+        # crosses (mirrors a real harness wrapping around the dog's body).
+        if self.harness is not None:
+            scene.play(Create(self.harness), run_time=0.4)
 
     def fade_out(self, scene: Scene, rt=1.0):
-        scene.play(FadeOut(self.edge_group), FadeOut(self.dot_group),
-                   run_time=rt)
+        anims = [FadeOut(self.edge_group), FadeOut(self.dot_group)]
+        if self.harness is not None:
+            anims.append(FadeOut(self.harness))
+        scene.play(*anims, run_time=rt)
 
     def morph_to(self, target_pose, scene: Scene,
                  rt=0.18, rate=linear, dx=0.0, dy=0.0):
@@ -1304,6 +2157,14 @@ class DogGraph:
             pa, pb = target_pose[a] + new_off, target_pose[b] + new_off
             if np.linalg.norm(pa - pb) > 0.01:
                 anims.append(line.animate.put_start_and_end_on(pa, pb))
+        # Walk-and-talk follow (v0.9.14): if this figure has a
+        # persistent bubble, animate it alongside the figure so the
+        # bubble translates smoothly through the keyframe (trot-and-
+        # talk).  See bubble lifecycle migration in BACK_BURNER.md.
+        if self._persistent_bubble is not None:
+            anims.append(self._persistent_bubble.animate.move_to(
+                new_off + self._persistent_bubble.pam_follows_offset
+            ))
         scene.play(*anims, run_time=rt, rate_func=rate)
         self.pose = target_pose
         self.offset = new_off
@@ -1415,6 +2276,17 @@ class DogGraph:
             # Caller owns dismissal — stash rt_out so clear_bubble can
             # match the original fade-out duration.
             bubble.pam_rt_out = rt_out
+            # Walk-and-talk follow (v0.9.14): capture the bubble's
+            # offset from the figure at creation time and register the
+            # bubble on the figure so morph_to and act_group_translate
+            # can translate it in lockstep with the speaker (trot-and-
+            # talk).  Rigid translation — the tail is frozen relative
+            # to the bubble body.  Cleared by clear_bubble /
+            # clear_all_bubbles.
+            bubble.pam_follows_offset = np.array(
+                [bx - self.offset[0], by - self.offset[1], 0.0]
+            )
+            self._persistent_bubble = bubble
             return bubble
         scene.play(FadeOut(bubble), run_time=rt_out)
         if post_wait > 0:
@@ -1737,7 +2609,7 @@ class GovernorGraph:
             side="right", max_bubble_w=4.5, post_wait=0.0,
             extra_anims=None, bubble_style=None,
             bubble_color=None, text_color=None, border_color=None,
-            persist=False):
+            persist=False, y_offset=0.0):
         """
         Pop a speech bubble beside the dodecahedron, hold, then dismiss.
 
@@ -1753,6 +2625,20 @@ class GovernorGraph:
                              If None, falls back to ``text_color`` (so two-arg
                              calls keep text and border in sync, matching the
                              original single-color behavior).
+
+        Vertical placement (v0.9.18):
+          The bubble center y is computed as
+            ``self._y + self._radius + bh / 2 + 0.10 + y_offset``
+          so the bubble's bottom edge sits ``0.10`` units above the
+          dodecahedron's top, regardless of prop size.  Previously the
+          bubble was hardcoded at ``self._y + 0.3``, which for a
+          standard-sized Governor put the tail tip below the
+          dodecahedron's centre — visually awkward.
+
+          ``y_offset`` (default ``0.0``) adds a per-call nudge on top of
+          the geometry-aware default.  Positive = bubble higher, negative
+          = bubble lower.  Use sparingly: most scenes look correct with
+          the default and shouldn't need it.
 
         ``persist=True`` (v0.9.10) returns the bubble VGroup without
         fading it out, so the caller can register it for later
@@ -1781,7 +2667,11 @@ class GovernorGraph:
         x_min = -7.1 + x_margin + bw / 2
         x_max =  7.1 - x_margin - bw / 2
 
-        by = self._y + 0.3
+        # v0.9.18: geometry-aware vertical placement.  Bubble bottom sits
+        # 0.10 above the dodecahedron's top (self._y + self._radius), so
+        # the bubble grows away from the prop instead of overlapping it
+        # regardless of prop size.  y_offset adds an optional nudge.
+        by = self._y + self._radius + bh / 2 + 0.10 + y_offset
         if side == "left":
             bx = np.clip(self._x - self._radius - bw / 2 - 0.2, x_min, x_max)
         else:
