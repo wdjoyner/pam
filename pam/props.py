@@ -99,6 +99,7 @@ from pam.props_carried import (
 from pam.props_flora import (
     build_flower,
     build_floral_arrangement,
+    build_potted_plant,
 )
 
 # ── background / environment ──────────────────────────────────────────────────
@@ -112,6 +113,7 @@ from pam.props_environment import (
     build_backdrop,
     build_tv_monitor,
     build_avatar_pod,
+    build_crosswalk,
 )
 
 # ── character accessories ─────────────────────────────────────────────────────
@@ -161,6 +163,8 @@ PROP_TYPES = {
     "flower":              build_flower,
     "floral_arrangement":  build_floral_arrangement,
     "bouquet":             build_floral_arrangement,  # alias
+    "potted_plant":        build_potted_plant,
+    "plant":               build_potted_plant,        # alias
     # ── background / environment ──────────────────────────────────────────
     "dodecahedron":        build_dodecahedron,
     "building":            build_building,
@@ -173,6 +177,7 @@ PROP_TYPES = {
     "monitor":             build_tv_monitor,     # alias
     "avatar_pod":          build_avatar_pod,
     "pod":                 build_avatar_pod,     # alias
+    "crosswalk":           build_crosswalk,
     # ── character accessories ─────────────────────────────────────────────
     "name_tag":            build_name_tag,
     "delivery_cap":        build_delivery_cap,
