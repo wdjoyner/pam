@@ -332,6 +332,40 @@ def _build_band(pa, pb, w_a, w_b,
 #  HUMAN GRAPH CLASS
 # ─────────────────────────────────────────────────────────────────────────────
 
+
+# ── planar rotation helper (v0.9.22, backburner item 4) ──────────────────
+# Rotation-aware pose placement.  A figure's rendered placement obeys
+# the invariant
+#
+#     world_point = R(theta) @ p_scaled + offset
+#
+# where theta is the figure's accumulated rotation (fig._pam_rotation)
+# and offset is the figure's effective translation (fig.offset).  A
+# rotate action about an arbitrary world pivot v updates BOTH terms via
+# the conjugation
+#
+#     theta  <- theta + delta
+#     offset <- R(delta) @ (offset - v) + v
+#
+# (see HumanGraph.note_rotation).  Because any composition of planar
+# rotations and translations is again of this form, an arbitrary
+# sequence of rotate actions about DIFFERENT pivots stays exactly
+# representable by the single (theta, offset) pair — no pivot needs to
+# be stored.  With theta == 0 the invariant reduces to the pre-v0.9.22
+# semantics (world = p_scaled + offset), so unrotated scenes are
+# bit-for-bit unaffected.
+
+def _rot_xy(p, theta, pivot=None):
+    """Rotate 3-vector *p* by *theta* radians about *pivot* in the
+    xy-plane (z preserved).  *pivot* defaults to the origin."""
+    c, s = np.cos(theta), np.sin(theta)
+    px, py = (0.0, 0.0) if pivot is None else (float(pivot[0]),
+                                               float(pivot[1]))
+    x, y = p[0] - px, p[1] - py
+    z = p[2] if len(p) > 2 else 0.0
+    return np.array([px + c * x - s * y, py + s * x + c * y, z])
+
+
 class HumanGraph:
     """
     A 15-vertex, 16-edge humanoid skeleton rendered in manim.
@@ -518,6 +552,11 @@ class HumanGraph:
         if len(_off) == 2:
             _off = [_off[0], _off[1], 0.0]
         self.offset = np.array(_off, dtype=float)
+        # v0.9.22 (item 4): accumulated planar rotation in radians.
+        # Updated by note_rotation(); consumed by _to_world() so that
+        # morph_to / set_pose place joints correctly on a rotated
+        # figure.  act_attach_face also reads it to pre-rotate faces.
+        self._pam_rotation = 0.0
         # ── two-zone color: torso vs extremities ─────────────────────────
         # Store the resolved torso color (None = single-color, use self.style)
         self._torso_color = torso_color
@@ -821,15 +860,40 @@ class HumanGraph:
             return [line.animate.become(new_band)]
         return [line.animate.put_start_and_end_on(pa, pb).set_opacity(1)]
 
+    def note_rotation(self, angle, pivot_world):
+        """Record a rigid rotation of *angle* radians about the world
+        point *pivot_world* (v0.9.22, item 4).
+
+        Called by act_rotate after it rotates the rendered VGroups.
+        Maintains the placement invariant world = R(theta)·p + offset
+        by accumulating theta and conjugating the offset:
+        offset <- R(angle)(offset - pivot) + pivot.  See _rot_xy."""
+        self._pam_rotation = getattr(self, "_pam_rotation", 0.0) \
+            + float(angle)
+        self.offset = _rot_xy(self.offset, float(angle),
+                              pivot=pivot_world)
+
+    def _to_world(self, p, off):
+        """Map a scaled pose-space point to world space, honoring the
+        figure's accumulated rotation (v0.9.22, item 4)."""
+        th = getattr(self, "_pam_rotation", 0.0)
+        if th:
+            return _rot_xy(p, th) + off
+        return p + off
+
     def _pose_anims(self, target, off):
         """Return a list of `.animate` calls to reach target + off.
-        Applies the persistent scale factor if active."""
+        Applies the persistent scale factor if active, and the
+        figure's accumulated rotation (v0.9.22, item 4)."""
         t = self._apply_scale(target)
         anims = []
         for n in self.dots:
-            anims.append(self.dots[n].animate.move_to(t[n] + off))
+            anims.append(self.dots[n].animate.move_to(
+                self._to_world(t[n], off)))
         for (a, b), line in self.lines.items():
-            anims += self._safe_line_anim((a, b), line, t[a] + off, t[b] + off)
+            anims += self._safe_line_anim(
+                (a, b), line,
+                self._to_world(t[a], off), self._to_world(t[b], off))
         return anims
 
     # ── core animation methods ───────────────────────────────────────────────
@@ -890,9 +954,10 @@ class HumanGraph:
         new_off = self.offset + np.array([dx, dy, 0.0])
         t = self._apply_scale(target_pose)
         for n in self.dots:
-            self.dots[n].move_to(t[n] + new_off)
+            self.dots[n].move_to(self._to_world(t[n], new_off))
         for (a, b), line in self.lines.items():
-            pa, pb = t[a] + new_off, t[b] + new_off
+            pa = self._to_world(t[a], new_off)
+            pb = self._to_world(t[b], new_off)
             if np.linalg.norm(pa - pb) > 0.01:
                 if (a, b) in self._band_specs:
                     # Clothed-limb band — rebuild from spec at new endpoints.
@@ -1385,9 +1450,20 @@ class HumanGraph:
             Introduced in v0.9.10 to support unified persistent
             speech bubbles across all figure types.
         """
-        sp = self._apply_scale(self.pose)
-        hx = (sp["head"] + self.offset)[0]
-        hy = (sp["head"] + self.offset)[1]
+        # ── Head anchor: read from live dot, not pose space ──────────────
+        # self.pose / self.offset are not updated by act_rotate (rotate is
+        # a visual-only VGroup transform).  Reading the rendered dot position
+        # directly ensures correct bubble placement after rotate, including
+        # the lying-flat case.  For unrotated characters dot position ==
+        # pose-space position, so this is a safe no-op change for all other
+        # scenes.
+        _head_dot = self.dots.get("head")
+        if _head_dot is not None:
+            hx, hy = _head_dot.get_center()[0], _head_dot.get_center()[1]
+        else:
+            sp = self._apply_scale(self.pose)
+            hx = (sp["head"] + self.offset)[0]
+            hy = (sp["head"] + self.offset)[1]
         s = self.style
 
         is_os = bubble_style in ("os", "phone")
@@ -1952,6 +2028,8 @@ class DogGraph:
         if len(_off) == 2:
             _off = [_off[0], _off[1], 0.0]
         self.offset = np.array(_off, dtype=float)
+        # v0.9.22 (item 4): accumulated planar rotation — see HumanGraph.
+        self._pam_rotation = 0.0
         # Walk-and-talk follow (v0.9.14): a persistent speech bubble
         # registered on this figure, or None.  Set by say(persist=True),
         # cleared by clear_bubble / clear_all_bubbles.  Read by morph_to
@@ -2125,6 +2203,34 @@ class DogGraph:
         mid_x_offset = sign * (HARNESS_X_TAIL_OFFSET + HARNESS_X_HEAD_OFFSET) / 2
         return sm + np.array([mid_x_offset, HARNESS_NAMETAG_DY, 0])
 
+    def detach_harness(self, scene: Scene, rt: float = 0.3):
+        """Remove the harness cleanly mid-scene.  No-op if none attached.
+
+        Parameters
+        ----------
+        scene : Scene
+            The active Manim scene (needed for the FadeOut animation).
+        rt : float
+            FadeOut run time in seconds.  Default ``0.3``.  Pass ``0``
+            for an instant removal (``scene.remove`` with no animation).
+
+        After this call ``self.harness`` is ``None`` and
+        ``self._harness_updater`` is cleared, so subsequent ``fade_out``
+        calls skip the harness cleanly.
+        """
+        harness = getattr(self, "harness", None)
+        if harness is None:
+            return
+        upd = getattr(self, "_harness_updater", None)
+        if upd is not None:
+            harness.remove_updater(upd)
+            self._harness_updater = None
+        if rt > 0:
+            scene.play(FadeOut(harness), run_time=rt)
+        else:
+            scene.remove(harness)
+        self.harness = None
+
     # ── core animation ───────────────────────────────────────────────────────
 
     def fade_in(self, scene: Scene, rt_edges=1.2, rt_dots=0.8):
@@ -2147,14 +2253,32 @@ class DogGraph:
             anims.append(FadeOut(self.harness))
         scene.play(*anims, run_time=rt)
 
+    def note_rotation(self, angle, pivot_world):
+        """Record a rigid rotation about a world pivot (v0.9.22, item 4).
+        Same invariant as HumanGraph.note_rotation."""
+        self._pam_rotation = getattr(self, "_pam_rotation", 0.0) \
+            + float(angle)
+        self.offset = _rot_xy(self.offset, float(angle),
+                              pivot=pivot_world)
+
+    def _to_world(self, p, off):
+        """Pose-space → world, honoring accumulated rotation
+        (v0.9.22, item 4)."""
+        th = getattr(self, "_pam_rotation", 0.0)
+        if th:
+            return _rot_xy(p, th) + off
+        return p + off
+
     def morph_to(self, target_pose, scene: Scene,
                  rt=0.18, rate=linear, dx=0.0, dy=0.0):
         new_off = self.offset + np.array([dx, dy, 0.0])
         anims = []
         for n in self.dots:
-            anims.append(self.dots[n].animate.move_to(target_pose[n] + new_off))
+            anims.append(self.dots[n].animate.move_to(
+                self._to_world(target_pose[n], new_off)))
         for (a, b), line in self.lines.items():
-            pa, pb = target_pose[a] + new_off, target_pose[b] + new_off
+            pa = self._to_world(target_pose[a], new_off)
+            pb = self._to_world(target_pose[b], new_off)
             if np.linalg.norm(pa - pb) > 0.01:
                 anims.append(line.animate.put_start_and_end_on(pa, pb))
         # Walk-and-talk follow (v0.9.14): if this figure has a
@@ -2172,9 +2296,11 @@ class DogGraph:
     def set_pose(self, target_pose, dx=0.0, dy=0.0):
         new_off = self.offset + np.array([dx, dy, 0.0])
         for n in self.dots:
-            self.dots[n].move_to(target_pose[n] + new_off)
+            self.dots[n].move_to(
+                self._to_world(target_pose[n], new_off))
         for (a, b), line in self.lines.items():
-            pa, pb = target_pose[a] + new_off, target_pose[b] + new_off
+            pa = self._to_world(target_pose[a], new_off)
+            pb = self._to_world(target_pose[b], new_off)
             if np.linalg.norm(pa - pb) > 0.01:
                 line.put_start_and_end_on(pa, pb)
         self.pose = target_pose
@@ -2230,8 +2356,15 @@ class DogGraph:
         The bubble has ``bubble.pam_rt_out`` stashed on it.
         """
         s = self.style
-        head_pos = self.pose["head"] + self.offset
-        hx, hy = head_pos[0], head_pos[1]
+        # ── Head anchor: read from live dot, not pose space ──────────────
+        # Same rationale as HumanGraph.say: rotate is visual-only and does
+        # not update self.pose/self.offset.
+        _head_dot = self.dots.get("head")
+        if _head_dot is not None:
+            hx, hy = _head_dot.get_center()[0], _head_dot.get_center()[1]
+        else:
+            head_pos = self.pose["head"] + self.offset
+            hx, hy = head_pos[0], head_pos[1]
 
         char_w = 0.113 * (font_size / 20)
         pad = 0.28
