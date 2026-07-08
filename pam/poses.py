@@ -752,9 +752,13 @@ DOG_FAR_JOINTS = {"fr_hip", "fr_knee", "fr_paw", "rr_hip", "rr_knee", "rr_paw"}
 
 
 def dog_side_pose(
-    # spine y (all spine joints share the same y = body height)
+    # spine y (all spine joints share the same y = body height).
+    # v0.9.22: per-joint overrides spine_front_y / spine_mid_y /
+    # spine_rear_y allow a sloped spine (sitting, stretching, play-bow);
+    # each defaults to spine_y, so existing poses are unchanged.
     # All coordinates halved from original so dog head sits ~at Lucy's hip level.
     spine_y=0.10,
+    spine_front_y=None, spine_mid_y=None, spine_rear_y=None,
     # head / neck
     head_x=0.85,  head_y=0.35,
     neck_x=0.65,  neck_y=0.18,
@@ -793,9 +797,15 @@ def dog_side_pose(
     return {
         "head":         _v(head_x,      head_y),
         "neck":         _v(neck_x,      neck_y),
-        "spine_front":  _v(spine_front_x, spine_y),
-        "spine_mid":    _v(spine_mid_x,   spine_y),
-        "spine_rear":   _v(spine_rear_x,  spine_y),
+        "spine_front":  _v(spine_front_x,
+                           spine_front_y if spine_front_y is not None
+                           else spine_y),
+        "spine_mid":    _v(spine_mid_x,
+                           spine_mid_y if spine_mid_y is not None
+                           else spine_y),
+        "spine_rear":   _v(spine_rear_x,
+                           spine_rear_y if spine_rear_y is not None
+                           else spine_y),
         "tail":         _v(tail_x,       tail_y),
         # front near
         "fl_hip":  _v(fl_hip_x,  fl_hip_y),
@@ -859,6 +869,36 @@ DOG_TROT_B = dog_side_pose(
 
 DOG_TROT_CYCLE = [DOG_TROT_A, DOG_TROT_B, DOG_TROT_A, DOG_TROT_B]
 
+# ── Dog sitting pose (v0.9.22) ───────────────────────────────────────────────
+# Classic sit, side view, facing right: haunches on the ground, hind legs
+# folded forward under the body, front legs vertical and planted, spine
+# sloping up from the lowered rear to a chest at standing height, head
+# up.  Ground plane is y = -0.65 (matching standing paw level); the rear
+# paws tuck just behind the planted front paws.  All leg segment lengths
+# match DOG_STANDING to within a few percent so the stand↔sit morph
+# reads as joints folding, not limbs stretching.
+
+DOG_SITTING = dog_side_pose(
+    # sloped spine: rear drops toward the ground, chest stays up
+    spine_front_x=0.40,  spine_front_y=0.10,
+    spine_mid_x=0.00,    spine_mid_y=-0.11,
+    spine_rear_x=-0.36,  spine_rear_y=-0.38,
+    # head & neck: standing carriage relative to the chest
+    neck_x=0.60,  neck_y=0.18,
+    head_x=0.80,  head_y=0.35,
+    # tail: resting on the ground behind the haunches
+    tail_x=-0.57, tail_y=-0.51,
+    # front legs: vertical, planted (near standing coordinates)
+    fl_hip_x=0.36,  fl_hip_y=-0.05,
+    fl_knee_x=0.35, fl_knee_y=-0.35,
+    fl_paw_x=0.34,  fl_paw_y=-0.65,
+    # rear legs: folded — hip low on the haunch, knee forward near the
+    # ground, paw forward on the ground under the body
+    rl_hip_x=-0.33,  rl_hip_y=-0.53,
+    rl_knee_x=-0.03, rl_knee_y=-0.57,
+    rl_paw_x=0.26,   rl_paw_y=-0.65,
+)
+
 
 def _flip_dog_pose(pose):
     """Mirror a dog pose left-to-right (negate x of every joint).
@@ -874,6 +914,7 @@ def _flip_dog_pose(pose):
 # Use these when spawning a dog that faces left on screen.
 
 DOG_STANDING_LEFT  = _flip_dog_pose(DOG_STANDING)
+DOG_SITTING_LEFT   = _flip_dog_pose(DOG_SITTING)
 DOG_TROT_A_LEFT    = _flip_dog_pose(DOG_TROT_A)
 DOG_TROT_B_LEFT    = _flip_dog_pose(DOG_TROT_B)
 DOG_TROT_CYCLE_LEFT = [
@@ -1435,6 +1476,7 @@ POSES = {
     "pat_b":          PAT_B,
     # dog
     "dog_standing":   DOG_STANDING,
+    "dog_sitting":    DOG_SITTING,
     "dog_trot_a":     DOG_TROT_A,
     "dog_trot_b":     DOG_TROT_B,
 }
