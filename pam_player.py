@@ -105,6 +105,10 @@ scene-object registry, preserving the design intent that scene
 objects and interactive props remain conceptually and structurally
 distinct.
 
+  • ``"set_background"`` action — instantly change the scene background
+    color.  Sub-keys: ``color`` (hex str, required).  Useful for
+    signalling planet/location changes (e.g. Venus blue vs. Earth black).
+
   • ``"remove_scene_object"`` action — despawn a single scene object
     by name with a fade-out.  Mirror of ``remove_prop`` but targets
     ``_scene_objects`` instead of the prop registry.  Sub-keys:
@@ -365,7 +369,123 @@ will fall back to sequential execution with a warning.
 """
 
 from __future__ import annotations
-import json, os
+import json, os, sys, atexit, shutil, subprocess, tempfile
+
+
+# ── console logging (v0.9.21, backburner item 6) ─────────────────────────
+# Tee console output to a file for post-render inspection.  Installed at
+# module import time — before manim even loads — so every subsequent
+# print() and warning is captured.  Two independent channels:
+#
+#   PAM_LOG=render.log
+#       Tee ALL console output (stdout + stderr) to the file, while
+#       still writing it to the console as normal.
+#
+#   PAM_WARNINGS_ONLY=warnings.log
+#       Tee only PAM-originated lines — those starting with a prefix in
+#       _PAM_LOG_PREFIXES — to the file.  Manim's own progress bars and
+#       chatter are excluded, leaving a clean list of PAM warnings and
+#       state messages to review after a long render.
+#
+# Both may be active at once (different files).  Pointing both at the
+# same path is refused (the interleaved writes would corrupt the file):
+# PAM_WARNINGS_ONLY wins and PAM_LOG is ignored with a notice.
+#
+# The player is normally launched through manim's CLI, which imports
+# this module rather than executing it as __main__, so these are env
+# vars rather than command-line flags.  The pam-render wrapper can map
+# --log FILE / --warnings-only FILE flags onto them:
+#
+#     env["PAM_LOG"] = args.log
+#     env["PAM_WARNINGS_ONLY"] = args.warnings_only
+#
+# Future (Option C, still on the backburner): a structured warning
+# registry accumulating (array_index, action_type, message) tuples,
+# dumped as JSON at render completion.
+
+_PAM_LOG_PREFIXES = ("PAMPlayer", "PAM props", "PAM:")
+
+
+class _Tee:
+    """A write-through wrapper around a console stream that also logs.
+
+    Line-buffered: data is passed to the console immediately, but the
+    log file only receives complete lines, so the warnings-only filter
+    can make a per-line decision even when print() emits partial
+    writes.  All other attribute access (``fileno``, ``isatty``,
+    ``encoding``, …) is delegated to the wrapped stream so rich/manim
+    console detection keeps working.
+    """
+
+    def __init__(self, stream, logfile, warnings_only: bool = False):
+        self._stream        = stream
+        self._logfile       = logfile
+        self._warnings_only = warnings_only
+        self._buf           = ""
+
+    def write(self, data):
+        n = self._stream.write(data)
+        self._buf += data
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            if (not self._warnings_only
+                    or line.lstrip().startswith(_PAM_LOG_PREFIXES)):
+                self._logfile.write(line + "\n")
+        return n
+
+    def flush(self):
+        self._stream.flush()
+        self._logfile.flush()
+
+    def _finalize(self):
+        """Flush any unterminated final line to the log."""
+        if self._buf:
+            line, self._buf = self._buf, ""
+            if (not self._warnings_only
+                    or line.lstrip().startswith(_PAM_LOG_PREFIXES)):
+                self._logfile.write(line + "\n")
+        self._logfile.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+def _install_log_tees() -> None:
+    """Wrap sys.stdout / sys.stderr per PAM_LOG / PAM_WARNINGS_ONLY.
+
+    Idempotent: re-running (module reload) does not double-wrap.
+    """
+    if isinstance(sys.stdout, _Tee):        # already installed
+        return
+
+    log_path  = os.environ.get("PAM_LOG")
+    warn_path = os.environ.get("PAM_WARNINGS_ONLY")
+
+    if log_path and warn_path and (
+            os.path.abspath(log_path) == os.path.abspath(warn_path)):
+        print(f"PAMPlayer: PAM_LOG and PAM_WARNINGS_ONLY both point at "
+              f"'{log_path}' — ignoring PAM_LOG (warnings-only wins).")
+        log_path = None
+
+    for path, warnings_only in ((log_path, False), (warn_path, True)):
+        if not path:
+            continue
+        try:
+            fh = open(path, "w")
+        except OSError as e:
+            print(f"PAMPlayer: cannot open log file '{path}' ({e}) — "
+                  f"skipping this log channel.")
+            continue
+        sys.stdout = _Tee(sys.stdout, fh, warnings_only=warnings_only)
+        sys.stderr = _Tee(sys.stderr, fh, warnings_only=warnings_only)
+        atexit.register(sys.stdout._finalize)
+        atexit.register(sys.stderr._finalize)
+        which = "warnings-only" if warnings_only else "full"
+        print(f"PAMPlayer: {which} console log → '{path}'")
+
+
+_install_log_tees()
+
 from manim import *
 import numpy as np
 
@@ -456,11 +576,15 @@ _MOVE_RT: dict[str, float] = {
     "pan-down":   2.5,    # v0.9.6: tilt down — reveal floor-level action
     "descend":    None,   # v0.9.6: long vertical camera travel — rt from meta
     "push-into":  None,   # v0.9.6: zoom into a prop sign, then flash-cut
+    "zoom":       1.2,    # v0.9.19: smooth animated reframe, fires immediately
+                          # (not deferred like push/pull). Default rt 1.2 s;
+                          # override with "rt" key on the _shot_meta.
 }
 
 
 def _apply_camera(meta: dict, scene: "MovingCameraScene",
-                  char_x_positions: dict):
+                  char_x_positions: dict,
+                  rt_override: float | None = None):
     """
     Reposition the Manim camera based on a shot_meta dict.
 
@@ -473,6 +597,9 @@ def _apply_camera(meta: dict, scene: "MovingCameraScene",
     char_x_positions: dict mapping character key → current world x position,
                       used to centre the frame on the named subject.
                       Also accepts "dodecahedron" → x position of the Governor.
+    rt_override     : if given, use this run_time instead of the value from
+                      _MOVE_RT.  Used by the ``zoom`` move so the caller can
+                      pass meta["rt"] without touching the table.
     """
     frame = getattr(getattr(scene, "camera", None), "frame", None)
     if frame is None:
@@ -497,7 +624,12 @@ def _apply_camera(meta: dict, scene: "MovingCameraScene",
     # moves are intercepted before reaching _apply_camera, but coerce
     # None to 0.0 here so a direct call (test code, future code path)
     # doesn't blow up on the `rt > 0` comparison below.
-    rt = _MOVE_RT.get(move, 0.0) or 0.0
+    # rt_override (v0.9.19): caller may supply an explicit run_time,
+    # e.g. from meta["rt"] for the "zoom" move.
+    if rt_override is not None:
+        rt = float(rt_override)
+    else:
+        rt = _MOVE_RT.get(move, 0.0) or 0.0
 
     # Centre x: wide shots always centre the stage regardless of subject.
     # For other framings, nudge toward the subject but clamp to a modest
@@ -670,7 +802,11 @@ def _execute_pan_up(meta: dict, scene: "MovingCameraScene",
             print(f"  CAM tilt-up: companion '{cname}' not found, skipping.")
 
     # ── geometry ──────────────────────────────────────────────────────────
-    tilt_w  = 8.0   # medium-close width
+    # Use the framing declared in the shot_meta so pan-up honours whatever
+    # the screenplay specified (e.g. "medium-close" = 5.5, not the old
+    # hardcoded 8.0).  Fall back to 5.5 if framing is absent or unrecognised.
+    pan_framing = (meta.get("framing") or "medium-close").lower()
+    tilt_w, _   = _FRAMING_CAMERA.get(pan_framing, (5.5, 0.3))
     fh_tilt = tilt_w * (9 / 16)  # frame height at this width
 
     if char_fig is not None:
@@ -687,10 +823,38 @@ def _execute_pan_up(meta: dict, scene: "MovingCameraScene",
     # Peak tilt: head near frame bottom (~15% up)
     end_cy  = head_y + fh_tilt * 0.35
 
-    # ── Step 1: snap to medium-close ─────────────────────────────────────
-    frame.width = tilt_w
-    frame.move_to(np.array([snap_x, snap_cy, 0]))
-    print(f"  CAM tilt-up snap: w={tilt_w} x={snap_x:.1f} cy={snap_cy:.2f}")
+    # ── Step 1: settle to pre-tilt framing ───────────────────────────────
+    # If the camera is already very close to the target width and x-position
+    # (e.g. a preceding "zoom" move just landed there), skip the width/x
+    # reposition.  The y-center difference between zoom's generic center_y
+    # and pan-up's character-anchored snap_cy is expected and small — we fold
+    # that correction into the tilt animation itself (start_cy → end_cy)
+    # rather than running a visible pre-settle.
+    cur_w  = float(frame.width)
+    cur_cx = float(frame.get_center()[0])
+    cur_cy = float(frame.get_center()[1])
+
+    w_diff = abs(cur_w  - tilt_w)
+    x_diff = abs(cur_cx - snap_x)
+
+    # Threshold only on width and x — y is always handled by the tilt.
+    SNAP_THRESHOLD = 0.25   # units
+    if w_diff < SNAP_THRESHOLD and x_diff < SNAP_THRESHOLD:
+        # Width and x already correct (zoom just landed here).
+        # Override snap_cy with the camera's current y so the tilt starts
+        # from exactly where zoom left off — no y-correction jerk.
+        snap_cy = cur_cy
+        print(f"  CAM tilt-up: width/x already settled, tilt from cy={snap_cy:.2f}")
+    else:
+        # Camera is coming from a different framing entirely — animate a
+        # short settle.  rt_settle can be overridden in the shot_meta.
+        rt_settle = float(meta.get("rt_settle", 0.35))
+        scene.play(
+            frame.animate.set_width(tilt_w).move_to(
+                np.array([snap_x, snap_cy, 0])),
+            run_time=rt_settle, rate_func=smooth,
+        )
+    print(f"  CAM tilt-up settle: w={tilt_w} x={snap_x:.1f} cy={snap_cy:.2f}")
 
     # ── Step 2: tilt up + keystone shear ─────────────────────────────────
     # Store original points for every submobject so we can recompute the
@@ -1235,6 +1399,287 @@ def _build_prop_items(items: dict, registry: PropRegistry,
             scene.play(FadeIn(prop), run_time=rt)
 
 
+
+# ── dog dual-registration tagging (v0.9.21, backburner item 15) ──────────
+# Single home for the prop-side wrap-and-tag block used by fade_in's and
+# spawn_prop's dog branches, and for its gotcha: bind dog.group to a
+# local FIRST — the .group property returns a fresh VGroup on every
+# access, so tagging dog.group directly attaches attributes to a
+# throwaway object and leaves the registered group bare.
+
+def _tag_dog_group(dog, name: str, x: float, y: float):
+    """Return *dog*'s VGroup tagged for prop-registry dual registration."""
+    dog_group = dog.group           # bind once — see gotcha above
+    dog_group.pam_name      = name
+    dog_group.pam_type      = "dog"
+    dog_group.pam_x         = float(x)
+    dog_group.pam_y         = float(y)
+    dog_group.pam_surface_y = float(y)
+    dog_group.pam_dog       = dog
+    return dog_group
+
+
+# ── in-scene audio cues (v0.9.21, backburner item 7) ─────────────────────
+# Real audio, baked into the render via Manim's Scene.add_sound().
+# Two layers:
+#
+#   1. An optional top-level {"action": "audio", "defaults": {...}} block
+#      (place it in the preamble) declares a default sound file per
+#      action type, keyed by the exact action name:
+#
+#          {"action": "audio", "defaults": {
+#            "walk_to": "sfx/footsteps.wav",
+#            "say":     "sfx/blip.ogg"
+#          }}
+#
+#      Every subsequent step of that action type fires the default at
+#      dispatch time (i.e. at the moment the action starts).
+#
+#   2. Any individual step may carry a "sound" key:
+#          {"action": "jump_up", "who": "bevers", "sound": "sfx/boing.wav"}
+#      A per-step "sound" overrides the action-type default; an explicit
+#      "sound": null (or false or "") suppresses the default for that
+#      one step.
+#
+# Path resolution: absolute paths are used as-is; relative paths are
+# resolved against the scene file's directory first, then the current
+# working directory.
+#
+# Formats: .wav, .ogg, .mp3, .flac are passed to Manim natively.
+# .m4a files are transparently converted to .wav via ffmpeg into a
+# temp directory at first use (cached per file, cleaned up at exit) —
+# the scene author just writes the .m4a path.  Missing files, missing
+# ffmpeg, and failed conversions warn once per path and the render
+# continues silent.
+#
+# This is the scene-authoring layer only.  The per-character SFX system
+# with gain/delay/trigger controls is backburner item 18 (PAM 1.0.1).
+
+_SOUND_NATIVE_EXTS = (".wav", ".ogg", ".mp3", ".flac")
+
+
+class _SoundCues:
+    """Registry and resolver for in-scene audio cues."""
+
+    def __init__(self, script_path: str):
+        self._defaults: dict = {}       # action name → sound path
+        self._base_dir = os.path.dirname(os.path.abspath(script_path))
+        self._tmpdir   = None           # lazily created for .m4a output
+        self._m4a_cache: dict = {}      # source path → converted wav path
+        self._warned:   set  = set()    # paths already warned about
+
+    # ── declaration ──────────────────────────────────────────────────
+    def load_block(self, step: dict) -> None:
+        """Consume an {"action": "audio", "defaults": {...}} block."""
+        d = step.get("defaults", {})
+        if not isinstance(d, dict):
+            print("PAMPlayer: audio — 'defaults' must be an object of "
+                  "action-name → sound-path pairs; block ignored.")
+            return
+        self._defaults.update(d)
+        print(f"PAMPlayer: audio — default sound(s) registered for "
+              f"{sorted(d.keys())}.")
+
+    # ── per-step resolution ──────────────────────────────────────────
+    def resolve(self, step: dict, act: str):
+        """Return a playable sound path for this step, or None.
+
+        Per-step "sound" beats the action-type default; an explicit
+        falsy "sound" value suppresses the default for this step.
+        """
+        if "sound" in step:
+            raw = step["sound"]
+            if not raw:                 # null / false / "" → suppress
+                return None
+        else:
+            raw = self._defaults.get(act)
+            if not raw:
+                return None
+
+        path = raw if os.path.isabs(raw) else None
+        if path is None:
+            cand = os.path.join(self._base_dir, raw)
+            path = cand if os.path.isfile(cand) else raw
+
+        if not os.path.isfile(path):
+            self._warn_once(raw, f"audio — sound file '{raw}' not found "
+                                 f"(looked in '{self._base_dir}' and cwd); "
+                                 f"skipping this cue.")
+            return None
+
+        ext = os.path.splitext(path)[1].lower()
+        if ext in _SOUND_NATIVE_EXTS:
+            return path
+        if ext == ".m4a":
+            return self._convert_m4a(path)
+        self._warn_once(path, f"audio — unsupported sound format '{ext}' "
+                              f"for '{raw}'; use one of "
+                              f"{_SOUND_NATIVE_EXTS + ('.m4a',)}.")
+        return None
+
+    # ── .m4a → .wav shim ─────────────────────────────────────────────
+    def _convert_m4a(self, path: str):
+        cached = self._m4a_cache.get(path)
+        if cached is not None:
+            return cached or None       # "" cached = known-bad, stay silent
+
+        if shutil.which("ffmpeg") is None:
+            self._warn_once(path, "audio — ffmpeg not found on PATH; "
+                                  ".m4a cues need it (brew install "
+                                  "ffmpeg on macOS). Skipping.")
+            self._m4a_cache[path] = ""
+            return None
+
+        if self._tmpdir is None:
+            self._tmpdir = tempfile.mkdtemp(prefix="pam_audio_")
+            atexit.register(shutil.rmtree, self._tmpdir,
+                            ignore_errors=True)
+
+        out = os.path.join(
+            self._tmpdir,
+            f"{len(self._m4a_cache):03d}_"
+            f"{os.path.splitext(os.path.basename(path))[0]}.wav")
+        proc = subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", path,
+             "-acodec", "pcm_s16le", out],
+            capture_output=True, text=True)
+        if proc.returncode != 0 or not os.path.isfile(out):
+            self._warn_once(path, f"audio — ffmpeg failed converting "
+                                  f"'{path}' "
+                                  f"({proc.stderr.strip() or 'unknown'}); "
+                                  f"skipping this cue.")
+            self._m4a_cache[path] = ""
+            return None
+        self._m4a_cache[path] = out
+        print(f"PAMPlayer: audio — converted '{os.path.basename(path)}' "
+              f"→ temp .wav (cached).")
+        return out
+
+    def _warn_once(self, key: str, msg: str) -> None:
+        if key not in self._warned:
+            self._warned.add(key)
+            print(f"PAMPlayer: {msg}")
+
+
+# ── sidecar loading (v0.9.21, backburner item 1) ─────────────────────────
+# A sidecar is an optional shared file of preamble declarations (cast,
+# faces, scene_props, props) loaded alongside the scene file, so that a
+# multi-scene production (e.g. TNTD's 26 Act-2 scenes) can keep one
+# canonical character/prop roster instead of duplicating it per scene.
+#
+# Resolution order:
+#   1. PAM_SIDECAR environment variable, if set (explicit path — a
+#      missing file is warned about, since the author asked for it).
+#   2. Otherwise ``pam_sidecar.json`` in the same directory as
+#      PAM_SCRIPT (silent no-op if absent).
+#
+# Merge semantics: scene definitions take priority on collision.
+# Character keys, face keys, and prop names already defined by the
+# scene's own cast / faces / props / scene_props blocks are stripped
+# from the sidecar before it is spliced in, so the scene file always
+# wins.  Sidecar blocks are inserted at the head of the action list
+# (after a leading "title" block, which the player consumes from
+# index 0), preserving preamble-before-body ordering.
+#
+# Only declaration blocks are honoured; any other action type found in
+# a sidecar is ignored with a warning — a sidecar declares the world,
+# it does not animate it.
+
+_SIDECAR_ACTIONS = ("cast", "faces", "scene_props", "props")
+
+
+def _merge_sidecar(actions: list, script_path: str) -> list:
+    """Load and merge an optional cast+props sidecar into *actions*.
+
+    Returns the (possibly modified) action list.  No-op when no
+    sidecar is found.  See the block comment above for semantics.
+    """
+    sidecar_path = os.environ.get("PAM_SIDECAR")
+    explicit = sidecar_path is not None
+    if not explicit:
+        sidecar_path = os.path.join(
+            os.path.dirname(script_path) or ".", "pam_sidecar.json")
+
+    try:
+        with open(sidecar_path, "r") as f:
+            sidecar = json.load(f)
+    except FileNotFoundError:
+        if explicit:
+            print(f"PAMPlayer: sidecar '{sidecar_path}' not found "
+                  f"(PAM_SIDECAR was set) — continuing without it.")
+        return actions
+    except json.JSONDecodeError as e:
+        print(f"PAMPlayer: sidecar '{sidecar_path}' is not valid JSON "
+              f"({e}) — continuing without it.")
+        return actions
+
+    if not isinstance(sidecar, list):
+        print(f"PAMPlayer: sidecar '{sidecar_path}' must be a JSON array "
+              f"of action blocks — continuing without it.")
+        return actions
+
+    # ── names the scene defines itself (these win on collision) ─────
+    scene_cast, scene_faces, scene_props = set(), set(), set()
+    for step in actions:
+        a = step.get("action")
+        if a == "cast":
+            scene_cast.update(step.get("characters", {}))
+        elif a == "faces":
+            scene_faces.update(step.get("characters", {}))
+        elif a in ("props", "scene_props"):
+            scene_props.update(step.get("items", {}))
+
+    merged: list = []
+    n_chars = n_faces = n_props = n_overridden = 0
+    ignored_types: set = set()
+
+    for block in sidecar:
+        a = block.get("action")
+        if a not in _SIDECAR_ACTIONS:
+            if a is not None:
+                ignored_types.add(a)
+            continue
+        block = dict(block)                    # never mutate loaded JSON
+        key   = "items" if a in ("props", "scene_props") else "characters"
+        wins  = {"cast": scene_cast, "faces": scene_faces}.get(a, scene_props)
+        entries = {k: v for k, v in block.get(key, {}).items()
+                   if k not in wins}
+        dropped = len(block.get(key, {})) - len(entries)
+        n_overridden += dropped
+        if not entries:
+            continue
+        block[key] = entries
+        merged.append(block)
+        if a == "cast":
+            n_chars += len(entries)
+        elif a == "faces":
+            n_faces += len(entries)
+        else:
+            n_props += len(entries)
+
+    if ignored_types:
+        print(f"PAMPlayer: sidecar — ignored non-declaration action(s) "
+              f"{sorted(ignored_types)} (sidecars may only contain "
+              f"{list(_SIDECAR_ACTIONS)}).")
+
+    if not merged:
+        print(f"PAMPlayer: sidecar '{sidecar_path}' contributed nothing "
+              f"(all entries overridden or no declaration blocks).")
+        return actions
+
+    # Splice after a leading title block, which construct() pops from
+    # index 0 before the main loop runs.
+    insert_at = 1 if (actions and actions[0].get("action") == "title") else 0
+    actions[insert_at:insert_at] = merged
+    _ov = (f"; {n_overridden} "
+           f"{'entry' if n_overridden == 1 else 'entries'} "
+           f"overridden by scene") if n_overridden else ""
+    print(f"PAMPlayer: sidecar '{sidecar_path}' merged — "
+          f"{n_chars} character(s), {n_faces} face(s), "
+          f"{n_props} prop(s){_ov}.")
+    return actions
+
+
 class PAMPlayer(MovingCameraScene):
     """
     Animate a PAM JSON screenplay produced by fountain2pam.py.
@@ -1427,6 +1872,27 @@ class PAMPlayer(MovingCameraScene):
         with open(script_path, "r") as f:
             actions = json.load(f)
 
+        # ── optional cast+props sidecar (v0.9.21, backburner item 1) ─────
+        # PAM_SIDECAR=path, or pam_sidecar.json next to PAM_SCRIPT.
+        # Scene definitions take priority on collision; no-op if absent.
+        actions = _merge_sidecar(actions, script_path)
+
+        # ── in-scene audio cues (v0.9.21, backburner item 7) ─────────────
+        # Populated by {"action": "audio", "defaults": {...}} blocks;
+        # consulted for every dispatched step (see the hook in the main
+        # loop below).
+        _sound_cues = _SoundCues(script_path)
+
+        def _fire_sound(step: dict, act: str) -> None:
+            """Bake this step's audio cue (if any) at the current time."""
+            snd = _sound_cues.resolve(step, act)
+            if snd:
+                try:
+                    self.add_sound(snd)
+                except Exception as e:
+                    print(f"PAMPlayer: audio — add_sound failed for "
+                          f"'{snd}' ({e}); continuing silent.")
+
         # ── camera-mode: load prompts JSON for subscene sync ─────────────
         # Set PAM_PROMPTS=path/to/prompts.json or PAM_CAMERA_MODE=1 alongside
         # PAM_SCRIPT to enable automatic camera repositioning.
@@ -1578,6 +2044,22 @@ class PAMPlayer(MovingCameraScene):
         # ── character registry ───────────────────────────────────────────
         cast: dict[str, dict] = {}
         multi = False
+
+        def _reassert_z_indices():
+            """Re-apply sticky z_index values after any bring_to_front call.
+
+            Called immediately after every bring_to_front / bring_to_back
+            that could disturb the declared character layering order.
+            Characters without a declared z_index are left untouched.
+            """
+            for _cspec in cast.values():
+                _z = _cspec.get("z_index")
+                _f = _cspec.get("fig")
+                if _z is not None and _f is not None:
+                    try:
+                        _f.group.set_z_index(float(_z))
+                    except Exception:
+                        pass
 
         # ── prop registry ────────────────────────────────────────────────
         props = PropRegistry()   # name → VGroup with pam_node / pam_attachments
@@ -1764,14 +2246,10 @@ class PAMPlayer(MovingCameraScene):
                         # throwaway object and leave the registered group
                         # bare.  (Same gotcha noted in spawn_prop's dog
                         # branch.)
-                        dog_group = fig.group
-                        dog_group.pam_name      = name
-                        dog_group.pam_type      = "dog"
-                        dog_group.pam_x         = float(offset[0])
-                        dog_group.pam_y         = float(offset[1])
-                        dog_group.pam_surface_y = float(offset[1])
-                        dog_group.pam_dog       = fig
-                        props.add(name, dog_group)
+                        # Wrap-and-tag via the shared helper (item 15) — see
+                        # _tag_dog_group for the fresh-VGroup binding gotcha.
+                        props.add(name, _tag_dog_group(
+                            fig, name, offset[0], offset[1]))
                 else:
                     # "human" or unrecognised → default HumanGraph
                     fig = HumanGraph(
@@ -1799,6 +2277,26 @@ class PAMPlayer(MovingCameraScene):
                     else:
                         fig.fade_in(self)
                 cast[name]["fig"] = fig
+
+                # v0.9.19: sticky z_index for characters.
+                # If the fade_in step (or the cast spec in multi mode)
+                # declares "z_index", store it on the cast entry AND apply
+                # it to fig.group immediately.  The value is re-asserted
+                # after every bring_to_front call so occlusion relationships
+                # (e.g. character behind table but in front of chair) survive
+                # focus, focus_reset, and walk animations.
+                _char_z = step.get("z_index")
+                if _char_z is None and multi:
+                    _char_z = cast[name].get("z_index")
+                if _char_z is not None:
+                    try:
+                        cast[name]["z_index"] = float(_char_z)
+                        fig.group.set_z_index(float(_char_z))
+                        print(f"  FADE_IN z_index={float(_char_z):.1f} → {name}")
+                    except (TypeError, ValueError):
+                        print(f"PAMPlayer fade_in: invalid z_index {_char_z!r} "
+                              f"for '{name}'; ignoring.")
+
                 # v0.9.14 (speech tics): wire the tic profile from the
                 # cast entry onto the figure once construction is done.
                 # Stored on the figure (not just on cast[name]) so trigger
@@ -1806,6 +2304,35 @@ class PAMPlayer(MovingCameraScene):
                 # without an extra cast-side lookup.  Defaults to []
                 # (no tics) when the cast spec didn't declare one.
                 fig.tic_profile = cast[name].get("tic_profile", [])
+
+                # v0.9.21 (backburner item 3): cast-level glove/shoe
+                # defaults.  Applied instantly (no animation) so the
+                # character appears already dressed, as part of fade_in.
+                # attach_gloves / attach_shoes no-op with a warning on
+                # figures without wrist/ankle joints (dogs, governors),
+                # so no figure_type guard is needed — but sane cast
+                # files won't put glove_color on a dog anyway.
+                _cspec = cast[name]
+                if _cspec.get("glove_color"):
+                    _gstep = {"action": "attach_gloves", "who": name,
+                              "color": _cspec["glove_color"]}
+                    if _cspec.get("glove_size") is not None:
+                        _gstep["size"] = _cspec["glove_size"]
+                    if _cspec.get("glove_stroke"):
+                        _gstep["stroke"] = _cspec["glove_stroke"]
+                    _h = ACTION_REGISTRY.get("attach_gloves")
+                    if _h:
+                        _h(fig, _gstep, self, name, props=props, cast=cast)
+                if _cspec.get("shoe_color"):
+                    _sstep = {"action": "attach_shoes", "who": name,
+                              "color": _cspec["shoe_color"]}
+                    if _cspec.get("shoe_size") is not None:
+                        _sstep["size"] = _cspec["shoe_size"]
+                    if _cspec.get("shoe_stroke"):
+                        _sstep["stroke"] = _cspec["shoe_stroke"]
+                    _h = ACTION_REGISTRY.get("attach_shoes")
+                    if _h:
+                        _h(fig, _sstep, self, name, props=props, cast=cast)
                 return None
 
             # Path C (v0.9.14): formerly this guard had an exception
@@ -2076,6 +2603,15 @@ class PAMPlayer(MovingCameraScene):
                         _execute_push_into(meta, self, props,
                                            scene_objects=_scene_objects)
                         _pending_camera.clear()
+                    elif move == "zoom":
+                        # v0.9.19: smooth animated reframe — fires immediately,
+                        # does NOT defer to _pending_camera.  Unlike push/pull/drift
+                        # this is usable between any two shots regardless of whether
+                        # a say follows.  Default rt from _MOVE_RT["zoom"] (1.2 s);
+                        # override with "rt" on the _shot_meta.
+                        _zoom_rt = float(meta.get("rt", _MOVE_RT["zoom"]))
+                        _apply_camera(meta, self, char_x, rt_override=_zoom_rt)
+                        _pending_camera.clear()
                     elif _MOVE_RT.get(move, 0.0) == 0.0:
                         _apply_camera(meta, self, char_x)
                         _pending_camera.clear()
@@ -2085,6 +2621,37 @@ class PAMPlayer(MovingCameraScene):
                 continue
 
             act = step["action"]
+
+            # ── in-scene audio cues (v0.9.21, backburner item 7) ─────────
+            # The "audio" block registers action-type defaults; every
+            # other step gets its cue (per-step "sound" key or the
+            # registered default) baked at dispatch time, i.e. at the
+            # moment the action starts.  Parallel sub-steps are handled
+            # inside the parallel branch.
+            if act == "audio":
+                _sound_cues.load_block(step)
+                continue
+            _fire_sound(step, act)
+
+            # ── wait ─────────────────────────────────────────────────────
+            # Scene-level timing pause. Supports both the documented
+            # form {"action": "wait", "rt": seconds} and screenplay
+            # variants such as {"action": "wait", "t": seconds}.
+            # This must be handled before generic target dispatch; otherwise
+            # a no-"who" wait falls through as an unknown default-target
+            # action and is skipped.
+            if act == "wait":
+                raw = step.get("t", step.get("rt",
+                          step.get("duration", step.get("hold", 0.0))))
+                try:
+                    pause = float(raw)
+                except (TypeError, ValueError):
+                    print(f"PAMPlayer: wait — invalid duration {raw!r}, skipping.")
+                    continue
+
+                if pause > 0:
+                    self.wait(pause)
+                continue
 
             # ── cast ─────────────────────────────────────────────────────
             if act == "cast":
@@ -2103,6 +2670,7 @@ class PAMPlayer(MovingCameraScene):
                         "dog":      "dog_standing",
                         "governor": None,
                     }.get(ft, "standing_front")
+                    _prev = cast.get(cname)   # item 19: prior entry, if any
                     cast[cname] = {
                         "fig":         None,
                         "figure_type": ft,
@@ -2130,7 +2698,68 @@ class PAMPlayer(MovingCameraScene):
                         # Passed through to act_attach_face, which calls
                         # face_builder.register_variants() on first use.
                         "expressions": spec.get("expressions", {}),
+                        # v0.9.21 (backburner item 3): cast-level glove/
+                        # shoe defaults.  When glove_color / shoe_color is
+                        # present, the player auto-applies attach_gloves /
+                        # attach_shoes immediately after this character's
+                        # fade_in.  Explicit attach actions in the scene
+                        # body still work and override (attach_gloves /
+                        # attach_shoes are idempotent: they tear down any
+                        # prior pair first).
+                        "glove_color":  spec.get("glove_color"),
+                        "glove_stroke": spec.get("glove_stroke"),
+                        "glove_size":   spec.get("glove_size"),
+                        "shoe_color":   spec.get("shoe_color"),
+                        "shoe_stroke":  spec.get("shoe_stroke"),
+                        "shoe_size":    spec.get("shoe_size"),
                     }
+
+                    # ── v0.9.22 (backburner item 19): merge-on-redefine ──
+                    # A mid-scene cast block redefining an existing
+                    # character previously REPLACED its entry wholesale,
+                    # so any key not restated (scale, style, tics,
+                    # gloves…) silently reverted to defaults on the next
+                    # fade_in.  Now: keys the redefinition doesn't
+                    # mention are inherited from the prior entry; keys it
+                    # does mention win.  "style" merges one level deep
+                    # (new color keys override, unmentioned ones
+                    # persist), and is copied to avoid aliasing the
+                    # shared preamble dict.
+                    #
+                    # Carve-outs that always take the NEW block's value:
+                    #   figure_type — changing type is intentional;
+                    #   pose/offset — scene-positional, freely resettable;
+                    #   fig         — the live object; None here, rebuilt
+                    #                 at fade_in.
+                    # To force a key back to its default, state it
+                    # explicitly (e.g. "scale": null).
+                    if _prev is not None:
+                        _new = cast[cname]              # entry just built
+                        # keys the redefinition actually mentioned, plus
+                        # the always-take-new carve-outs
+                        _stated = set(spec.keys()) | {
+                            "figure_type", "pose", "offset", "fig"}
+                        merged = dict(_prev)
+                        inherited = []
+                        for k, v in _new.items():
+                            if k in _stated or k not in _prev:
+                                merged[k] = v
+                            elif merged[k] != v:
+                                inherited.append(k)
+                        # style: one-level merge, copy-not-alias
+                        if "style" in spec:
+                            merged["style"] = {**(_prev.get("style") or {}),
+                                               **spec["style"]}
+                        else:
+                            merged["style"] = dict(_prev.get("style") or {})
+                        merged["fig"] = None
+                        cast[cname] = merged
+                        if inherited:
+                            print(f"PAMPlayer: cast — '{cname}' "
+                                  f"redefined; inherited "
+                                  f"{sorted(inherited)} from prior "
+                                  f"entry (state a key explicitly to "
+                                  f"reset it).")
                 continue
 
             # ── faces ────────────────────────────────────────────────────
@@ -2198,6 +2827,7 @@ class PAMPlayer(MovingCameraScene):
                         for bname, bdata in _scene_objects.items():
                             if getattr(bdata["mob"], "pam_type", "") == "backdrop":
                                 self.bring_to_back(bdata["mob"])
+                    _reassert_z_indices()   # v0.9.19: restore character layering
                     self.play(FadeIn(prop), run_time=rt)
                     _scene_objects[oname] = {"mob": prop, "x": ox}
                 continue
@@ -2293,7 +2923,6 @@ class PAMPlayer(MovingCameraScene):
             # the prop registry or the cast — by design, since scene
             # objects and interactive props are distinct categories
             # (see top-of-file v0.9.14.1 docstring).
-            #
             # JSON keys:
             #   "prop" — scene-object name (required; the parameter is
             #            called "prop" for symmetry with remove_prop).
@@ -2331,6 +2960,76 @@ class PAMPlayer(MovingCameraScene):
                     else:
                         for m in mobs:
                             self.remove(m)
+                continue
+
+            # ── end_scene (v0.9.21, backburner item 2) ───────────────────
+            # One-step end-of-scene teardown:
+            #   • removes every live prop — preamble-declared and
+            #     spawn_prop'd alike — EXCEPT dual-registered dog
+            #     characters (pam_dog entries are characters, and
+            #     characters are unaffected by end_scene);
+            #   • clears all scene objects (facades, backdrops);
+            #   • dismisses any persistent speech bubbles (avoiding the
+            #     v0.9.10 focus_reset/bubble-overlay class of stale-mob
+            #     bugs at scene boundaries);
+            #   • resets the background to the default (BG_COLOR).
+            # Characters are left standing: fade them out explicitly if
+            # the scene calls for it.
+            #
+            # JSON keys:
+            #   "rt" — removal animation run time in seconds.  Default
+            #          0.0 = instant (hard cut to the next scene).  When
+            #          rt > 0, props, scene objects, and bubbles all fade
+            #          concurrently in a single play() call.
+            if act == "end_scene":
+                rt = float(step.get("rt", 0.0))
+
+                doomed: list = []          # unique mobs to remove
+                seen:   set  = set()       # id() dedupe guard
+
+                # Props — skip dual-registered dogs (live characters).
+                kept_dogs = []
+                for pname, praw in list(props.items()):
+                    if getattr(praw, "pam_dog", None) is not None:
+                        kept_dogs.append(pname)
+                        continue
+                    if id(praw) not in seen:
+                        seen.add(id(praw))
+                        doomed.append(praw)
+                    del props[pname]
+
+                # Scene objects (building facades, backdrops, walls).
+                for entry in _scene_objects.values():
+                    mob = entry["mob"]
+                    if id(mob) not in seen:
+                        seen.add(id(mob))
+                        doomed.append(mob)
+                _scene_objects.clear()
+
+                # Persistent speech bubbles.
+                for _k in list(_persistent_bubbles):
+                    bubble = _persistent_bubbles[_k]["bubble"]
+                    _clear_persistent_bubble_ref(_k)
+                    if id(bubble) not in seen:
+                        seen.add(id(bubble))
+                        doomed.append(bubble)
+                _persistent_bubbles.clear()
+
+                if doomed:
+                    if rt > 0:
+                        self.play(*[FadeOut(m) for m in doomed],
+                                  run_time=rt)
+                    else:
+                        for m in doomed:
+                            self.remove(m)
+
+                # Background back to the player default.
+                self.camera.background_color = BG_COLOR
+
+                print(f"PAMPlayer: end_scene — removed {len(doomed)} "
+                      f"mob(s); background reset"
+                      + (f"; kept live dog character(s) {kept_dogs}"
+                         if kept_dogs else "") + ".")
                 continue
 
             # ── spawn_prop ───────────────────────────────────────────────
@@ -2385,14 +3084,9 @@ class PAMPlayer(MovingCameraScene):
                     # VGroup on each access, so setting attributes on
                     # dog.group directly would attach them to throwaway
                     # objects and leave the registered group bare.
-                    dog_group = dog.group
-                    dog_group.pam_name      = pname
-                    dog_group.pam_type      = "dog"
-                    dog_group.pam_x         = x
-                    dog_group.pam_y         = y
-                    dog_group.pam_surface_y = y
-                    dog_group.pam_dog       = dog
-                    props.add(pname, dog_group)
+                    # Wrap-and-tag via the shared helper (item 15) — see
+                    # _tag_dog_group for the fresh-VGroup binding gotcha.
+                    props.add(pname, _tag_dog_group(dog, pname, x, y))
                     # Path C dual registration (v0.9.14): mirror entry on
                     # the cast side so this DogGraph is also reachable via
                     # `who: "<pname>"` for verbs like `say`, `walk_to`, and
@@ -2437,15 +3131,40 @@ class PAMPlayer(MovingCameraScene):
 
                 # ── standard props (hat, chair, desk, door …) ────────────
                 _skip = {"action", "prop", "type", "figure_type", "rt",
-                         "on_head_of", "on_torso_of"}
+                         "on_head_of", "on_torso_of",
+                         "z_index", "z_offset", "bring_to_front"}
                 kwargs = {k: v for k, v in step.items() if k not in _skip}
+
+                # Laptop builder compatibility: build_laptop historically
+                # defaults to hidden=True.  If spawn_prop does not override
+                # that, FadeIn targets an already-transparent mobject and the
+                # laptop remains effectively invisible.  Scene-level props
+                # already pass hidden=False by default; make spawn_prop match.
+                if ptype == "laptop":
+                    kwargs.setdefault("hidden", False)
 
                 owner_torso = step.get("on_torso_of")   # for chest accessories
 
-                # If the prop was pre-registered as hidden, just reveal it.
+                # If the prop was pre-registered as hidden, reveal it.
+                # Do not FadeIn a mobject whose own opacity is still 0;
+                # animate opacity to 1 so hidden laptops/props become visible.
                 if pname in props._store:
                     prop = props.get(pname)
-                    self.play(FadeIn(prop), run_time=rt)
+                    try:
+                        prop.set_opacity(0)
+                        self.play(prop.animate.set_opacity(1), run_time=rt)
+                    except Exception:
+                        prop.set_opacity(1)
+                        self.play(FadeIn(prop), run_time=rt)
+                    _z_index = step.get("z_index", step.get("z_offset", None))
+                    if _z_index is not None and hasattr(prop, "set_z_index"):
+                        try:
+                            prop.set_z_index(float(_z_index))
+                        except (TypeError, ValueError):
+                            print(f"PAMPlayer spawn_prop: invalid z_index/z_offset {_z_index!r}; ignoring.")
+                    if step.get("bring_to_front", False):
+                        self.bring_to_front(prop)
+                    _reassert_z_indices()   # v0.9.19: restore character layering
                     continue
 
                 if owner:
@@ -2481,6 +3200,18 @@ class PAMPlayer(MovingCameraScene):
 
                 prop = build_prop(pname, type=ptype,
                                   prop_registry=props._store, **kwargs)
+
+                # Optional visual stacking control.  z_index is Manim-native;
+                # z_offset is accepted as a screenplay alias.
+                _z_index = step.get("z_index", step.get("z_offset", None))
+                if _z_index is not None and hasattr(prop, "set_z_index"):
+                    try:
+                        prop.set_z_index(float(_z_index))
+                    except (TypeError, ValueError):
+                        print(f"PAMPlayer spawn_prop: invalid z_index/z_offset {_z_index!r}; ignoring.")
+                if step.get("bring_to_front", False):
+                    self.bring_to_front(prop)
+                _reassert_z_indices()   # v0.9.19: restore character layering
 
                 # ── parent/attach → pam_follows stamping ─────────────────
                 # When a prop is spawned with parent=<character> and
@@ -3381,6 +4112,9 @@ class PAMPlayer(MovingCameraScene):
                                                    # but defends against any
                                                    # future regression
                         self.bring_to_front(_face)
+                    # v0.9.19: re-assert sticky z_index values so face
+                    # bring_to_front doesn't clobber character layering.
+                    _reassert_z_indices()
 
                 # v0.9.18.1: keep each face-attached figure's head_face at
                 # the FRONT of the z-order for the DURATION of the focus
@@ -3481,6 +4215,14 @@ class PAMPlayer(MovingCameraScene):
                 sub_actions = [s for s in sub_actions
                                 if "_comment" not in s and "_hint" not in s]
 
+                # In-scene audio (v0.9.21, item 7): sub-step cues all
+                # fire at the parallel block's start time, matching the
+                # simultaneity semantics of the block itself.  (The
+                # block-level step's own "sound" was already handled by
+                # the main-loop hook.)
+                for _sub in sub_actions:
+                    _fire_sound(_sub, _sub.get("action", ""))
+
                 # Check if any sub-actions are locomotion types
                 locomotion = {}  # key → (fig_or_dog, plan, kind)
                 simple = []
@@ -3521,9 +4263,23 @@ class PAMPlayer(MovingCameraScene):
                             # Humanoid cast path
                             fig = _get_fig(tname)
                             if fig:
-                                plan = (fig._walk_plan(x) if sa == "walk_to"
-                                        else fig._run_plan(x))
-                                locomotion[tname] = (fig, plan, "human")
+                                # v0.9.21 (item 14): Path C made cast-
+                                # loaded dogs reachable here; DogGraph
+                                # has no _walk_plan/_run_plan.  A dog
+                                # asked to walk trots, with a notice.
+                                if isinstance(fig, DogGraph):
+                                    stride = sub.get("stride", 0.14)
+                                    plan = fig._trot_plan(x, stride=stride)
+                                    locomotion[tname] = (fig, plan, "dog")
+                                    print(f"PAMPlayer: parallel {sa} — "
+                                          f"'{tname}' is a dog; "
+                                          f"trotting instead.")
+                                else:
+                                    plan = (fig._walk_plan(x)
+                                            if sa == "walk_to"
+                                            else fig._run_plan(x))
+                                    locomotion[tname] = (fig, plan,
+                                                         "human")
                     else:
                         simple.append(sub)
 
@@ -3600,6 +4356,17 @@ class PAMPlayer(MovingCameraScene):
                         elif sub["action"] == "fade_out":
                             for tname in _targets(sub):
                                 cast[tname]["fig"] = None
+                continue
+
+            # ── set_background ──────────────────────────────────────────
+            # Instantly change the scene background color. Must live in
+            # the main loop (not _dispatch_one) because set_background has
+            # no "who" or "prop" key: _targets() would route it to _DEFAULT
+            # and _dispatch_one would silently skip it as an unknown action.
+            if act == "set_background":
+                color = step.get("color")
+                if color:
+                    self.camera.background_color = color
                 continue
 
             # ── normal sequential action ─────────────────────────────────
