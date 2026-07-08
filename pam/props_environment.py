@@ -107,7 +107,7 @@ def build_dodecahedron(name: str, x=0.0, y=1.5, color=None,
 def build_building(name: str, x=3.0, y=-2.6,
                    height=6.0, width=2.0,
                    color=None, window_color=None, label=None,
-                   label_font=None, label_color=None,
+                   label_font=None, label_font_size=None, label_color=None,
                    outline_color=None, outline_width=2.5,
                    show_roofline=True,
                    window_glow=True,
@@ -130,6 +130,10 @@ def build_building(name: str, x=3.0, y=-2.6,
                    the building (bottom-left corner area), not at the roofline.
                    Survives keystoning because it is near y=0 (t≈0).
     label_font   : font for the sign text.  Default ``"Times New Roman"``.
+    label_font_size : font size for the sign text.  Default ``10``.
+                      The sign panel automatically expands to fit the text,
+                      up to the available building width; if the label is too
+                      long, the text is scaled down to fit the sign panel.
     label_color  : sign text / border colour.  Default gold ``"#e8c547"``.
     outline_color : stroke colour for the body rectangle.  Defaults to a cool
                     blue-grey ``"#b8c4cc"`` that reads as a crisp architectural
@@ -247,22 +251,49 @@ def build_building(name: str, x=3.0, y=-2.6,
             parts.append(glint)
 
     if label:
-        lc   = label_color or "#e8c547"   # gold
+        lc    = label_color or "#e8c547"   # gold
         lfont = label_font or "Times New Roman"
-        # Sign panel: small rectangle at bottom-left of the building facade
-        sign_w  = min(width * 0.75, 1.4)
-        sign_h  = 0.28
-        sign_x  = x - width / 2 + sign_w / 2 + 0.08   # left-aligned, slight margin
-        sign_y  = y + sign_h / 2 + 0.08                # just above the base
+        lfs   = label_font_size or 10
+
+        # Sign panel: small rectangle at bottom-left of the building facade.
+        # The panel now grows with the rendered text instead of using a fixed
+        # 1.4 x 0.28 box.  It is still constrained to the building facade; if
+        # the label is too long, the text scales down to fit the available box.
+        sign_margin_x = 0.08
+        sign_margin_y = 0.08
+        sign_pad_x    = 0.10
+        sign_pad_y    = 0.04
+        min_sign_w    = min(width * 0.75, 1.4)  # preserves the old default look
+        min_sign_h    = 0.28
+        max_sign_w    = max(0.25, width - 2 * sign_margin_x)
+
+        sign_txt = Text(
+            label,
+            font=lfont,
+            font_size=lfs,
+            color=lc,
+        )
+
+        sign_w = min(max(min_sign_w, sign_txt.width + 2 * sign_pad_x), max_sign_w)
+        sign_h = max(min_sign_h, sign_txt.height + 2 * sign_pad_y)
+
+        # If the requested label/font/size is wider than the building permits,
+        # scale the text down to fit inside the sign panel.
+        max_txt_w = max(0.05, sign_w - 2 * sign_pad_x)
+        max_txt_h = max(0.05, sign_h - 2 * sign_pad_y)
+        if sign_txt.width > max_txt_w:
+            sign_txt.scale_to_fit_width(max_txt_w)
+        if sign_txt.height > max_txt_h:
+            sign_txt.scale_to_fit_height(max_txt_h)
+
+        sign_x = x - width / 2 + sign_w / 2 + sign_margin_x  # left-aligned
+        sign_y = y + sign_h / 2 + sign_margin_y              # just above base
         sign_bg = Rectangle(
             width=sign_w, height=sign_h,
             color=lc, fill_color="#1a1a0a",
             fill_opacity=0.92, stroke_width=1.2,
         ).move_to(np.array([sign_x, sign_y, 0]))
-        sign_txt = Text(
-            label, font=lfont,
-            font_size=10, color=lc,
-        ).move_to(sign_bg.get_center())
+        sign_txt.move_to(sign_bg.get_center())
         parts.extend([sign_bg, sign_txt])
 
     group = VGroup(*parts)
