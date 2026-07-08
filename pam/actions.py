@@ -108,6 +108,7 @@ from pam.tics import TIC_FRAGMENTS, fragment_applies, get_fragment
 from pam.actions_interactions import (
     act_kiss, act_hold_hands, act_hand_to, act_pat_head,
     act_grab_arm, act_twist_arm_behind, act_release_arm,
+    act_punch,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -119,7 +120,7 @@ _CANNOT_PARALLEL = frozenset({
     "carry", "exit_through", "exit_through_doors",
     "rush_to", "rush_out", "squeeze_through", "jump_up",
     "pat", "search_drawers", "pick_up_phone", "hang_up",
-    "grab", "punch_button", "reach_character",
+    "grab", "punch_button", "reach_character", "punch",
     "peel_from_hand", "group_translate",
     # v0.9.11 gesture additions — all call morph_to internally
     "nod", "shake_head", "shrug",
@@ -588,6 +589,35 @@ def act_rotate(fig, step, scene, name="I.G. NoreMe", *,
     # pivot we use the pose's joint coordinates plus the figure offset.
     pivot_spec = step.get("pivot", "bottom")
 
+    # v0.9.22 (item 4): named pivots.  A pivot string that is not a
+    # positional keyword resolves as a character or prop name — the
+    # rotation pivots about that target's live center.  E.g.
+    #   {"action": "rotate", "who": "chekov", "angle_deg": 180,
+    #    "pivot": "bevers", "rt": 1.5}
+    _PIVOT_KEYWORDS = ("bottom", "center", "top", "left", "right")
+    if (isinstance(pivot_spec, str)
+            and pivot_spec.lower() not in _PIVOT_KEYWORDS):
+        _pv_target = None
+        if cast is not None and pivot_spec in cast:
+            _pv_fig = cast[pivot_spec].get("fig")
+            if _pv_fig is not None:
+                # Center of the live rendered figure.  dot_group is a
+                # stable VGroup (unlike .group, which is rebuilt per
+                # access), and its center tracks rotations/scale.
+                _pv_target = _pv_fig.dot_group.get_center()
+        if _pv_target is None and props is not None:
+            _pv_raw = props.get_raw(pivot_spec) \
+                if hasattr(props, "get_raw") else None
+            if _pv_raw is not None:
+                _pv_target = _pv_raw.get_center()
+        if _pv_target is not None:
+            pivot_spec = [float(_pv_target[0]), float(_pv_target[1])]
+        else:
+            print(f"PAMPlayer rotate: pivot '{pivot_spec}' is neither "
+                  f"a keyword nor a known character/prop; using "
+                  f"'bottom'.")
+            pivot_spec = "bottom"
+
     if isinstance(pivot_spec, (list, tuple)) and len(pivot_spec) >= 2:
         # Explicit world-space [x, y] override — same path for either kind.
         pivot_pt = np.array([float(pivot_spec[0]),
@@ -614,13 +644,22 @@ def act_rotate(fig, step, scene, name="I.G. NoreMe", *,
         off = target.offset
 
         def _joint(key, fallback=None):
-            """Return joint world-position, or fallback (e.g. midhip)."""
-            jp = sp.get(key)
-            if jp is None and fallback is not None:
-                jp = sp.get(fallback)
-            if jp is None:
-                return None
-            return jp + off
+            """Return joint world-position, or fallback (e.g. midhip).
+
+            v0.9.22 (item 4): read the LIVE dot, not pose space, so
+            pivots are correct on an already-rotated figure.  Pose
+            space remains the fallback for joints without dots.
+            """
+            for k in (key, fallback):
+                if k is None:
+                    continue
+                dot = target.dots.get(k)
+                if dot is not None:
+                    return dot.get_center()
+                jp = sp.get(k)
+                if jp is not None:
+                    return jp + off
+            return None
 
         pivot_key = str(pivot_spec).lower()
         if pivot_key == "bottom":
@@ -678,15 +717,146 @@ def act_rotate(fig, step, scene, name="I.G. NoreMe", *,
             print(f"PAMPlayer rotate: figure '{name}' has no edge_group "
                   "or dot_group; cannot rotate.")
             return None
+
+        # ── Collect attached overlay mobjects and pause their updaters ──
+        #
+        # head_face, gloves, shoes, torso_icon, and name_tag all track
+        # their anchor joints via per-frame updaters.  During a Rotate
+        # animation those updaters fire every frame and fight the Rotate
+        # transform — the face/glove/shoe slides to follow the rotating
+        # dot without itself rotating, producing a floating-head effect.
+        #
+        # Fix: remove every updater before the play() call, include each
+        # attached mobject in the Rotate bundle so it rotates with the
+        # body, then recompute each mobject's positional offset from its
+        # (now-rotated) anchor dot and re-attach the updater.
+        #
+        # Updater attribute map (all live on fig):
+        #   head_face        / head_face_updater       (single mob)
+        #   torso_icon       / torso_icon_updater       (single mob)
+        #   gloves           / glove_updaters           ({side: mob} / {side: fn})
+        #   shoes            / shoe_updaters            ({side: mob} / {side: fn})
+        #   _name_tag        / _name_tag_updater        (single mob)
+        #
+        # gloves and shoes store the mobject in fig.gloves[side] and
+        # fig.shoes[side]; their updater closures already hold the joint
+        # reference internally, so recomputing pam_head_bbox_offset is
+        # not needed for them — re-attaching the updater is sufficient
+        # because the updater reads the live joint position each frame.
+        # For head_face the offset vector must be recomputed from the
+        # rotated geometry before the updater resumes, otherwise the
+        # updater snaps the face back to its pre-rotation relative offset.
+
+        overlay_items = []  # list of (mob, updater_fn_or_None, needs_offset_recompute)
+
+        # head_face
+        _face     = getattr(target, "head_face",         None)
+        _face_upd = getattr(target, "head_face_updater", None)
+        if _face is not None:
+            if _face_upd is not None:
+                _face.remove_updater(_face_upd)
+            overlay_items.append((_face, _face_upd, True))
+
+        # torso_icon
+        _icon     = getattr(target, "torso_icon",         None)
+        _icon_upd = getattr(target, "torso_icon_updater", None)
+        if _icon is not None:
+            if _icon_upd is not None:
+                _icon.remove_updater(_icon_upd)
+            overlay_items.append((_icon, _icon_upd, False))
+
+        # gloves  {side: mob}  /  glove_updaters {side: fn}
+        _gloves     = getattr(target, "gloves",        None) or {}
+        _glove_upds = getattr(target, "glove_updaters", None) or {}
+        for side, glove_mob in _gloves.items():
+            upd = _glove_upds.get(side)
+            if upd is not None:
+                glove_mob.remove_updater(upd)
+            overlay_items.append((glove_mob, upd, False))
+
+        # shoes  {side: mob}  /  shoe_updaters {side: fn}
+        _shoes     = getattr(target, "shoes",        None) or {}
+        _shoe_upds = getattr(target, "shoe_updaters", None) or {}
+        for side, shoe_mob in _shoes.items():
+            upd = _shoe_upds.get(side)
+            if upd is not None:
+                shoe_mob.remove_updater(upd)
+            overlay_items.append((shoe_mob, upd, False))
+
+        # name_tag
+        _tag     = getattr(target, "_name_tag",         None)
+        _tag_upd = getattr(target, "_name_tag_updater", None)
+        if _tag is not None:
+            if _tag_upd is not None:
+                _tag.remove_updater(_tag_upd)
+            overlay_items.append((_tag, _tag_upd, False))
+
+        # ── Build and fire the Rotate animation bundle ──────────────────
+        base_anims = [
+            Rotate(eg, angle=angle, about_point=pivot_pt),
+            Rotate(dg, angle=angle, about_point=pivot_pt),
+        ]
+        overlay_anims = [
+            Rotate(mob, angle=angle, about_point=pivot_pt)
+            for mob, _upd, _recompute in overlay_items
+        ]
+
         if rt > 0:
-            scene.play(
-                Rotate(eg, angle=angle, about_point=pivot_pt),
-                Rotate(dg, angle=angle, about_point=pivot_pt),
-                run_time=rt,
-            )
+            scene.play(*base_anims, *overlay_anims, run_time=rt)
         else:
             eg.rotate(angle, about_point=pivot_pt)
             dg.rotate(angle, about_point=pivot_pt)
+            for mob, _upd, _recompute in overlay_items:
+                mob.rotate(angle, about_point=pivot_pt)
+
+        # ── Recompute offsets and re-attach updaters ─────────────────
+        # For head_face: pam_head_bbox_offset encodes the vector from
+        # the head dot to the face VGroup bbox center.  After rotation
+        # both the head dot and the face have moved, but they have moved
+        # by the same rigid transform, so the offset vector has *rotated*
+        # too — it is no longer axis-aligned.  Recompute it from the
+        # post-rotation geometry so _follow_head applies the correct
+        # displacement each subsequent frame.
+        #
+        # For gloves/shoes/torso_icon/name_tag: their updater closures
+        # capture the joint dot directly and call move_to() each frame,
+        # so no stored offset vector needs updating — just re-attach.
+        for mob, upd, needs_recompute in overlay_items:
+            if needs_recompute and hasattr(mob, "pam_head_bbox_offset"):
+                head_dot = target.dots.get("head")
+                if head_dot is not None:
+                    mob.pam_head_bbox_offset = (
+                        mob.get_center() - head_dot.get_center()
+                    )
+            if upd is not None:
+                mob.add_updater(upd)
+
+        # ── Accumulate rotation state on the figure ───────────────────
+        # attach_face builds a fresh upright face VGroup on every call
+        # (including expression swaps).  Without knowing the figure's
+        # current rotation it would place the new face upright,
+        # reversing the visual effect of any prior rotate action.
+        #
+        # Fix: store the net cumulative rotation (radians) on the figure
+        # so act_attach_face can pre-rotate each new face to match before
+        # computing pam_head_bbox_offset and placing it on the head dot.
+        #
+        # _pam_rotation is initialised to 0.0 by act_attach_face on
+        # first access (via getattr default), so no __init__ change is
+        # needed.  Counter-rotations (e.g. standing back up with
+        # angle_deg=+90) drive it back toward 0.0 automatically.
+        # v0.9.22 (item 4): figures maintain the placement invariant
+        # world = R(theta)·p + offset.  note_rotation() accumulates
+        # theta AND conjugates the offset about the pivot, so a later
+        # morph_to / set_pose renders the new pose in the rotated,
+        # relocated frame instead of snapping back to pose space.
+        # Raw prop VGroups have no note_rotation; they keep the plain
+        # theta accumulation (used by act_attach_face for faces).
+        if hasattr(target, "note_rotation"):
+            target.note_rotation(angle, pivot_pt)
+        else:
+            target._pam_rotation = getattr(target, "_pam_rotation",
+                                           0.0) + angle
 
     return None
 
@@ -2507,6 +2677,38 @@ def act_attach_face(fig, step, scene, name="I.G. NoreMe", *,
               f".svg, .png, .jpg, or .jpeg.")
         return _empty
 
+    # ── Pre-rotate face to match figure's current rotation state ─────────
+    #
+    # act_rotate stores the net cumulative rotation (radians) on the figure
+    # as fig._pam_rotation.  build_face() always returns an upright VGroup;
+    # without pre-rotation, an expression swap on a lying-flat (or otherwise
+    # rotated) character would place the new face upright, visually snapping
+    # the figure back to vertical for one frame and then every subsequent
+    # frame while that face is attached.
+    #
+    # Fix: rotate the fresh face in-place around its pam_head_ref center
+    # (the head oval) BEFORE computing pam_head_bbox_offset.  This ensures:
+    #   1. pam_head_bbox_offset is computed from the already-rotated geometry,
+    #      so the vector correctly describes the rotated bbox→oval relationship.
+    #   2. _follow_head only ever calls move_to(), never rotate() — correct,
+    #      because the face arrives pre-rotated and just needs position tracking.
+    #   3. A counter-rotation (angle_deg=+90 standing back up) drives
+    #      fig._pam_rotation back toward 0.0, so the next attach_face gets
+    #      an upright face — no manual reset needed.
+    #
+    # SVG / PNG faces (no pam_head_ref) rotate around their bbox center,
+    # which is acceptable since those faces have no hair/hat offset to worry
+    # about.  The behavior for those sources is unchanged when _pam_rotation
+    # is 0.0 (the common case).
+    _pam_rot = getattr(fig, "_pam_rotation", 0.0)
+    if _pam_rot != 0.0:
+        _ref_for_rot = getattr(face, "pam_head_ref", None)
+        _pivot_for_rot = (
+            _ref_for_rot.get_center() if _ref_for_rot is not None
+            else face.get_center()
+        )
+        face.rotate(_pam_rot, about_point=_pivot_for_rot)
+
     # ── Position + updater (common to all three sources) ──────────────────
     #
     # ANCHOR FIX (v0.9.17): face_builder VGroups tag face.pam_head_ref with
@@ -2516,8 +2718,9 @@ def act_attach_face(fig, step, scene, name="I.G. NoreMe", *,
     # much hair sits above the head oval.
     #
     # Fix: compute the static offset from bbox center → head oval center once,
-    # right after scale.  This offset is CONSTANT because all VGroup elements
-    # translate together.  The updater then uses:
+    # right after scale (and after pre-rotation above).  This offset is
+    # CONSTANT because all VGroup elements translate together.  The updater
+    # then uses:
     #     move_to(head_dot + bbox_to_oval_offset)
     # which puts the bbox center at (head_dot + offset), making the head oval
     # land exactly on the head dot.  Pure move_to — no drift, no frame-order
@@ -2531,7 +2734,7 @@ def act_attach_face(fig, step, scene, name="I.G. NoreMe", *,
 
     _ref = getattr(face, "pam_head_ref", None)
     if _ref is not None:
-        # Compute offset in scaled world space (after face.scale(scale) above).
+        # Compute offset in scaled world space (after scale + pre-rotation).
         face.pam_head_bbox_offset = face.get_center() - _ref.get_center()
     else:
         face.pam_head_bbox_offset = np.array([0.0, 0.0, 0.0])
@@ -2996,8 +3199,41 @@ def act_detach_shoes(fig, step, scene, name="I.G. NoreMe", *,
     return _empty
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  NAME TAG  (v0.9.X)
+def act_detach_harness(fig, step, scene, name="I.G. NoreMe", *,
+                       props=None, cast=None):
+    """Remove a DogGraph character's harness mid-scene.  No-op if none
+    attached or if the figure is not a DogGraph.
+
+    JSON keys
+    ---------
+    who : str   — character key (required).
+    rt  : float — FadeOut run time in seconds (default ``0.3``).
+                  Pass ``0`` for an instant removal with no animation.
+
+    Examples
+    --------
+    ::
+
+        {"action": "detach_harness", "who": "chekov"}
+        {"action": "detach_harness", "who": "chekov", "rt": 0.5}
+        {"action": "detach_harness", "who": "chekov", "rt": 0}
+    """
+    collect = step.get("_collect_anims", False)
+    _empty = [] if collect else None
+
+    if fig is None:
+        print(f"PAMPlayer: detach_harness — '{name}' has no live figure, "
+              f"skipping.")
+        return _empty
+
+    if not hasattr(fig, "detach_harness"):
+        print(f"PAMPlayer: detach_harness — '{name}' is not a DogGraph "
+              f"(no detach_harness method); skipping.")
+        return _empty
+
+    rt = float(step.get("rt", 0.3))
+    fig.detach_harness(scene, rt=rt)
+    return _empty
 #
 #  attach_name_tag attaches a Text mobject to a character at one of two
 #  anchor points, whichever is available (queried in this priority order):
@@ -3204,6 +3440,7 @@ ACTION_REGISTRY: dict[str, callable] = {
     "shrug":              act_shrug,
     # ── new v0.9.12 physical restraint ──
     "grab_arm":           act_grab_arm,
+    "punch":              act_punch,
     "twist_arm_behind":   act_twist_arm_behind,
     "release_arm":        act_release_arm,
     # ── new v0.9.13 transform ──
@@ -3223,6 +3460,7 @@ ACTION_REGISTRY: dict[str, callable] = {
     "detach_gloves":      act_detach_gloves,
     "attach_shoes":       act_attach_shoes,
     "detach_shoes":       act_detach_shoes,
+    "detach_harness":     act_detach_harness,
     # ── new v0.9.X name tags ──
     "attach_name_tag":    act_attach_name_tag,
     "detach_name_tag":    act_detach_name_tag,
