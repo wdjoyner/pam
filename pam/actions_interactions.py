@@ -37,6 +37,17 @@ from manim import (
 from pam.poses import _v
 
 
+# rush_from_start is not exported by manim.utils.rate_functions in
+# v0.20.1.  actions.py defines its own copy; we deliberately do NOT
+# import it from there — the dependency between actions.py and this
+# module is strictly one-directional (actions imports interactions,
+# never the reverse; see backburner item 13, closed as obviated).
+# Keep the two definitions in sync — it's one line of math.
+def rush_from_start(t: float) -> float:
+    """Ease-out quadratic: fast start, decelerating to stop."""
+    return 1 - (1 - t) ** 2
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  HELPERS  (shared with actions.py — duplicated here for modularity)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -844,3 +855,150 @@ def act_release_arm(fig, step, scene, name="I.G. NoreMe", *,
 #     "grab_arm":           act_grab_arm,
 #     "twist_arm_behind":   act_twist_arm_behind,
 #     "release_arm":        act_release_arm,
+
+
+def act_punch(fig, step, scene, name="I.G. NoreMe", *,
+              props=None, cast=None):
+    """
+    One character punches another (v0.9.22): a sharp jab from the
+    puncher plus a synchronized recoil — and optional stagger — on the
+    target, in a single action.
+
+    The puncher's half reuses the reach_character jab geometry
+    (elbow to 50 %, wrist to 95 % of the shoulder-to-impact vector);
+    the new half is the target's reaction, which is what makes the
+    beat read as a HIT rather than a tap on the chest.
+
+    JSON keys
+    ---------
+    target  : str   — cast member being hit
+    arm     : str   — puncher's arm, "r" or "l" (default "r")
+    zone    : str   — impact zone on the target: "head" (default),
+                      "torso", "shoulder", "hip"
+    rt      : float — jab speed in seconds (default 0.15)
+    hold    : float — contact dwell (default 0.06)
+    power   : float — stagger distance in world units the target is
+                      knocked back (default 0.35).  Recoil lean scales
+                      with it.  0 = recoil in place.
+    settle  : bool  — True (default): target recovers to its pre-punch
+                      pose (keeping the stagger displacement — they
+                      got knocked back a step and stay there).
+                      False: target stays recoiled, e.g. for a
+                      follow-up knockdown rotate.
+
+    Examples
+    --------
+    ::
+
+        {"action": "punch", "who": "zane", "arm": "r",
+         "target": "bosch"}
+
+        {"action": "punch", "who": "zane", "target": "bosch",
+         "zone": "torso", "power": 0.6, "settle": false,
+         "sound": "sfx/thud.wav"}
+
+    Knockdown is a composition, not a key — follow with a rotate, and
+    (v0.9.22) the downed character can still morph afterward::
+
+        {"action": "punch", "who": "zane", "target": "bosch",
+         "power": 0.5, "settle": false},
+        {"action": "rotate", "who": "bosch", "angle_deg": -85,
+         "pivot": "bottom", "rt": 0.5}
+
+    Notes
+    -----
+    - Impact point and puncher shoulder are read from LIVE dots, so
+      the punch lands correctly after prior walks or rotations of the
+      target.  A rotated PUNCHER (theta != 0) is undefined — rotate
+      back before punching.
+    - The target's recoil shifts only joints its build actually has
+      (build-aware poses lesson), so a dog target gets a modest shove
+      rather than a crash.
+    - With the v0.9.21+ player, add "sound" to the step for an impact
+      cue — the universal audio hook handles it.
+    """
+    target_name = step.get("target", "")
+    arm    = step.get("arm", "r")
+    zone   = step.get("zone", "head")
+    rt     = float(step.get("rt", 0.15))
+    hold   = float(step.get("hold", 0.06))
+    power  = float(step.get("power", 0.35))
+    settle = step.get("settle", True)
+
+    target_fig = _get_cast_fig(cast, target_name) if cast else None
+    if target_fig is None:
+        print(f"PAMPlayer punch: target '{target_name}' not found in "
+              f"cast (or has no live figure); skipping.")
+        return None
+
+    # Puncher must have the punching arm.
+    shld_dot = fig.dots.get(f"{arm}shoulder")
+    if shld_dot is None:
+        print(f"PAMPlayer punch: '{name}' has no {arm}shoulder joint "
+              f"(figure_type without arms?); skipping.")
+        return None
+
+    # ── impact point: LIVE dot on the target ─────────────────────────
+    zone_joint = {
+        "head":     "head",
+        "torso":    "torso",
+        "shoulder": f"{'r' if arm == 'l' else 'l'}shoulder",
+        "hip":      f"{'r' if arm == 'l' else 'l'}hip",
+    }.get(zone, "head")
+    zdot = target_fig.dots.get(zone_joint) \
+        or target_fig.dots.get("head") \
+        or target_fig.dots.get("torso")
+    if zdot is None:
+        print(f"PAMPlayer punch: target '{target_name}' has no "
+              f"'{zone_joint}' joint; skipping.")
+        return None
+    impact = zdot.get_center()
+
+    # ── puncher's jab pose (reach_character geometry, live shoulder) ─
+    shld_world = shld_dot.get_center()
+    dxw = impact[0] - shld_world[0]
+    dyw = impact[1] - shld_world[1]
+    sx_inv = 1.0 / fig._scale_sx if getattr(fig, "is_scaled", False) else 1.0
+    sy_inv = 1.0 / fig._scale_sy if getattr(fig, "is_scaled", False) else 1.0
+
+    rest_pose = deepcopy(fig.pose)
+    shld_pose = fig.pose[f"{arm}shoulder"]
+    jab = deepcopy(fig.pose)
+    jab[f"{arm}elbow"] = _v(shld_pose[0] + dxw * 0.50 * sx_inv,
+                            shld_pose[1] + dyw * 0.50 * sy_inv)
+    jab[f"{arm}wrist"] = _v(shld_pose[0] + dxw * 0.95 * sx_inv,
+                            shld_pose[1] + dyw * 0.95 * sy_inv)
+
+    # ── target's recoil pose: away from the puncher ──────────────────
+    away = 1.0 if impact[0] >= shld_world[0] else -1.0
+    lean = min(0.10 + 0.30 * power, 0.34)     # pose-space lean, capped
+    t_rest = deepcopy(target_fig.pose)
+    recoil = deepcopy(target_fig.pose)
+    _shift = {                                # joint → (dx, dy) factors
+        "head":      (1.00,  0.06),
+        "lshoulder": (0.60,  0.00),
+        "rshoulder": (0.60,  0.00),
+        "torso":     (0.35,  0.00),
+        "lelbow":    (0.55, -0.02),
+        "relbow":    (0.55, -0.02),
+        "spine_front": (0.50, 0.04),          # dog builds: modest shove
+        "spine_mid":   (0.25, 0.00),
+    }
+    for j, (fx, fy) in _shift.items():
+        if j in recoil:
+            recoil[j] = _v(recoil[j][0] + away * lean * fx,
+                           recoil[j][1] + lean * fy)
+
+    # ── choreograph: jab → recoil+stagger → dwell → retract → settle ─
+    fig.morph_to(jab, scene, rt=rt, rate=rush_from_start)
+    target_fig.morph_to(recoil, scene, rt=rt * 0.8,
+                        rate=rush_from_start,
+                        dx=away * power, dy=0.0)
+    if hold > 0:
+        scene.wait(hold)
+    fig.morph_to(rest_pose, scene, rt=rt * 1.2, rate=smooth)
+    if settle:
+        # Pose recovers; the stagger displacement is kept (dx=0 here —
+        # morph_to composes dx onto the CURRENT offset).
+        target_fig.morph_to(t_rest, scene, rt=rt * 1.4, rate=smooth)
+    return None
