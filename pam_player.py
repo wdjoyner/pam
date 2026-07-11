@@ -405,6 +405,72 @@ import json, os, sys, atexit, shutil, subprocess, tempfile
 
 _PAM_LOG_PREFIXES = ("PAMPlayer", "PAM props", "PAM:")
 
+# ── structured warning registry (v0.9.23, item 6 Option C) ──────────────
+# Extension of the PAM_LOG/PAM_WARNINGS_ONLY plumbing: when
+# PAM_WARNINGS_JSON=path is set, every PAM-prefixed console line emitted
+# during the render is also recorded as a structured
+# (array_index, action_type, message) tuple and dumped as JSON at
+# process exit, so warnings can be machine-correlated back to the
+# screenplay step that produced them. The main dispatch loop updates
+# _PAM_STEP_CURSOR as it walks the actions array; lines emitted outside
+# any step (preamble parsing, module import) record index/action null.
+_PAM_STEP_CURSOR: dict = {"index": None, "action": None}
+_PAM_WARNING_RECORDS: list = []
+
+
+class _WarnRegistry:
+    """Pass-through stdout/stderr wrapper recording PAM-prefixed lines.
+
+    Line-buffered like _Tee; delegates all other attribute access to
+    the wrapped stream so console detection keeps working. Stackable
+    with _Tee in either order.
+    """
+
+    def __init__(self, stream):
+        self._stream = stream
+        self._buf    = ""
+
+    def write(self, data):
+        n = self._stream.write(data)
+        self._buf += data
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            if line.lstrip().startswith(_PAM_LOG_PREFIXES):
+                _PAM_WARNING_RECORDS.append({
+                    "array_index": _PAM_STEP_CURSOR["index"],
+                    "action_type": _PAM_STEP_CURSOR["action"],
+                    "message":     line.strip(),
+                })
+        return n
+
+    def flush(self):
+        self._stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+def _install_warning_registry() -> None:
+    """Wrap sys.stdout/sys.stderr per PAM_WARNINGS_JSON. Idempotent."""
+    json_path = os.environ.get("PAM_WARNINGS_JSON")
+    if not json_path or isinstance(sys.stdout, _WarnRegistry):
+        return
+
+    sys.stdout = _WarnRegistry(sys.stdout)
+    sys.stderr = _WarnRegistry(sys.stderr)
+
+    def _dump():
+        try:
+            with open(json_path, "w") as f:
+                json.dump(_PAM_WARNING_RECORDS, f, indent=2)
+        except OSError as e:
+            sys.__stdout__.write(
+                f"PAMPlayer: cannot write PAM_WARNINGS_JSON "
+                f"'{json_path}' ({e}).\n")
+
+    atexit.register(_dump)
+    print(f"PAMPlayer: structured warning registry → '{json_path}'")
+
 
 class _Tee:
     """A write-through wrapper around a console stream that also logs.
@@ -455,7 +521,7 @@ def _install_log_tees() -> None:
 
     Idempotent: re-running (module reload) does not double-wrap.
     """
-    if isinstance(sys.stdout, _Tee):        # already installed
+    if isinstance(sys.stdout, (_Tee, _WarnRegistry)):   # already installed
         return
 
     log_path  = os.environ.get("PAM_LOG")
@@ -485,11 +551,13 @@ def _install_log_tees() -> None:
 
 
 _install_log_tees()
+_install_warning_registry()
 
 from manim import *
 import numpy as np
 
 from pam import HumanGraph, AlienGraph, DogGraph, GovernorGraph
+from pam import DEPTH_Z_BACKGROUND, DEPTH_Z_BUBBLE, DEPTH_ATTACH_Z_STEP
 from pam.poses import POSES, STANDING_FRONT, STANDING_SIDE, scale_pose
 from pam.poses import DOG_JOINTS, DOG_STANDING
 from pam.props import build_prop, resolve_position
@@ -1360,8 +1428,33 @@ class PropRegistry:
         return out
 
 
+def _apply_prop_rescale(prop, depth_scale: float) -> None:
+    """Uniformly scale a generic (non-figure) prop VGroup by
+    *depth_scale*, about the prop's own (pam_x, pam_y) anchor point
+    (v0.9.23, backburner items 10-11, 2.5D step 6).
+
+    Scaling about that specific point — rather than the VGroup's
+    geometric bounding-box centre — is what keeps
+    ``PropRegistry.world_pos()`` (and ``pam_x``/``pam_y`` themselves)
+    correct after rescale, mirroring the ground-contact-anchor
+    reasoning HumanGraph/DogGraph use for characters (step 3): scaling
+    about a fixed point leaves that point exactly invariant, so no
+    downstream reader of a prop's position needs to know rescale
+    happened. No-op at depth_scale == 1.0. Not used for DogGraph/
+    GovernorGraph props, which have their own rescale mechanisms
+    (`fig._apply_scale` / `apply_depth_rescale`).
+    """
+    if depth_scale == 1.0 or not hasattr(prop, "scale"):
+        return
+    ax = getattr(prop, "pam_x", 0.0)
+    ay = getattr(prop, "pam_y", 0.0)
+    prop.scale(depth_scale, about_point=np.array([ax, ay, 0.0]))
+
+
 def _build_prop_items(items: dict, registry: PropRegistry,
-                      scene, rt: float = 0.5) -> None:
+                      scene, rt: float = 0.5,
+                      depth_cfg: "_DepthConfig | None" = None,
+                      cast: dict | None = None) -> None:
     """
     Build and register a batch of prop specs, respecting parent order.
 
@@ -1375,7 +1468,18 @@ def _build_prop_items(items: dict, registry: PropRegistry,
     registry : the live PropRegistry for this scene.
     scene    : the PAMPlayer (MovingCameraScene) instance, used for FadeIn.
     rt       : FadeIn run time (default 0.5 s).
+    depth_cfg : the scene's _DepthConfig (backburner items 10-11, 2.5D
+                step 1), used to validate/resolve each item's optional
+                "depth"/"rescale" keys. A fresh default-k instance is
+                used if not supplied (e.g. from an older call site).
+    cast     : the scene's cast dict, used only for D6 dual-registration
+               precedence — if a prop shares its name with a cast
+               entry that also declares "depth", the cast entry's
+               depth/rescale wins; a mismatch is warned once (2.5D
+               step 6). None (the default) skips this check entirely.
     """
+    if depth_cfg is None:
+        depth_cfg = _DepthConfig()
     # Partition: rootless (no parent) first, children second.
     roots    = {k: v for k, v in items.items() if not v.get("parent")}
     children = {k: v for k, v in items.items() if v.get("parent")}
@@ -1384,11 +1488,42 @@ def _build_prop_items(items: dict, registry: PropRegistry,
         spec   = dict(spec)              # copy — never mutate loaded JSON
         ptype  = spec.pop("type", "desk")
         hidden = spec.pop("hidden", False)   # consumed here for scene-add logic
+        # v0.9.23 (backburner items 10-11, 2.5D step 1): depth/rescale are
+        # prop metadata, not builder parameters — pop them before the
+        # **spec forward so unrelated builders don't silently absorb them
+        # into their **kwargs, and apply the resolved values afterward.
+        _depth_raw   = spec.pop("depth", None)
+        _rescale_raw = spec.pop("rescale", False)
         # Forward hidden to build_prop so builders that default hidden=True
         # (e.g. build_laptop) don't self-set opacity 0 when we want them visible.
         prop   = build_prop(pname, type=ptype,
                             hidden=hidden,
                             prop_registry=registry._store, **spec)
+        _d, _r, _ds = depth_cfg.resolve(
+            _depth_raw, _rescale_raw, pname)
+        # v0.9.23 (2.5D step 6, D6): dual-registration precedence — if
+        # this name is ALSO a cast entry with its own resolved depth,
+        # the cast side wins (cast members are the "real" figure;
+        # a same-named props-block entry is usually a legacy/duplicate
+        # declaration). Warn once if the two disagree.
+        if cast is not None and pname in cast and "depth" in cast[pname]:
+            _cast_d = cast[pname]["depth"]
+            if _cast_d != _d:
+                depth_cfg._warn_once(
+                    pname, "dual_registration_mismatch",
+                    f"PAMPlayer: depth — '{pname}' is dual-registered "
+                    f"with mismatched depth (cast={_cast_d:g}, "
+                    f"props={_d:g}); using the cast value.")
+            _d  = _cast_d
+            _r  = cast[pname].get("rescale", _r)
+            _ds = cast[pname].get("depth_scale", _ds)
+        prop.pam_depth         = _d
+        prop.pam_depth_rescale = _r
+        prop.pam_depth_scale   = _ds
+        if _r:
+            _apply_prop_rescale(prop, _ds)   # D6/step 6
+        if hasattr(prop, "set_z_index"):
+            prop.set_z_index(_d)   # D3: world layer bands by depth
         registry.add(pname, prop)
         if hidden:
             # Register the prop (so parents/children can resolve it) but
@@ -1458,6 +1593,110 @@ def _tag_dog_group(dog, name: str, x: float, y: float):
 _SOUND_NATIVE_EXTS = (".wav", ".ogg", ".mp3", ".flac")
 
 
+# ── 2.5D depth system (PAM 1.0.1, backburner items 10-11) ────────────────
+# Step 1 of PAM_25D_DESIGN.md: schema parsing, storage, and a regression
+# baseline. This step stores fig.depth / fig.depth_rescale / fig.depth_scale
+# (and the prop-side pam_depth / pam_depth_rescale / pam_depth_scale
+# equivalents) but does NOT yet consume them anywhere — zero visual change
+# versus a scene with no depth keys at all. Layering (z_index bands) lands
+# in step 2; the placement-model integration (actually applying
+# depth_scale to geometry) lands in step 3.
+#
+# Scene-level perspective constant, set via an optional preamble block,
+# mirroring the {"action": "audio", "defaults": {...}} pattern already
+# used for in-scene sound cues:
+#
+#     {"action": "depth_config", "depth_k": 0.08}
+#
+# Default 0.08 matches the reference table in PAM_25D_DESIGN.md
+# (k=0.08 -> d=-3: 0.806, d=-5: 0.714, d=-10: 0.556).
+class _DepthConfig:
+    """Scene-level state for the 2.5D depth system.
+
+    Holds the current ``depth_k`` perspective constant and validates/
+    clamps ``(depth, rescale)`` pairs per design-doc decision D10:
+
+      * positive ("foreground") depth is not supported in 1.0.1 — warn
+        once per owner and clamp to 0.0;
+      * ``"rescale": true`` at depth 0 is a no-op (the scale law gives
+        1.0 there regardless) — warn once per owner.
+
+    Warnings are deduplicated per (owner, kind) so a character or prop
+    redefined many times across a long scene does not spam the console.
+    """
+
+    def __init__(self):
+        self.k = 0.08
+        self._warned: set = set()
+
+    def load_block(self, step: dict) -> None:
+        """Consume an {"action": "depth_config", "depth_k": ...} block."""
+        k = step.get("depth_k", step.get("k"))
+        if k is None:
+            print("PAMPlayer: depth_config — no 'depth_k' given; "
+                  f"keeping {self.k:g}.")
+            return
+        try:
+            self.k = float(k)
+            print(f"PAMPlayer: depth_config — depth_k set to {self.k:g}.")
+        except (TypeError, ValueError):
+            print(f"PAMPlayer: depth_config — invalid depth_k {k!r}; "
+                  f"keeping {self.k:g}.")
+
+    def scale(self, depth: float) -> float:
+        """Perspective scale factor: 1 / (1 - k*d). Computed but not
+        applied anywhere until step 3."""
+        return 1.0 / (1.0 - self.k * depth)
+
+    def _warn_once(self, owner: str, kind: str, msg: str) -> None:
+        key = (owner, kind)
+        if key not in self._warned:
+            self._warned.add(key)
+            print(msg)
+
+    def resolve(self, depth_raw, rescale_raw, owner: str):
+        """Validate a ``(depth, rescale)`` pair for *owner* (a cast or
+        prop name, used only for warning text).
+
+        Returns ``(depth: float, rescale: bool, depth_scale: float)``.
+        """
+        if depth_raw is None:
+            d = 0.0
+        else:
+            try:
+                d = float(depth_raw)
+            except (TypeError, ValueError):
+                self._warn_once(
+                    owner, "invalid_depth",
+                    f"PAMPlayer: depth — invalid depth {depth_raw!r} for "
+                    f"'{owner}'; using 0.0.")
+                d = 0.0
+        if d > 0:
+            self._warn_once(
+                owner, "positive_depth",
+                f"PAMPlayer: depth — '{owner}' has positive depth "
+                f"{d:g}; positive (foreground) depth is not supported "
+                f"in PAM 1.0.1; clamping to 0.")
+            d = 0.0
+        rescale = bool(rescale_raw)
+        if rescale and d == 0.0:
+            self._warn_once(
+                owner, "rescale_noop",
+                f"PAMPlayer: depth — '{owner}' has \"rescale\": true "
+                f"with depth 0; no-op (scale stays 1.0).")
+        # v0.9.23 (2.5D step 3 fix): depth_scale must stay 1.0 whenever
+        # rescale is False — depth WITHOUT rescale affects z-layering
+        # only (D1's explicit separation of stacking order from
+        # perspective size). Step 1 originally computed self.scale(d)
+        # unconditionally here, which was invisible while depth_scale
+        # went unused (step 1-2) but became a real bug the moment step
+        # 3 started consuming it: every negative-depth figure would
+        # shrink even without "rescale": true. Caught by a direct
+        # numeric check of rendered dot positions, not just inspection.
+        depth_scale = self.scale(d) if rescale else 1.0
+        return d, rescale, depth_scale
+
+
 class _SoundCues:
     """Registry and resolver for in-scene audio cues."""
 
@@ -1466,6 +1705,7 @@ class _SoundCues:
         self._base_dir = os.path.dirname(os.path.abspath(script_path))
         self._tmpdir   = None           # lazily created for .m4a output
         self._m4a_cache: dict = {}      # source path → converted wav path
+        self._trim_cache: dict = {}     # (path, duration) → trimmed wav
         self._warned:   set  = set()    # paths already warned about
 
     # ── declaration ──────────────────────────────────────────────────
@@ -1481,21 +1721,128 @@ class _SoundCues:
               f"{sorted(d.keys())}.")
 
     # ── per-step resolution ──────────────────────────────────────────
-    def resolve(self, step: dict, act: str):
-        """Return a playable sound path for this step, or None.
+    def resolve(self, step: dict, act: str, cast_entry: dict | None = None):
+        """Resolve this step's audio cue, or return None.
 
-        Per-step "sound" beats the action-type default; an explicit
-        falsy "sound" value suppresses the default for this step.
+        v0.9.23 (backburner item 18): three-tier priority ladder —
+
+            per-action inline  >  cast-level ``sfx`` block  >  scene
+            ``audio`` defaults (item 7)
+
+        The inline tier reads ``"sfx"`` (item 18) with ``"sound"``
+        (item 7) accepted as a legacy alias. An explicit falsy value at
+        any tier ("sfx": null) suppresses every tier below it for this
+        step. The cast tier is *cast_entry*'s ``"sfx"`` dict, keyed by
+        action type; each value is either a plain path string or an
+        object with ``sfx`` / ``sfx_gain`` / ``sfx_delay`` /
+        ``sfx_trigger`` keys. Inline ``sfx_gain``/``sfx_delay``/
+        ``sfx_trigger`` on the step override cast-tier values even when
+        the *path* came from the cast tier.
+
+        Returns ``None`` or a dict::
+
+            {"path": str,          # resolved, playable (.wav-converted)
+             "gain": float | None, # dB, passed to Scene.add_sound
+             "delay": float,       # seconds after the cue point
+             "trigger": "start" | "end"}
         """
-        if "sound" in step:
-            raw = step["sound"]
-            if not raw:                 # null / false / "" → suppress
+        raw = None
+        tier_params: dict = {}
+
+        # Tier 1 — per-action inline ("sfx", legacy alias "sound").
+        _inline_key = "sfx" if "sfx" in step else (
+            "sound" if "sound" in step else None)
+        if _inline_key is not None:
+            raw = step[_inline_key]
+            if not raw:                 # null / false / "" → suppress all
                 return None
-        else:
+
+        # Tier 2 — cast-level sfx block for the acting character.
+        if raw is None and cast_entry:
+            _cast_sfx = cast_entry.get("sfx") or {}
+            if act in _cast_sfx:
+                _cv = _cast_sfx[act]
+                if not _cv:             # explicit null → suppress default
+                    return None
+                if isinstance(_cv, dict):
+                    raw = _cv.get("sfx")
+                    if not raw:
+                        return None
+                    tier_params = _cv
+                else:
+                    raw = _cv
+
+        # Tier 3 — scene audio defaults (item 7).
+        if raw is None:
             raw = self._defaults.get(act)
             if not raw:
                 return None
 
+        located = self._locate(raw)
+        if located is None:
+            return None
+
+        def _param(key, default):
+            # Inline step keys beat cast-tier dict values.
+            if key in step:
+                return step[key]
+            return tier_params.get(key, default)
+
+        gain     = _param("sfx_gain", None)
+        delay    = _param("sfx_delay", 0.0)
+        trigger  = _param("sfx_trigger", "start")
+        duration = _param("sfx_duration", None)
+        try:
+            gain = float(gain) if gain is not None else None
+        except (TypeError, ValueError):
+            self._warn_once((raw, "gain"),
+                            f"audio — invalid sfx_gain {gain!r} for "
+                            f"'{raw}'; using no gain.")
+            gain = None
+        try:
+            delay = float(delay)
+        except (TypeError, ValueError):
+            self._warn_once((raw, "delay"),
+                            f"audio — invalid sfx_delay {delay!r} for "
+                            f"'{raw}'; using 0.")
+            delay = 0.0
+        if trigger not in ("start", "end"):
+            self._warn_once((raw, "trigger"),
+                            f"audio — invalid sfx_trigger {trigger!r} "
+                            f"for '{raw}'; must be \"start\" or \"end\"; "
+                            f"using \"start\".")
+            trigger = "start"
+        if duration is not None:
+            try:
+                duration = float(duration)
+                if duration <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                self._warn_once((raw, "duration"),
+                                f"audio — invalid sfx_duration "
+                                f"{duration!r} for '{raw}'; must be a "
+                                f"positive number of seconds; playing "
+                                f"the full cue.")
+                duration = None
+
+        # v0.9.23 (item 18 follow-up): a trim request routes the ORIGINAL
+        # file (any supported format — ffmpeg reads .m4a directly, so
+        # trim and conversion happen in one call) through _trim; an
+        # untrimmed cue takes the item-7 path (native passthrough or
+        # .m4a conversion).
+        if duration is not None:
+            path = self._trim(located, duration, raw)
+        else:
+            path = self._native_or_convert(located, raw)
+        if path is None:
+            return None
+
+        return {"path": path, "gain": gain, "delay": delay,
+                "trigger": trigger}
+
+    def _locate(self, raw: str):
+        """Resolve *raw* to an existing file path (script-dir relative
+        or absolute), or warn once and return None."""
         path = raw if os.path.isabs(raw) else None
         if path is None:
             cand = os.path.join(self._base_dir, raw)
@@ -1506,7 +1853,11 @@ class _SoundCues:
                                  f"(looked in '{self._base_dir}' and cwd); "
                                  f"skipping this cue.")
             return None
+        return path
 
+    def _native_or_convert(self, path: str, raw: str):
+        """Format gate for an untrimmed cue: native formats pass
+        through, .m4a converts, anything else warns once."""
         ext = os.path.splitext(path)[1].lower()
         if ext in _SOUND_NATIVE_EXTS:
             return path
@@ -1516,6 +1867,73 @@ class _SoundCues:
                               f"for '{raw}'; use one of "
                               f"{_SOUND_NATIVE_EXTS + ('.m4a',)}.")
         return None
+
+    def _resolve_path(self, raw: str):
+        """Locate + format-gate a cue (kept as the composed form of
+        _locate and _native_or_convert)."""
+        path = self._locate(raw)
+        if path is None:
+            return None
+        return self._native_or_convert(path, raw)
+
+    def _trim(self, path: str, duration: float, raw: str):
+        """Return a cached .wav of *path* cut to *duration* seconds
+        (v0.9.23, item 18 follow-up: ``sfx_duration``).
+
+        One ffmpeg call trims AND converts (so .m4a needs no separate
+        conversion pass), with a 30 ms fade-out at the cut point so a
+        hard mid-waveform cut doesn't click. Cached per
+        (path, duration), same lifetime as the .m4a cache (temp dir
+        removed at exit).
+        """
+        ext = os.path.splitext(path)[1].lower()
+        if ext not in _SOUND_NATIVE_EXTS + (".m4a",):
+            self._warn_once(path, f"audio — unsupported sound format "
+                                  f"'{ext}' for '{raw}'; use one of "
+                                  f"{_SOUND_NATIVE_EXTS + ('.m4a',)}.")
+            return None
+
+        key = (path, duration)
+        cached = self._trim_cache.get(key)
+        if cached is not None:
+            return cached or None       # "" cached = known-bad
+
+        if shutil.which("ffmpeg") is None:
+            self._warn_once(path, "audio — ffmpeg not found on PATH; "
+                                  "sfx_duration trims need it (brew "
+                                  "install ffmpeg on macOS). Playing "
+                                  "the full cue instead.")
+            return self._native_or_convert(path, raw)
+
+        if self._tmpdir is None:
+            self._tmpdir = tempfile.mkdtemp(prefix="pam_audio_")
+            atexit.register(shutil.rmtree, self._tmpdir,
+                            ignore_errors=True)
+
+        fade = min(0.03, duration / 2.0)
+        out = os.path.join(
+            self._tmpdir,
+            f"trim{len(self._trim_cache):03d}_"
+            f"{os.path.splitext(os.path.basename(path))[0]}"
+            f"_{duration:g}s.wav")
+        proc = subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", path,
+             "-t", f"{duration:g}",
+             "-af", f"afade=t=out:st={duration - fade:g}:d={fade:g}",
+             "-acodec", "pcm_s16le", out],
+            capture_output=True, text=True)
+        if proc.returncode != 0 or not os.path.isfile(out):
+            self._warn_once(path, f"audio — ffmpeg failed trimming "
+                                  f"'{path}' to {duration:g}s "
+                                  f"({proc.stderr.strip() or 'unknown'}); "
+                                  f"playing the full cue instead.")
+            self._trim_cache[key] = ""
+            return self._native_or_convert(path, raw)
+        self._trim_cache[key] = out
+        print(f"PAMPlayer: audio — trimmed "
+              f"'{os.path.basename(path)}' to {duration:g}s "
+              f"(cached).")
+        return out
 
     # ── .m4a → .wav shim ─────────────────────────────────────────────
     def _convert_m4a(self, path: str):
@@ -1883,15 +2301,52 @@ class PAMPlayer(MovingCameraScene):
         # loop below).
         _sound_cues = _SoundCues(script_path)
 
-        def _fire_sound(step: dict, act: str) -> None:
-            """Bake this step's audio cue (if any) at the current time."""
-            snd = _sound_cues.resolve(step, act)
-            if snd:
+        # v0.9.23 (backburner item 18): end-triggered cues resolved
+        # during a step but meant to play when the step FINISHES.
+        # add_sound bakes at the renderer's current time, and the
+        # renderer's clock has advanced past the step by the top of the
+        # next loop iteration — so cues parked here are flushed there
+        # (and once after the loop, for a final step's end cue).
+        _pending_end_sfx: list = []
+
+        def _flush_end_sfx() -> None:
+            while _pending_end_sfx:
+                cue = _pending_end_sfx.pop(0)
                 try:
-                    self.add_sound(snd)
+                    self.add_sound(cue["path"],
+                                   time_offset=cue["delay"],
+                                   gain=cue["gain"])
                 except Exception as e:
                     print(f"PAMPlayer: audio — add_sound failed for "
-                          f"'{snd}' ({e}); continuing silent.")
+                          f"'{cue['path']}' ({e}); continuing silent.")
+
+        def _fire_sound(step: dict, act: str) -> None:
+            """Bake this step's audio cue (if any) at the current time.
+
+            v0.9.23 (backburner item 18): resolves through the
+            three-tier ladder (inline > cast sfx block > scene
+            defaults). The cast tier applies when the step names a
+            single character via "who" or "prop"; multi-target steps
+            ("who": [...] or "all") skip the cast tier (inline and
+            scene tiers still apply) — firing one character's sound
+            per target would stack N copies. Cues with
+            sfx_trigger="end" are deferred to _flush_end_sfx.
+            """
+            _tname = step.get("who") or step.get("prop")
+            _centry = cast.get(_tname) if isinstance(_tname, str) else None
+            cue = _sound_cues.resolve(step, act, cast_entry=_centry)
+            if not cue:
+                return
+            if cue["trigger"] == "end":
+                _pending_end_sfx.append(cue)
+                return
+            try:
+                self.add_sound(cue["path"],
+                               time_offset=cue["delay"],
+                               gain=cue["gain"])
+            except Exception as e:
+                print(f"PAMPlayer: audio — add_sound failed for "
+                      f"'{cue['path']}' ({e}); continuing silent.")
 
         # ── camera-mode: load prompts JSON for subscene sync ─────────────
         # Set PAM_PROMPTS=path/to/prompts.json or PAM_CAMERA_MODE=1 alongside
@@ -1923,8 +2378,14 @@ class PAMPlayer(MovingCameraScene):
 
         # ── optional title ───────────────────────────────────────────────
         title_mob = subtitle_mob = None
+        # v0.9.23 (item 6 Option C): popping the title shifts every
+        # later step's list index down by one relative to the
+        # screenplay file — the warning registry compensates so its
+        # array_index values match what the author sees in the JSON.
+        _step_index_offset = 0
         if actions and actions[0].get("action") == "title":
             td = actions.pop(0)
+            _step_index_offset = 1
             title_mob = (
                 Text(
                     td.get("text", "PAM"), font="Courier New",
@@ -1941,6 +2402,26 @@ class PAMPlayer(MovingCameraScene):
                     font_size=16, color=LABEL_COLOR,
                 ).next_to(title_mob, DOWN, buff=0.1)
                 parts.append(FadeIn(subtitle_mob))
+            # v0.9.23 (item 18 follow-up): the title block is popped
+            # before the main loop, so it never reaches _fire_sound —
+            # fire its inline cue here, baked at the moment the title
+            # animation begins. Only the INLINE tier applies to a
+            # title: the cast tier is meaningless (no "who"), and the
+            # scene "audio" defaults block sits AFTER the title in the
+            # actions array so hasn't been loaded yet (order-dependent,
+            # like every other PAM preamble mechanism). A long cue
+            # placed here plays on across the following steps — the
+            # standard way to score animated opening credits.
+            _title_cue = _sound_cues.resolve(td, "title")
+            if _title_cue:
+                try:
+                    self.add_sound(_title_cue["path"],
+                                   time_offset=_title_cue["delay"],
+                                   gain=_title_cue["gain"])
+                except Exception as e:
+                    print(f"PAMPlayer: audio — add_sound failed for "
+                          f"'{_title_cue['path']}' ({e}); continuing "
+                          f"silent.")
             self.play(*parts, run_time=0.7)
 
         # ── persistent caption (PAM_CAPTION / "persistent_caption" action) ──
@@ -2046,20 +2527,39 @@ class PAMPlayer(MovingCameraScene):
         multi = False
 
         def _reassert_z_indices():
-            """Re-apply sticky z_index values after any bring_to_front call.
+            """Re-apply sticky AND depth-derived z_index values after any
+            bring_to_front / bring_to_back call.
 
             Called immediately after every bring_to_front / bring_to_back
             that could disturb the declared character layering order.
-            Characters without a declared z_index are left untouched.
+            A declared sticky z_index (v0.9.19) still wins; characters
+            without one fall back to their depth-derived banding
+            (v0.9.23, backburner items 10-11, design-doc step 2) via
+            fig.apply_depth_z(), so a bring_to_front elsewhere in the
+            scene (e.g. a face-overlay repair, a scene_objects fade-in)
+            can't silently pull a background-depth figure in front of a
+            foreground one.
             """
             for _cspec in cast.values():
                 _z = _cspec.get("z_index")
                 _f = _cspec.get("fig")
-                if _z is not None and _f is not None:
+                if _f is None:
+                    continue
+                if _z is not None:
                     try:
                         _f.group.set_z_index(float(_z))
                     except Exception:
                         pass
+                elif hasattr(_f, "apply_depth_z"):
+                    try:
+                        _f.apply_depth_z()
+                    except Exception:
+                        pass
+
+        # ── 2.5D depth system (PAM 1.0.1, backburner items 10-11) ─────────
+        # Step 1 (PAM_25D_DESIGN.md): parse/store/validate only. See
+        # _DepthConfig above.
+        _depth_cfg = _DepthConfig()
 
         # ── prop registry ────────────────────────────────────────────────
         props = PropRegistry()   # name → VGroup with pam_node / pam_attachments
@@ -2202,6 +2702,8 @@ class PAMPlayer(MovingCameraScene):
                     scale_spec   = step.get("scale", spec.get("scale"))
                     gender       = step.get("gender", spec.get("gender")) or None
                     torso_color  = step.get("torso_color", spec.get("torso_color"))
+                    _depth_raw   = step.get("depth", spec.get("depth"))
+                    _rescale_raw = step.get("rescale", spec.get("rescale", False))
                 else:
                     pose_name    = step.get("pose")
                     offset       = step.get("offset", [0, 0, 0])
@@ -2211,10 +2713,23 @@ class PAMPlayer(MovingCameraScene):
                     scale_spec   = step.get("scale")
                     gender       = step.get("gender") or None
                     torso_color  = step.get("torso_color")
+                    _depth_raw   = step.get("depth")
+                    _rescale_raw = step.get("rescale", False)
                     if name not in cast:
                         cast[name] = {"fig": None, "figure_type": figure_type,
                                       "pose": None, "offset": offset,
                                       "style": style, "build": build}
+
+                # v0.9.23 (backburner items 10-11, 2.5D step 1): resolve
+                # depth/rescale for this fade_in. A step-level "depth"/
+                # "rescale" overrides the cast-block value, same override
+                # pattern as z_index further below. depth_scale is
+                # computed but not applied to any geometry until step 3.
+                _fi_depth, _fi_rescale, _fi_depth_scale = _depth_cfg.resolve(
+                    _depth_raw, _rescale_raw, name)
+                cast[name]["depth"]       = _fi_depth
+                cast[name]["rescale"]     = _fi_rescale
+                cast[name]["depth_scale"] = _fi_depth_scale
 
                 # ── pick the right class ──────────────────────────────────
                 sx = scale_spec.get("sx", 1.0) if scale_spec else 1.0
@@ -2258,11 +2773,33 @@ class PAMPlayer(MovingCameraScene):
                         gender=gender, torso_color=torso_color,
                     )
 
+                # v0.9.23 (backburner items 10-11, 2.5D step 1/3): stash
+                # the resolved depth state on the figure BEFORE any pose
+                # placement below, so set_pose's call into _apply_scale
+                # (design-doc D1) places dots at the correct depth-scaled
+                # geometry from the very first frame rather than
+                # spawning at full size and snapping smaller later.
+                fig.depth         = cast[name].get("depth", 0.0)
+                fig.depth_rescale = cast[name].get("rescale", False)
+                fig.depth_scale   = cast[name].get("depth_scale", 1.0)
+                # v0.9.23 (2.5D step 7): snapshot depth_k so
+                # depth-animated walk_to/trot_to/run_to can recompute
+                # depth_scale from an interpolated depth without a
+                # back-reference to the scene's _DepthConfig.
+                fig._depth_k      = _depth_cfg.k
+
                 # Resolve initial pose
                 if pose_name:
                     pose = _resolve_pose(pose_name, fig=fig)
                     fig.set_pose(pose)
                     fig.pose = pose
+                elif fig.depth_scale != 1.0:
+                    # No explicit pose requested, so __init__ positioned
+                    # the figure at depth_scale's class-default (1.0).
+                    # Re-apply the figure's own current pose now that
+                    # depth_scale is set, so it doesn't spawn at full
+                    # size and never correct itself.
+                    fig.set_pose(fig.pose)
 
                 rt = step.get("duration", step.get("rt"))
                 if figure_type == "dog":
@@ -2333,6 +2870,19 @@ class PAMPlayer(MovingCameraScene):
                     _h = ACTION_REGISTRY.get("attach_shoes")
                     if _h:
                         _h(fig, _sstep, self, name, props=props, cast=cast)
+
+                # v0.9.23 (backburner items 10-11, 2.5D step 2): assign
+                # depth-derived z_index (D3 bands) to the figure and its
+                # attachments now that any glove/shoe defaults from
+                # above are attached. An explicit sticky z_index
+                # (v0.9.19) is a deliberate per-scene override and
+                # takes final precedence over depth-derived layering;
+                # re-assert it on fig.group only — attachments were
+                # never part of the sticky z_index contract.
+                fig.apply_depth_z()
+                if cast[name].get("z_index") is not None:
+                    fig.group.set_z_index(float(cast[name]["z_index"]))
+
                 return None
 
             # Path C (v0.9.14): formerly this guard had an exception
@@ -2355,8 +2905,13 @@ class PAMPlayer(MovingCameraScene):
                 spk = _resolve_speaker(step, cast=cast, props=props)
                 dog = spk.fig if isinstance(spk.fig, DogGraph) else None
                 if dog:
+                    _depth_target = step.get("depth")
                     dog.trot_to(step["x"], self,
-                                stride=step.get("stride", 0.14))
+                                stride=step.get("stride", 0.14),
+                                depth=_depth_target)
+                    if _depth_target is not None and spk.name in cast:
+                        cast[spk.name]["depth"]       = dog.depth
+                        cast[spk.name]["depth_scale"] = dog.depth_scale
                 else:
                     print(f"PAMPlayer: trot_to — '{spk.name}' is not a "
                           f"DogGraph, skipping.")
@@ -2407,6 +2962,11 @@ class PAMPlayer(MovingCameraScene):
                     persist=(_persist or _duration is not None),
                 )
                 if _bubble is not None:
+                    # v0.9.23 (backburner items 10-11, 2.5D step 2):
+                    # bubbles always sit in the bubble band (D3), on top
+                    # of every possible figure/prop depth.
+                    if hasattr(_bubble, "set_z_index"):
+                        _bubble.set_z_index(DEPTH_Z_BUBBLE)
                     if _duration is not None:
                         # `duration` is measured from fade-in start, matching
                         # the author's mental model of total on-screen time.
@@ -2539,9 +3099,20 @@ class PAMPlayer(MovingCameraScene):
                 _init_frame.move_to(np.array([0.0, -0.5, 0]))
 
         # ── main dispatch loop ───────────────────────────────────────────
-        for step in actions:
+        for _step_idx, step in enumerate(actions):
+            # v0.9.23 (item 6 Option C): keep the structured warning
+            # registry's cursor pointing at the step being executed, so
+            # any PAM warning printed below is attributable to it.
+            _PAM_STEP_CURSOR["index"]  = _step_idx + _step_index_offset
+            _PAM_STEP_CURSOR["action"] = step.get("action")
+
             if "_comment" in step or "_hint" in step:   # skip annotations
                 continue
+
+            # v0.9.23 (item 18): flush any end-triggered sfx parked by
+            # the previous step — the renderer clock now sits exactly at
+            # that step's end.
+            _flush_end_sfx()
 
             # Expire any persistent bubbles whose duration has run out.
             if _persistent_bubbles:
@@ -2631,6 +3202,15 @@ class PAMPlayer(MovingCameraScene):
             if act == "audio":
                 _sound_cues.load_block(step)
                 continue
+
+            # ── depth_config (PAM 1.0.1, backburner items 10-11) ──────────
+            # Optional scene-level preamble block setting the perspective
+            # constant used by the depth/rescale system:
+            #     {"action": "depth_config", "depth_k": 0.08}
+            # See _DepthConfig. Step 1: parsed and stored; not yet consumed.
+            if act == "depth_config":
+                _depth_cfg.load_block(step)
+                continue
             _fire_sound(step, act)
 
             # ── wait ─────────────────────────────────────────────────────
@@ -2712,6 +3292,19 @@ class PAMPlayer(MovingCameraScene):
                         "shoe_color":   spec.get("shoe_color"),
                         "shoe_stroke":  spec.get("shoe_stroke"),
                         "shoe_size":    spec.get("shoe_size"),
+                        # v0.9.23 (backburner items 10-11, 2.5D step 1):
+                        # depth/rescale are stored raw here; resolved
+                        # (validated, clamped, and depth_scale derived)
+                        # below, AFTER merge-on-redefine so an inherited
+                        # depth is what gets validated, not a stale
+                        # "not restated" None. See _DepthConfig.resolve.
+                        "depth":        spec.get("depth"),
+                        "rescale":      spec.get("rescale", False),
+                        # v0.9.23 (backburner item 18): cast-level sfx
+                        # block, keyed by action type. Copied (not
+                        # aliased) so a later merge can't mutate the
+                        # shared preamble dict.
+                        "sfx":          dict(spec.get("sfx") or {}),
                     }
 
                     # ── v0.9.22 (backburner item 19): merge-on-redefine ──
@@ -2752,6 +3345,14 @@ class PAMPlayer(MovingCameraScene):
                                                **spec["style"]}
                         else:
                             merged["style"] = dict(_prev.get("style") or {})
+                        # sfx (v0.9.23, item 18): same one-level merge —
+                        # a redefinition restating one action's sound
+                        # keeps the character's other sfx mappings.
+                        if "sfx" in spec:
+                            merged["sfx"] = {**(_prev.get("sfx") or {}),
+                                             **(spec["sfx"] or {})}
+                        else:
+                            merged["sfx"] = dict(_prev.get("sfx") or {})
                         merged["fig"] = None
                         cast[cname] = merged
                         if inherited:
@@ -2760,6 +3361,19 @@ class PAMPlayer(MovingCameraScene):
                                   f"{sorted(inherited)} from prior "
                                   f"entry (state a key explicitly to "
                                   f"reset it).")
+
+                    # v0.9.23 (backburner items 10-11, 2.5D step 1):
+                    # resolve depth/rescale now that inheritance (if any)
+                    # has been applied, so a redefinition that restates
+                    # "rescale" but not "depth" is validated against the
+                    # correctly-inherited depth rather than a false 0.
+                    _d, _r, _ds = _depth_cfg.resolve(
+                        cast[cname].get("depth"),
+                        cast[cname].get("rescale", False),
+                        cname)
+                    cast[cname]["depth"]       = _d
+                    cast[cname]["rescale"]     = _r
+                    cast[cname]["depth_scale"] = _ds   # computed, unused
                 continue
 
             # ── faces ────────────────────────────────────────────────────
@@ -2792,7 +3406,8 @@ class PAMPlayer(MovingCameraScene):
             # Supports parent/attach for child props (built after parents).
             if act == "scene_props":
                 _build_prop_items(step.get("items", {}), props, self,
-                                  rt=step.get("rt", 0.5))
+                                  rt=step.get("rt", 0.5),
+                                  depth_cfg=_depth_cfg, cast=cast)
                 continue
 
             # ── scene_objects ────────────────────────────────────────────
@@ -2855,7 +3470,8 @@ class PAMPlayer(MovingCameraScene):
             # ── props ────────────────────────────────────────────────────
             if act == "props":
                 _build_prop_items(step.get("items", {}), props, self,
-                                  rt=step.get("rt", 0.5))
+                                  rt=step.get("rt", 0.5),
+                                  depth_cfg=_depth_cfg, cast=cast)
                 continue
 
             # ── reparent_prop ────────────────────────────────────────────
@@ -3041,6 +3657,33 @@ class PAMPlayer(MovingCameraScene):
                 rt          = step.get("rt", 0.4)
                 owner       = step.get("on_head_of")   # char key, or None
 
+                # v0.9.23 (backburner items 10-11, 2.5D step 1): resolve
+                # once here so all three branches below (dodecahedron,
+                # dog, standard prop) share one validated result.
+                _sp_d, _sp_r, _sp_ds = _depth_cfg.resolve(
+                    step.get("depth"), step.get("rescale", False),
+                    pname or ptype)
+
+                # v0.9.23 (2.5D step 6, D6): dual-registration precedence.
+                # If a "cast" block already declared this name (the
+                # common Chekov-the-dog idiom: pre-declare in cast,
+                # materialize via spawn_prop), and that cast entry has
+                # its own resolved depth, the cast side wins over this
+                # spawn_prop step's depth — warn once if they disagree.
+                if pname and cast is not None and pname in cast \
+                        and "depth" in cast[pname]:
+                    _cast_d = cast[pname]["depth"]
+                    if _cast_d != _sp_d:
+                        _depth_cfg._warn_once(
+                            pname, "dual_registration_mismatch",
+                            f"PAMPlayer: depth — '{pname}' is dual-"
+                            f"registered with mismatched depth "
+                            f"(cast={_cast_d:g}, spawn_prop={_sp_d:g}); "
+                            f"using the cast value.")
+                    _sp_d  = _cast_d
+                    _sp_r  = cast[pname].get("rescale", _sp_r)
+                    _sp_ds = cast[pname].get("depth_scale", _sp_ds)
+
                 # ── GovernorGraph (dodecahedron) ──────────────────────────
                 if ptype == "dodecahedron" or figure_type == "dodecahedron":
                     x      = step.get("x", 0.0)
@@ -3062,6 +3705,18 @@ class PAMPlayer(MovingCameraScene):
                     gov.group.pam_y         = y
                     gov.group.pam_surface_y = y
                     gov.group.pam_governor  = gov
+                    gov.group.pam_depth         = _sp_d
+                    gov.group.pam_depth_rescale = _sp_r
+                    gov.group.pam_depth_scale   = _sp_ds
+                    gov.depth         = _sp_d
+                    gov.depth_rescale = _sp_r
+                    gov.depth_scale   = _sp_ds
+                    # v0.9.23 (2.5D step 3): rescale BEFORE apply_depth_z
+                    # / fade_in, so the shape appears at its final
+                    # depth-scaled size from the first frame.
+                    if gov.depth_rescale:
+                        gov.apply_depth_rescale()
+                    gov.apply_depth_z()
                     props.add(pname, gov.group)
                     gov.fade_in(self, rt=rt)
                     continue
@@ -3086,7 +3741,31 @@ class PAMPlayer(MovingCameraScene):
                     # objects and leave the registered group bare.
                     # Wrap-and-tag via the shared helper (item 15) — see
                     # _tag_dog_group for the fresh-VGroup binding gotcha.
-                    props.add(pname, _tag_dog_group(dog, pname, x, y))
+                    _dog_group = _tag_dog_group(dog, pname, x, y)
+                    _dog_group.pam_depth         = _sp_d
+                    _dog_group.pam_depth_rescale = _sp_r
+                    _dog_group.pam_depth_scale   = _sp_ds  # unused until step 3
+                    props.add(pname, _dog_group)
+                    dog.depth         = _sp_d
+                    dog.depth_rescale = _sp_r
+                    dog.depth_scale   = _sp_ds
+                    dog._depth_k      = _depth_cfg.k
+                    # v0.9.23 (2.5D step 6): DogGraph._build() positions
+                    # dots directly from raw pose (no _apply_scale call,
+                    # unlike HumanGraph.__init__ path), so a depth_scale
+                    # set after construction needs one explicit
+                    # set_pose to take effect before fade_in.
+                    if dog.depth_scale != 1.0:
+                        dog.set_pose(dog.pose)
+                    # Note: unlike the pam_* custom-attribute gotcha
+                    # this file documents elsewhere, Manim's
+                    # set_z_index() propagates to submobjects
+                    # (family=True by default) and so correctly reaches
+                    # the persistent edge/dot mobjects even though
+                    # dog.group rebuilds its VGroup wrapper on every
+                    # access — verified empirically, not just by
+                    # inspection, before relying on it here.
+                    dog.apply_depth_z()
                     # Path C dual registration (v0.9.14): mirror entry on
                     # the cast side so this DogGraph is also reachable via
                     # `who: "<pname>"` for verbs like `say`, `walk_to`, and
@@ -3102,6 +3781,11 @@ class PAMPlayer(MovingCameraScene):
                     #      avoid clobbering an unrelated character.
                     #
                     # See BACK_BURNER.md, "Quadruped registration (Path C)".
+                    # v0.9.23 (backburner items 10-11, 2.5D step 1): dual-
+                    # registration depth-mismatch precedence (cast wins,
+                    # with a warning) is step 6's job — here a single
+                    # spawn_prop step is the only source, so both sides
+                    # just get the same resolved value.
                     existing = cast.get(pname)
                     if existing is None:
                         cast[pname] = {
@@ -3112,6 +3796,9 @@ class PAMPlayer(MovingCameraScene):
                             "style":       style,
                             "build":       "dog",
                             "facing":      facing,
+                            "depth":       _sp_d,
+                            "rescale":     _sp_r,
+                            "depth_scale": _sp_ds,
                         }
                     elif existing.get("figure_type", "dog") == "dog":
                         existing["fig"] = dog
@@ -3120,6 +3807,9 @@ class PAMPlayer(MovingCameraScene):
                         existing.setdefault("offset",      [x, y, 0])
                         existing.setdefault("style",       style)
                         existing.setdefault("facing",      facing)
+                        existing.setdefault("depth",        _sp_d)
+                        existing.setdefault("rescale",      _sp_r)
+                        existing.setdefault("depth_scale",  _sp_ds)
                     else:
                         print(f"PAMPlayer spawn_prop: cast entry "
                               f"'{pname}' is figure_type="
@@ -3132,7 +3822,8 @@ class PAMPlayer(MovingCameraScene):
                 # ── standard props (hat, chair, desk, door …) ────────────
                 _skip = {"action", "prop", "type", "figure_type", "rt",
                          "on_head_of", "on_torso_of",
-                         "z_index", "z_offset", "bring_to_front"}
+                         "z_index", "z_offset", "bring_to_front",
+                         "depth", "rescale"}
                 kwargs = {k: v for k, v in step.items() if k not in _skip}
 
                 # Laptop builder compatibility: build_laptop historically
@@ -3200,6 +3891,18 @@ class PAMPlayer(MovingCameraScene):
 
                 prop = build_prop(pname, type=ptype,
                                   prop_registry=props._store, **kwargs)
+                # v0.9.23 (backburner items 10-11, 2.5D step 1-2): stash
+                # the depth/rescale resolved once at the top of this
+                # handler, and band the prop into the world layer
+                # (D3: z = depth). An explicit z_index/z_offset below
+                # still takes final precedence, same as characters.
+                prop.pam_depth         = _sp_d
+                prop.pam_depth_rescale = _sp_r
+                prop.pam_depth_scale   = _sp_ds
+                if _sp_r:
+                    _apply_prop_rescale(prop, _sp_ds)   # D6/step 6
+                if hasattr(prop, "set_z_index"):
+                    prop.set_z_index(_sp_d)
 
                 # Optional visual stacking control.  z_index is Manim-native;
                 # z_offset is accepted as a screenplay alias.
@@ -3527,6 +4230,10 @@ class PAMPlayer(MovingCameraScene):
                         y_offset=y_offset,
                     )
                     if _bubble is not None:
+                        # v0.9.23 (backburner items 10-11, 2.5D step 2):
+                        # bubbles always sit in the bubble band (D3).
+                        if hasattr(_bubble, "set_z_index"):
+                            _bubble.set_z_index(DEPTH_Z_BUBBLE)
                         if _duration is not None:
                             deadline = self.renderer.time + float(_duration) - rt_in
                         else:
@@ -3561,6 +4268,8 @@ class PAMPlayer(MovingCameraScene):
                         persist=(_persist or _duration is not None),
                     )
                     if _bubble is not None:
+                        if hasattr(_bubble, "set_z_index"):
+                            _bubble.set_z_index(DEPTH_Z_BUBBLE)
                         if _duration is not None:
                             deadline = self.renderer.time + float(_duration) - rt_in
                         else:
@@ -3664,6 +4373,10 @@ class PAMPlayer(MovingCameraScene):
                     fill_opacity=0.95, stroke_width=1.2,
                 )
                 bubble = VGroup(box, tail, txt)
+                # v0.9.23 (backburner items 10-11, 2.5D step 2): bubbles
+                # always sit in the bubble band (D3), on top of every
+                # possible figure/prop depth.
+                bubble.set_z_index(DEPTH_Z_BUBBLE)
 
                 # ── Persistence handling ─────────────────────────────────
                 # "persist": true           — bubble stays until clear_bubble
@@ -3946,6 +4659,11 @@ class PAMPlayer(MovingCameraScene):
 
                     # Start fully transparent
                     _oc_card.set_opacity(0.0)
+                    # v0.9.23 (backburner items 10-11, 2.5D step 2): the
+                    # caption is a screen-space overlay, not part of the
+                    # world layer — bands with bubbles (D3), on top of
+                    # every possible figure/prop depth.
+                    _oc_card.set_z_index(DEPTH_Z_BUBBLE)
                     self.add(_oc_card)
 
                     # Updater: drive opacity as a piecewise function of
@@ -4238,6 +4956,17 @@ class PAMPlayer(MovingCameraScene):
                             print(f"PAMPlayer: parallel {sa} for '{tname}' "
                                   f"missing 'x', skipping.")
                             continue
+                        # v0.9.23 (2.5D step 7): depth-animated locomotion
+                        # is a sequential-move feature — the parallel
+                        # handler runs pre-computed (pose, dx) plans that
+                        # carry no depth state. Warn rather than silently
+                        # dropping the key.
+                        if sub.get("depth") is not None:
+                            print(f"PAMPlayer: parallel {sa} — 'depth' is "
+                                  f"not supported inside parallel blocks; "
+                                  f"ignoring it for '{tname}'. Use a "
+                                  f"sequential {sa} for depth-animated "
+                                  f"moves.")
 
                         if is_prop_loco or sa == "trot_to":
                             # Path C (v0.9.14): _resolve_speaker handles
@@ -4383,6 +5112,10 @@ class PAMPlayer(MovingCameraScene):
             targets = _targets(step)
             for name in targets:
                 _dispatch_one(step, name)
+
+        # v0.9.23 (item 18): a final step's end-triggered sfx has no
+        # next iteration to flush it — flush here.
+        _flush_end_sfx()
 
         # ── clean up title, clock, and persistent caption ──────────────────
         if pcap_mob:
