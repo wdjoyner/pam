@@ -680,6 +680,14 @@ Use `_comment` entries instead of trying to add JSON comments:
 
 Several scale actions use **target scale**, not multiplier semantics. If a character is already at `0.7` and you set `sy` to `0.5`, the new scale is `0.5`, not `0.35`.
 
+### 2.5D depth (v0.9.23)
+
+Cast and props entries accept optional `"depth"` (float, `0` = on-stage plane, negative = farther back) and `"rescale"` (bool, opt-in perspective shrink) keys. Depth always affects z-layering; it only affects on-screen size when `"rescale": true`. `walk_to`/`run_to`/`trot_to` accept a `"depth"` target to animate a character moving toward or away from the camera, with occlusion updating dynamically mid-move. Scene-level perspective strength is tunable via an optional preamble `{"action": "depth_config", "depth_k": 0.08}`. See the reference manual, "Runtime additions in v0.9.23," for the full key/warning/limitation reference.
+
+### Per-character sound effects (v0.9.23)
+
+Any cast entry may declare an `"sfx"` block keyed by action type — `{"sfx": {"wave": "blip.wav", "say": {"sfx": "chime.m4a", "sfx_gain": -3, "sfx_trigger": "end"}}}`. Sound resolution is a three-tier ladder: per-action inline `"sfx"` beats the character's cast block, which beats the scene-level `audio` defaults; an explicit `null` at any tier suppresses the tiers below. Per-action parameters `sfx_gain` (dB), `sfx_delay` (seconds), `sfx_trigger` (`"start"` or `"end"`), and `sfx_duration` (seconds — cut a too-long cue, with a click-free fade at the cut) work at either tier; `.m4a` files are auto-converted via FFmpeg. Structured warning output is also available: set `PAM_WARNINGS_JSON=warnings.json` to dump every PAM warning as `(array_index, action_type, message)` JSON at render completion. See the reference manual §13.9–13.10.
+
 ### Tic profiles
 
 A `tic_profile` attaches small motion fragments to a character and fires them on triggers such as `react` or `sentence_end`.
