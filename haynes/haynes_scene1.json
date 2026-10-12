@@ -1,0 +1,164 @@
+[
+  {
+    "_comment": "Euphemia Haynes project — Scene 1: THE BOX. Render with PAM v0.9.x / PAMPlayer."
+  },
+  {
+    "action": "set_background",
+    "color": "#22262b"
+  },
+  {
+    "action": "cast",
+    "characters": {
+      "haynes_older": {
+        "figure_type": "human",
+        "gender": "female",
+        "build": "narrow",
+        "pose": "standing_front",
+        "hidden": true,
+        "scale": {
+          "sx": 0.8,
+          "sy": 0.8,
+          "anchor": "lankle"
+        },
+        "offset": [-6.0, 0.0, 0.0],
+        "style": {
+          "head_label": "HAYNES",
+          "edge_color": "#d8c7ae",
+          "node_color": "#8f6f5b",
+          "node_stroke": "#f0dfc9",
+          "head_color": "#7a5a49",
+          "head_stroke": "#f0dfc9",
+          "highlight_color": "#f3d7a8"
+        }
+      },
+      "student_a": {
+        "figure_type": "human",
+        "gender": "child",
+        "build": "narrow",
+        "pose": "standing_front",
+        "hidden": true,
+        "scale": {
+          "sx": 0.66,
+          "sy": 0.66,
+          "anchor": "lankle"
+        },
+        "offset": [2.1, 0.0, 0.0],
+        "style": {
+          "head_label": "",
+          "edge_color": "#9b6b4d",
+          "node_color": "#5f3c2a",
+          "node_stroke": "#c9916d",
+          "head_color": "#5f3c2a",
+          "head_stroke": "#c9916d",
+          "highlight_color": "#d4a27c"
+        }
+      }
+    }
+  },
+  {
+    "_comment": "Opening insert: the record. These caption cards stand in for a literal document in the first animatic."
+  },
+  {
+    "action": "caption",
+    "position": "center",
+    "style": "normal",
+    "duration": 5.5,
+    "text": "STUDENT RECORD\n\nAchievement: 67\nArithmetic: 72\nReading: 65\n\nRECOMMENDATION\n☐ ACADEMIC     ☐ VOCATIONAL"
+  },
+  {
+    "action": "caption",
+    "position": "center",
+    "style": "bold",
+    "duration": 3.0,
+    "text": "STUDENT RECORD\n\nAchievement: 67\nArithmetic: 72\nReading: 65\n\nRECOMMENDATION\n☐ ACADEMIC     ☑ VOCATIONAL"
+  },
+  {"action": "wait", "rt": 2.0},
+  {"action": "set_background", "color": "#151a20"},
+  {
+    "action": "spawn_prop",
+    "prop": "track_main",
+    "type": "wire",
+    "x1": -0.2,
+    "y1": -2.25,
+    "x2": 0.0,
+    "y2": 1.6,
+    "color": "#8d949a",
+    "width": 4.0
+  },
+  {"action": "wait", "rt": 0.7},
+  {
+    "action": "spawn_prop",
+    "prop": "track_academic",
+    "type": "wire",
+    "x1": 0.0,
+    "y1": -0.2,
+    "x2": -4.7,
+    "y2": 2.2,
+    "color": "#91b4d6",
+    "width": 4.0
+  },
+  {"action": "wait", "rt": 0.7},
+  {
+    "action": "spawn_prop",
+    "prop": "track_vocational",
+    "type": "wire",
+    "x1": 0.0,
+    "y1": -0.2,
+    "x2": 4.7,
+    "y2": 2.2,
+    "color": "#b5a06c",
+    "width": 4.0
+  },
+  {
+    "action": "spawn_prop",
+    "prop": "track_switch",
+    "type": "wire",
+    "x1": -0.45,
+    "y1": -0.6,
+    "x2": 0.45,
+    "y2": 0.1,
+    "color": "#e0b84e",
+    "width": 7.0
+  },
+  {"action": "wait", "rt": 0.8},
+  {"action": "spawn_prop", "prop": "door_arithmetic", "type": "door", "x": -1.8, "y": -2.6, "label": "ARITHMETIC", "color": "#6f91b4"},
+  {"action": "wait", "rt": 0.7},
+  {"action": "spawn_prop", "prop": "door_algebra", "type": "door", "x": -3.0, "y": -2.6, "label": "ALGEBRA", "color": "#6f91b4"},
+  {"action": "wait", "rt": 0.7},
+  {"action": "spawn_prop", "prop": "door_geometry", "type": "door", "x": -4.2, "y": -2.6, "label": "GEOMETRY", "color": "#6f91b4"},
+  {"action": "wait", "rt": 0.7},
+  {"action": "spawn_prop", "prop": "door_college", "type": "door", "x": -5.4, "y": -2.6, "label": "COLLEGE", "color": "#6f91b4"},
+  {"action": "spawn_prop", "prop": "door_vocational", "type": "door", "x": 4.6, "y": -2.6, "label": "VOCATIONAL", "color": "#a8935d"},
+  {"action": "wait", "rt": 2.0},
+  {"action": "remove_prop", "prop": "door_algebra", "rt": 0.5},
+  {"action": "remove_prop", "prop": "door_geometry", "rt": 0.5},
+  {"action": "remove_prop", "prop": "door_college", "rt": 1.2},
+  {"action": "fade_in", "who": "student_a"},
+  {"action": "turn", "who": "student_a", "facing": "right"},
+  {"action": "wait", "rt": 1.5},
+  {"action": "fade_in", "who": "haynes_older"},
+  {"action": "turn", "who": "haynes_older", "facing": "right"},
+  {"action": "walk_to", "who": "haynes_older", "to_x": -3.6},
+  {
+    "action": "wait",
+    "rt": 15.0,
+    "sfx": "audio/scene01/s01_narr_01.wav",
+    "sfx_gain": -1.0,
+    "sfx_trigger": "start"
+  },
+  {"action": "turn", "who": "student_a", "facing": "left"},
+  {"action": "wait", "rt": 0.8},
+  {"action": "turn", "who": "haynes_older", "facing": "right"},
+  {"action": "walk_to", "who": "haynes_older", "to_x": -1.0},
+  {"action": "wait", "rt": 0.8},
+  {
+    "action": "wait",
+    "rt": 10.5,
+    "sfx": "audio/scene01/s01_narr_02.wav",
+    "sfx_gain": -1.0,
+    "sfx_trigger": "start"
+  },
+  {"action": "wait", "rt": 2.5},
+  {"action": "caption", "text": "WASHINGTON, D.C.\nTHE TRACKING CONTROVERSY", "position": "top", "duration": 2.6, "style": "bold"},
+  {"action": "caption", "text": "Placement could affect a student's later access to college-preparatory mathematics.", "position": "bottom", "duration": 4.4, "style": "normal"}
+]
