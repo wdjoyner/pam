@@ -91,6 +91,53 @@ from .figure import (                     # noqa: F401
     GovernorGraph,
 )
 
+
+def _compat_apply_depth_z(self):
+    """Apply v0.9.23 depth-derived z-order to older figure classes.
+
+    Some repository snapshots contain the v0.9.23 player-side calls to
+    ``fig.apply_depth_z()`` but an older ``figure.py`` without that method.
+    This compatibility shim preserves the documented depth semantics until
+    the figure implementation is brought fully in sync.
+    """
+    try:
+        depth = float(getattr(self, "depth", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        depth = 0.0
+
+    group = getattr(self, "group", None)
+    if group is not None and hasattr(group, "set_z_index"):
+        group.set_z_index(depth)
+
+    # Keep common figure-attached overlays just above the figure's own band.
+    attachment_names = (
+        "head_face",
+        "torso_icon",
+        "harness",
+        "gloves",
+        "shoes",
+        "_name_tag",
+    )
+    layer = depth
+    for attr in attachment_names:
+        mob = getattr(self, attr, None)
+        if mob is None or not hasattr(mob, "set_z_index"):
+            continue
+        layer += DEPTH_ATTACH_Z_STEP
+        mob.set_z_index(layer)
+
+    return depth
+
+
+# Compatibility for branch snapshots where pam_player.py has v0.9.23
+# depth calls but figure.py predates apply_depth_z(). AlienGraph inherits
+# HumanGraph in current PAM, but patching each public figure class keeps the
+# compatibility explicit and also covers DogGraph/GovernorGraph variants.
+for _figure_cls in (HumanGraph, AlienGraph, DogGraph, GovernorGraph):
+    if not hasattr(_figure_cls, "apply_depth_z"):
+        _figure_cls.apply_depth_z = _compat_apply_depth_z
+
+
 from .props import (                      # noqa: F401
     build_prop, PROP_TYPES, PROP_DEFAULTS,
     build_chair, build_desk, build_hat, build_door, build_dodecahedron,
