@@ -87,7 +87,7 @@ from .figure import (                     # noqa: F401
 from .props import (                      # noqa: F401
     build_prop, PROP_TYPES, PROP_DEFAULTS,
     build_chair, build_desk, build_hat, build_door, build_dodecahedron,
-    build_backpack, build_laptop, build_potted_plant,
+    build_backpack, build_laptop,
 )
 
 from .actions import (                    # noqa: F401
