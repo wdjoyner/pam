@@ -99,7 +99,6 @@ from pam.props_carried import (
 from pam.props_flora import (
     build_flower,
     build_floral_arrangement,
-    build_potted_plant,
 )
 
 # ── background / environment ──────────────────────────────────────────────────
@@ -163,8 +162,6 @@ PROP_TYPES = {
     "flower":              build_flower,
     "floral_arrangement":  build_floral_arrangement,
     "bouquet":             build_floral_arrangement,  # alias
-    "potted_plant":        build_potted_plant,
-    "plant":               build_potted_plant,        # alias
     # ── background / environment ──────────────────────────────────────────
     "dodecahedron":        build_dodecahedron,
     "building":            build_building,
