@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 from manim import *
@@ -33,95 +34,118 @@ from manim import *
 HERE = Path(__file__).resolve().parent
 AUDIO_DIR = HERE / "audio" / "movement1"
 MANIFEST_PATH = AUDIO_DIR / "audio_manifest.json"
+PORTRAIT_PATH = HERE / "assets" / "haynes_portrait_lineart.png"
+CHALK = "#f2ead8"
+
+# End credits, top to bottom. ("", ...) is a gap; ("h", text) a heading;
+# ("b", text) a bold line; ("t", text) ordinary text; ("s", text) small.
+CREDITS = [
+    ("b", "EUPHEMIA LOFTON HAYNES"),
+    ("t", "1890 – 1980"),
+    ("", ""),
+    ("t", "The first African American woman"),
+    ("t", "to earn a Ph.D. in mathematics"),
+    ("t", "Catholic University of America, 1943"),
+    ("", ""),
+    ("", ""),
+    ("b", "MATHEMATICS AS AN OPEN DOOR"),
+    ("t", "Movement I"),
+    ("", ""),
+    ("h", "Written and directed by"),
+    ("t", "David Joyner"),
+    ("", ""),
+    ("h", "Narration drawn from"),
+    ("t", "E. L. Haynes, \u201cMathematics \u2014 Symbolic Logic,\u201d"),
+    ("s", "address to teachers of mathematics, Washington, D.C., 1945"),
+    ("", ""),
+    ("h", "Sources"),
+    ("s", "The Haynes\u2013Lofton Family Papers,"),
+    ("s", "Catholic University of America"),
+    ("s", "S. E. Kelly, C. Shinners, K. Zoroufy, \u201cEuphemia Lofton Haynes:"),
+    ("s", "Bringing Education Closer to the \u2018Goal of Perfection\u2019,\u201d"),
+    ("s", "Notices of the AMS 64 (2017)"),
+    ("s", "D. Pierce, transcription of the 1945 address"),
+    ("", ""),
+    ("h", "With thanks to"),
+    ("t", "Edray Goins  \u00b7  John Stigall"),
+    ("t", "Nathan Alexander  \u00b7  Susan Kelly"),
+    ("s", "and the librarians of the Catholic University of America"),
+    ("", ""),
+    ("h", "Animation"),
+    ("t", "Manim Community Edition"),
+    ("h", "Narration voice"),
+    ("t", "Kokoro text-to-speech"),
+    ("h", "Portrait"),
+    ("t", "Public-domain line drawing"),
+]
+
+CLOSING_QUOTE = (
+    "We will teach,",
+    "we will do more than that,",
+    "we will inspire.",
+)
+CLOSING_ATTRIBUTION = "\u2014 Euphemia Lofton Haynes, 1945"
 
 
 # ---------------------------------------------------------------------------
 # Geometry / typography helpers
 # ---------------------------------------------------------------------------
 
-def _arc_length_lookup(
-    curve: VMobject,
+def _sample_curve(curve, start_alpha: float, end_alpha: float, samples: int):
+    """Sample a VMobject (by proportion) or a function t -> point."""
+    alphas = np.linspace(start_alpha, end_alpha, samples)
+    if callable(curve) and not isinstance(curve, Mobject):
+        points = np.array([np.asarray(curve(float(a)), dtype=float) for a in alphas])
+    else:
+        points = np.array([curve.point_from_proportion(float(a)) for a in alphas])
+    return points
+
+
+def _curve_placements(
+    text: str,
+    curve,
     start_alpha: float,
     end_alpha: float,
-    samples: int = 700,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Sample *curve* and return alpha, points, cumulative arc length.
+    normal_offset: float,
+    keep_upright: bool,
+    samples: int,
+) -> list[tuple[np.ndarray, float]]:
+    """Return (center, angle) for each non-space character of *text*.
 
-    Manim's ``point_from_proportion`` is not generally arc-length
-    parameterized. A dense lookup table keeps letters from bunching up in
-    high-curvature portions of a curve.
+    Characters are spaced by arc length, not by curve parameter, so letters
+    don't bunch up where the curve bends sharply. Manim's
+    ``point_from_proportion`` is not arc-length parameterized, hence the
+    dense lookup table.
     """
-    alphas = np.linspace(start_alpha, end_alpha, samples)
-    points = np.array([curve.point_from_proportion(float(a)) for a in alphas])
-    lengths = np.zeros(samples)
-    if samples > 1:
-        lengths[1:] = np.cumsum(np.linalg.norm(np.diff(points, axis=0), axis=1))
-    return alphas, points, lengths
-
-
-def text_along_curve(
-    text: str,
-    curve: VMobject,
-    *,
-    font_size: float = 34,
-    start_alpha: float = 0.05,
-    end_alpha: float = 0.95,
-    normal_offset: float = 0.16,
-    keep_upright: bool = True,
-) -> VGroup:
-    """Place individual glyphs along a curve with readable orientation.
-
-    Improvements over the first draft:
-
-    * glyphs are distributed by approximate arc length rather than raw curve
-      parameter, which greatly reduces overlap on high-curvature sections;
-    * letters that would naturally rotate upside down are flipped by 180°;
-    * a small normal offset keeps words from sitting directly on top of the
-      curve itself.
-
-    Spaces consume distance but create no glyph. The returned VGroup can be
-    revealed letter-by-letter with ``LaggedStart``.
-    """
-    if not text:
-        return VGroup()
     if end_alpha <= start_alpha:
         raise ValueError("end_alpha must be greater than start_alpha")
+    points = _sample_curve(curve, start_alpha, end_alpha, samples)
 
-    alphas, points, lengths = _arc_length_lookup(curve, start_alpha, end_alpha)
-
-    # If the chosen stretch of curve runs right-to-left on screen (e.g. the
-    # top of a counterclockwise circle), walking it in the curve's own
-    # direction would lay the word down backwards ("SDNATSREDNU"). Walk it
-    # the other way instead so the word always reads left to right.
+    # If this stretch of curve runs right-to-left on screen (e.g. the top of
+    # a counterclockwise circle), walking it in the curve's own direction
+    # would lay the word down backwards ("SDNATSREDNU"). Walk it the other
+    # way so the word always reads left to right.
     if keep_upright and points[-1][0] < points[0][0]:
-        alphas = alphas[::-1]
         points = points[::-1]
-        lengths = np.zeros(len(points))
-        lengths[1:] = np.cumsum(np.linalg.norm(np.diff(points, axis=0), axis=1))
 
+    lengths = np.zeros(len(points))
+    lengths[1:] = np.cumsum(np.linalg.norm(np.diff(points, axis=0), axis=1))
     total_length = float(lengths[-1])
-    if total_length <= 1e-9:
-        return VGroup()
 
     weights = np.array([0.62 if ch.isspace() else 1.0 for ch in text], dtype=float)
     cumulative = np.cumsum(weights)
     centers = cumulative - 0.5 * weights
     targets = centers / cumulative[-1] * total_length
 
-    group = VGroup()
+    placements = []
     for ch, target in zip(text, targets):
         if ch.isspace():
             continue
-
         idx = int(np.searchsorted(lengths, target, side="left"))
-        idx = max(1, min(len(alphas) - 2, idx))
-        p = points[idx]
+        idx = max(1, min(len(points) - 2, idx))
         tangent = points[idx + 1] - points[idx - 1]
         norm = float(np.linalg.norm(tangent))
-        if norm <= 1e-9:
-            tangent = np.array([1.0, 0.0, 0.0])
-        else:
-            tangent = tangent / norm
+        tangent = np.array([1.0, 0.0, 0.0]) if norm <= 1e-9 else tangent / norm
 
         angle = math.atan2(tangent[1], tangent[0])
         if keep_upright:
@@ -130,15 +154,100 @@ def text_along_curve(
             elif angle < -PI / 2:
                 angle += PI
 
-        # Offset along the glyph's own "up" so letters always sit above the
-        # curve as read, even where a single glyph had to be flipped.
-        normal = np.array([-math.sin(angle), math.cos(angle), 0.0])
-        glyph = Text(ch, font_size=font_size)
-        glyph.rotate(angle)
-        glyph.move_to(p + normal_offset * normal)
-        group.add(glyph)
+        # Offset along the glyph's own "up" so letters sit above the curve
+        # as read, even where a single glyph had to be flipped.
+        up = np.array([-math.sin(angle), math.cos(angle), 0.0])
+        placements.append((points[idx] + normal_offset * up, angle))
+    return placements
 
-    return group
+
+class CurveText(VGroup):
+    """A word whose letters follow a curve.
+
+    The glyphs are created once; :meth:`place_on` moves and rotates them, so
+    it is cheap enough to call from an updater (a word riding a circle whose
+    radius is changing, say). *curve* may be a VMobject, or any function
+    ``t -> point`` (fast, and allows ``t`` outside [0, 1]).
+
+    Reveal it letter by letter, in step with the curve being drawn, with
+    :func:`write_along`.
+    """
+
+    def __init__(self, text: str, *, font_size: float = 30, weight=NORMAL,
+                 color=WHITE, **kwargs):
+        super().__init__(**kwargs)
+        self.text = text
+        self._angles: list[float] = []
+        for ch in text:
+            if ch.isspace():
+                continue
+            self.add(Text(ch, font_size=font_size, weight=weight, color=color))
+            self._angles.append(0.0)
+
+    def place_on(
+        self,
+        curve,
+        start_alpha: float = 0.05,
+        end_alpha: float = 0.95,
+        *,
+        normal_offset: float = 0.16,
+        keep_upright: bool = True,
+        samples: int = 240,
+    ) -> "CurveText":
+        placements = _curve_placements(
+            self.text, curve, start_alpha, end_alpha,
+            normal_offset, keep_upright, samples,
+        )
+        for i, (glyph, (point, angle)) in enumerate(zip(self.submobjects, placements)):
+            glyph.rotate(angle - self._angles[i])
+            self._angles[i] = angle
+            glyph.move_to(point)
+        return self
+
+
+def text_along_curve(
+    text: str,
+    curve,
+    *,
+    font_size: float = 34,
+    start_alpha: float = 0.05,
+    end_alpha: float = 0.95,
+    normal_offset: float = 0.16,
+    keep_upright: bool = True,
+    weight=NORMAL,
+) -> CurveText:
+    """Convenience wrapper: build a :class:`CurveText` and place it once."""
+    return CurveText(text, font_size=font_size, weight=weight).place_on(
+        curve, start_alpha, end_alpha,
+        normal_offset=normal_offset, keep_upright=keep_upright, samples=700,
+    )
+
+
+def write_along(word: VGroup, *, run_time: float = 2.0, fade_width: float = 1.5,
+                **kwargs) -> Animation:
+    """Reveal a word's letters in order, like a pen writing along its curve.
+
+    Pair it with ``Create(curve)`` in the same ``self.play`` call and the
+    letters appear just behind the moving tip of the curve.
+    """
+    glyphs = list(word.submobjects)
+    n = max(len(glyphs), 1)
+    for g in glyphs:
+        g.set_opacity(0)
+
+    def update(mob, alpha):
+        front = alpha * (n + fade_width)
+        for i, g in enumerate(glyphs):
+            g.set_opacity(float(np.clip((front - i) / fade_width, 0.0, 1.0)))
+
+    return UpdateFromAlphaFunc(word, update, run_time=run_time,
+                               rate_func=linear, **kwargs)
+
+
+def ring(radius: float, center=ORIGIN):
+    """A circle as a fast parametric function, t in [0, 1) = one turn CCW."""
+    c = np.asarray(center, dtype=float)
+    return lambda t: c + radius * np.array([math.cos(TAU * t), math.sin(TAU * t), 0.0])
 
 
 def square_on_segment(a: np.ndarray, b: np.ndarray, outward_sign: float = 1.0) -> Polygon:
@@ -313,12 +422,14 @@ class HaynesMovementOne(NarratedScene):
     def construct(self):
         self.camera.background_color = "#10131a"
         self._opening_transition = None
+        self.title_card()
         self.opening_computation_to_structure()
         self.scene_answer_to_reason()
         self.scene_inquiry_epicycloid()
         self.scene_constant_variable()
         self.scene_relationships()
         self.scene_degrees_of_freedom()
+        self.end_credits()
 
     # ------------------------------------------------------------------
     # Opening: calculation -> mathematical structure -> title -> door
@@ -370,9 +481,20 @@ class HaynesMovementOne(NarratedScene):
         self.play(Transform(bricks, arch), run_time=3.8)
         elapsed += 3.8
 
-        structure = Text("STRUCTURE", weight=BOLD).to_edge(UP)
-        self.play(FadeIn(structure, shift=DOWN), run_time=1.0)
-        elapsed += 1.0
+        # STRUCTURE is written along a keystone arc riding over the arch.
+        keystone_arc = Arc(
+            radius=3.7, start_angle=58 * DEGREES, angle=64 * DEGREES,
+            arc_center=[0, -1.15, 0],
+        ).set_stroke(opacity=0.5)
+        structure = CurveText("STRUCTURE", font_size=40, weight=BOLD).place_on(
+            keystone_arc, 0.0, 1.0, normal_offset=0.28,
+        )
+        self.play(
+            Create(keystone_arc),
+            write_along(structure),
+            run_time=1.6,
+        )
+        elapsed += 1.6
 
         circle = Circle(radius=0.7).move_to([0, 0.25, 0])
         self.play(Create(circle), run_time=1.0)
@@ -380,13 +502,15 @@ class HaynesMovementOne(NarratedScene):
             circle.animate.scale(4.1),
             FadeOut(bricks),
             FadeOut(structure),
+            FadeOut(keystone_arc),
             run_time=2.6,
         )
         elapsed += 3.6
 
+        # The film title now has its own card; this is the movement title.
         title = VGroup(
-            Text("EUPHEMIA HAYNES", weight=BOLD, font_size=46),
-            Text("MATHEMATICS AS AN OPEN DOOR", font_size=32),
+            Text("MOVEMENT I", weight=BOLD, font_size=46),
+            Text("BEYOND COMPUTATION", font_size=32),
         ).arrange(DOWN, buff=0.28)
         self.play(FadeIn(title, shift=0.18 * UP), run_time=1.4)
         self.wait(1.6)
@@ -501,10 +625,12 @@ class HaynesMovementOne(NarratedScene):
             font_size=32,
             start_alpha=0.0,
             end_alpha=1.0,
-            normal_offset=0.0,
+            normal_offset=0.22,
         )
+        understands_arc.set_stroke(opacity=0.35)
         self.play(
-            LaggedStart(*[FadeIn(g) for g in curved_word], lag_ratio=0.10),
+            Create(understands_arc),
+            write_along(curved_word),
             run_time=2.6,
         )
         elapsed += 2.6
@@ -521,7 +647,8 @@ class HaynesMovementOne(NarratedScene):
 
         self.finish_narration(dur, elapsed)
         self.play(
-            FadeOut(VGroup(equation, tri, labels, squares, areas, curved_word)),
+            FadeOut(VGroup(equation, tri, labels, squares, areas, curved_word,
+                           understands_arc)),
             run_time=1.2,
         )
 
@@ -538,68 +665,74 @@ class HaynesMovementOne(NarratedScene):
         R = 1.8
         curve1 = epicycloid(R=R, r=R / 3)
         base = Circle(radius=R).set_stroke(opacity=0.35)
-        word_ring = Circle(radius=3.25)
         self.play(Create(base), run_time=1.0)
         self.play(Create(curve1), run_time=5.2, rate_func=linear)
         elapsed += 6.2
 
-        observe = text_along_curve(
-            "OBSERVE",
-            word_ring,
-            font_size=28,
-            start_alpha=0.04,
-            end_alpha=0.17,
-            normal_offset=0.0,
-        )
-        self.play(
-            LaggedStart(*[FadeIn(g) for g in observe], lag_ratio=0.12),
-            run_time=1.7,
-        )
+        # Haynes's cycle of inquiry, written around a ring: each word rides
+        # its own arc, and arrowed arcs carry the eye on to the next word.
+        # Top words sit just outside the ring, bottom words just below it,
+        # so neither collides with the epicycloid inside.
+        ring_r = 3.3
+        cycle = ring(ring_r)
+        spans = {          # (start, end) as fractions of a full turn, CCW
+            "OBSERVE": (0.035, 0.165),
+            "EXPERIMENT": (0.300, 0.465),
+            "CONSTRUCT": (0.540, 0.700),
+            "REFLECT": (0.800, 0.935),
+        }
+        words, arcs = {}, {}
+        for name, (a0, a1) in spans.items():
+            top = 0.0 < (a0 + a1) / 2 < 0.5
+            words[name] = CurveText(name, font_size=28, weight=BOLD).place_on(
+                cycle, a0, a1, normal_offset=0.24 if top else -0.24,
+            )
+            # Arrowed arc from this word toward the next one.
+            arcs[name] = Arc(
+                radius=ring_r, start_angle=TAU * a0, angle=TAU * (a1 - a0 + 0.08),
+            ).set_stroke(opacity=0.4).add_tip(tip_length=0.16, tip_width=0.16)
+
+        def reveal(name, *others, run_time=1.7):
+            self.play(Create(arcs[name]), write_along(words[name]), *others,
+                      run_time=run_time)
+
+        reveal("OBSERVE")
         elapsed += 1.7
 
         curve2 = epicycloid(R=R, r=R / 4)
-        experiment = Text("EXPERIMENT", weight=BOLD).scale(0.65).to_corner(UR)
-        self.play(FadeIn(experiment), Transform(curve1, curve2), run_time=3.6)
+        reveal("EXPERIMENT", Transform(curve1, curve2), run_time=3.6)
         elapsed += 3.6
 
         rays = VGroup(*[
             Line(ORIGIN, curve1.point_from_proportion(a)).set_stroke(opacity=0.45)
             for a in np.linspace(0.05, 0.95, 9)
         ])
-        construct = Text("CONSTRUCT", weight=BOLD).scale(0.65).to_corner(UL)
-        self.play(
-            FadeIn(construct),
+        reveal(
+            "CONSTRUCT",
             LaggedStart(*[Create(r) for r in rays], lag_ratio=0.08),
             run_time=2.4,
         )
         elapsed += 2.4
 
-        reflect = text_along_curve(
-            "REFLECT",
-            word_ring,
-            font_size=28,
-            start_alpha=0.54,
-            end_alpha=0.67,
-            normal_offset=0.0,
-        )
-        self.play(
-            LaggedStart(*[FadeIn(g) for g in reflect], lag_ratio=0.12),
-            run_time=1.7,
-        )
+        reveal("REFLECT")
         elapsed += 1.7
 
+        # "...and then another look": the whole cycle turns once more.
+        cycle_group = VGroup(*words.values(), *arcs.values())
         remaining = dur - elapsed
         if remaining > 0.4:
             self.play(
                 Rotate(rays, angle=TAU / 5, about_point=ORIGIN),
+                Rotate(cycle_group, angle=TAU / 10, about_point=ORIGIN),
+                Indicate(words["OBSERVE"], scale_factor=1.12),
                 run_time=remaining,
-                rate_func=linear,
+                rate_func=smooth,
             )
             elapsed += remaining
         self.wait(0.2)
 
         self.play(
-            FadeOut(VGroup(base, curve1, observe, experiment, construct, rays, reflect)),
+            FadeOut(VGroup(base, curve1, rays, cycle_group)),
             run_time=1.0,
         )
 
@@ -615,11 +748,26 @@ class HaynesMovementOne(NarratedScene):
         circle = always_redraw(lambda: Circle(radius=radius.get_value()))
         center = Dot()
         const = Text("CONSTANT", font_size=30).next_to(center, DOWN, buff=0.35)
-        var = always_redraw(
-            lambda: Text("VARIABLE", font_size=30).next_to(circle, UP, buff=0.25)
-        )
+        # VARIABLE rides the top of the circle with a fixed length, so it
+        # bends tightly when the radius is small and flattens as it grows.
+        var = CurveText("VARIABLE", font_size=30)
+        var_length = 2.5
 
-        self.play(FadeIn(center), Create(circle), FadeIn(const), FadeIn(var), run_time=1.5)
+        def ride_circle(word):
+            r = radius.get_value()
+            half = var_length / (2 * TAU * r)
+            word.place_on(ring(r, circle.get_center()), 0.25 - half, 0.25 + half,
+                          normal_offset=0.26)
+
+        ride_circle(var)
+        self.play(
+            FadeIn(center),
+            Create(circle),
+            FadeIn(const),
+            write_along(var),
+            run_time=1.5,
+        )
+        var.add_updater(ride_circle)
         self.play(radius.animate.set_value(2.4), run_time=2.2)
         self.play(radius.animate.set_value(1.0), run_time=2.0)
         elapsed += 5.7
@@ -633,6 +781,7 @@ class HaynesMovementOne(NarratedScene):
         )
         elapsed += 4.5
 
+        var.clear_updaters()
         self.play(FadeOut(VGroup(circle, center, const, var)), run_time=0.8)
         learner = Dot(radius=0.16)
         learner_word = Text("LEARNER", weight=BOLD, font_size=32).next_to(learner, DOWN)
@@ -703,12 +852,21 @@ class HaynesMovementOne(NarratedScene):
             Create(guide),
             run_time=2.0,
         )
-        self.play(tracker.animate.set_value(2.8), run_time=4.5, rate_func=linear)
+        # RELATIONSHIPS is written along the graph just behind the moving
+        # point: the word literally follows the dependence of y on x.
+        relation = CurveText("RELATIONSHIPS", font_size=34, weight=BOLD).place_on(
+            graph, 0.04, 0.96, normal_offset=0.26,
+        )
+        self.play(
+            tracker.animate.set_value(2.8),
+            write_along(relation, fade_width=1.0),
+            run_time=4.5,
+            rate_func=linear,
+        )
         elapsed += 6.5
 
         formula = MathTex(r"y=f(x)").to_corner(UR)
-        relation = Text("RELATIONSHIPS", weight=BOLD, font_size=34).to_edge(UP)
-        self.play(FadeIn(formula), FadeIn(relation), run_time=1.0)
+        self.play(FadeIn(formula), run_time=1.0)
         elapsed += 1.0
 
         self.play(
@@ -805,27 +963,18 @@ class HaynesMovementOne(NarratedScene):
         )
         elapsed += 1.0
 
-        # The door reads MATH while closed. LIFE is painted on the far wall,
-        # beneath the opaque door, and is only seen once the door swings open.
+        # The door reads MATH while closed. Behind it there is only light;
+        # LIFE is printed into the doorway after the door has opened.
         door_center = np.array([0.0, -0.55, 0.0])
         frame = RoundedRectangle(width=4.3, height=5.2, corner_radius=0.08)
         frame.move_to(door_center).set_z_index(6)
         glow = Rectangle(width=4.0, height=4.9).move_to(door_center)
         glow.set_fill(DOOR_LIGHT, opacity=0.0).set_stroke(opacity=0)
         glow.set_z_index(1)
-        life_text = Text("LIFE", weight=BOLD, font_size=72).move_to(door_center)
-        life_text.set_z_index(2)
-        subtext = Text("OPPORTUNITY  •  FREEDOM", font_size=22)
-        subtext.next_to(life_text, DOWN, buff=0.38)
-        if subtext.width > 3.6:
-            subtext.scale_to_fit_width(3.6)
-        subtext.set_z_index(2)
+        door = SwingingDoor(width=4.0, height=4.9, center=door_center,
+                            label="MATH", label_size=50)
 
-        door = SwingingDoor(width=4.0, height=4.9, center=door_center, label="MATH", label_size=50)
-
-        # Everything behind the door is in place before the door appears,
-        # but the opaque door (z-index 3+) hides it completely.
-        self.add(glow, life_text, subtext)
+        self.add(glow)
         self.play(Create(frame), FadeIn(door.mobjects), run_time=1.7)
         elapsed += 1.7
         self.wait(0.7)
@@ -840,14 +989,292 @@ class HaynesMovementOne(NarratedScene):
         door.freeze()
         elapsed += 3.0
 
-        self.play(Indicate(life_text, scale_factor=1.10), run_time=1.2)
-        elapsed += 1.2
-
-        remaining = dur - elapsed
-        if remaining > 0.4:
-            pulse = min(1.5, remaining)
-            self.play(Indicate(frame, scale_factor=1.02), run_time=pulse)
-            elapsed += pulse
+        elapsed += self.finale_life_opportunity_freedom(
+            glow, frame, door.mobjects, possibilities, door_center,
+        )
 
         self.finish_narration(dur, elapsed, minimum_pause=0.25)
         self.wait(0.8)
+
+    # ------------------------------------------------------------------
+    # Finale: LIFE -> OPPORTUNITY -> FREEDOM
+    # ------------------------------------------------------------------
+
+    def finale_life_opportunity_freedom(self, glow, frame, door, title, door_center) -> float:
+        """Print LIFE in the open doorway, then let it grow.
+
+        LIFE is printed letter by letter; the doorway light floods the
+        screen; LIFE expands and morphs into OPPORTUNITY; OPPORTUNITY bends
+        into a spinning ring that collapses and bursts out as FREEDOM; and
+        the letters of FREEDOM fly off along spirals, leaving trails of
+        light. Returns the time used.
+        """
+        t = 0.0
+
+        # 1. LIFE is printed in the doorway.
+        life = Text("LIFE", weight=BOLD, font_size=76).move_to(door_center)
+        life.set_z_index(7)
+        self.add(life)
+        self.play(write_along(life, fade_width=0.6), run_time=1.2)
+        t += 1.2
+
+        # 2. The light floods out through the doorway and fills the screen.
+        self.play(
+            glow.animate.stretch_to_fit_width(config.frame_width + 1)
+                        .stretch_to_fit_height(config.frame_height + 1)
+                        .move_to(ORIGIN)
+                        .set_fill(opacity=0.20),
+            FadeOut(VGroup(frame, door, title)),
+            life.animate.scale(1.35).move_to(ORIGIN),
+            run_time=1.5,
+        )
+        t += 1.5
+
+        # 3. LIFE expands and becomes OPPORTUNITY.
+        opportunity = Text("OPPORTUNITY", weight=BOLD, font_size=64).set_z_index(7)
+        self.play(
+            ReplacementTransform(life, opportunity, path_arc=-PI / 3),
+            run_time=1.6,
+        )
+        t += 1.6
+
+        # 4. OPPORTUNITY bends into a ring (letters standing on the circle
+        #    like the lettering on a coin) and spins.
+        def clockwise(radius):
+            return lambda u: radius * np.array([
+                math.cos(TAU * (0.25 - u)), math.sin(TAU * (0.25 - u)), 0.0,
+            ])
+
+        opp_ring = CurveText("OPPORTUNITY", font_size=46, weight=BOLD)
+        opp_ring.place_on(clockwise(2.1), -0.43, 0.43, normal_offset=0.0,
+                          keep_upright=False)
+        opp_ring.set_z_index(7)
+        self.play(Transform(opportunity, opp_ring), run_time=1.4)
+        self.play(
+            Rotate(opportunity, angle=-TAU, about_point=ORIGIN),
+            run_time=1.8,
+            rate_func=rate_functions.ease_in_quad,
+        )
+        t += 3.2
+
+        # 5. The ring collapses to a point and FREEDOM bursts out of it.
+        freedom = Text("FREEDOM", weight=BOLD, font_size=84).set_z_index(7)
+        self.play(
+            opportunity.animate.scale(0.02).set_opacity(0),
+            run_time=0.5,
+            rate_func=rate_functions.ease_in_cubic,
+        )
+        self.remove(opportunity)
+        self.play(
+            GrowFromCenter(freedom),
+            Flash(ORIGIN, color=DOOR_LIGHT, line_length=1.2, num_lines=16,
+                  flash_radius=0.4),
+            glow.animate.set_fill(opacity=0.30),
+            run_time=0.8,
+            rate_func=rate_functions.ease_out_back,
+        )
+        self.wait(0.7)
+        t += 2.0
+
+        # 6. The letters of FREEDOM take flight along spirals, each leaving
+        #    a fading trail: every letter its own degree of freedom.
+        paths, trails = [], []
+        n = len(freedom)
+        for i, glyph in enumerate(freedom):
+            g0 = glyph.get_center()
+            phi = PI / 2 + (i - (n - 1) / 2) * 0.42      # fan out upward
+            turn = 1.6 if i % 2 else -1.6                # alternate spin
+            reach = 9.0 + 0.6 * abs(i - (n - 1) / 2)
+
+            def spiral(u, g0=g0, phi=phi, turn=turn, reach=reach):
+                r = 0.15 + reach * u * u
+                r0 = 0.15
+                return (g0
+                        + r * np.array([math.cos(phi + turn * u), math.sin(phi + turn * u), 0])
+                        - r0 * np.array([math.cos(phi), math.sin(phi), 0]))
+
+            paths.append(ParametricFunction(spiral, t_range=[0, 1]))
+            trail = TracedPath(glyph.get_center, stroke_color=DOOR_LIGHT,
+                               stroke_width=3, dissipating_time=0.9)
+            trail.set_z_index(6)
+            trails.append(trail)
+        self.add(*trails)
+        self.play(
+            LaggedStart(
+                *[MoveAlongPath(g, path, rate_func=rate_functions.ease_in_quad)
+                  for g, path in zip(freedom, paths)],
+                lag_ratio=0.06,
+            ),
+            glow.animate.set_fill(opacity=0.10),
+            run_time=3.2,
+        )
+        self.wait(0.9)   # let the trails dissipate
+        self.remove(*trails, freedom)
+        self.play(FadeOut(glow), run_time=0.8)
+        t += 4.9
+        return t
+
+    # ------------------------------------------------------------------
+    # Title card: the portrait, with the title written on her board
+    # ------------------------------------------------------------------
+
+    def _portrait(self) -> ImageMobject:
+        if not PORTRAIT_PATH.exists():
+            raise FileNotFoundError(PORTRAIT_PATH)
+        return ImageMobject(str(PORTRAIT_PATH))
+
+    def title_card(self):
+        """Haynes beside her easel; the board extends across the screen.
+
+        The line drawing (960 x 1400 px) fills the frame height on the right.
+        Its easel board is cut off by the drawing's left edge, so the board's
+        frame lines are continued in Manim across the screen, and the film
+        title is written on the board.
+        """
+        portrait = self._portrait()
+        portrait.height = config.frame_height
+        portrait.to_edge(RIGHT, buff=0)
+        px = config.frame_height / 1400.0          # scene units per pixel
+        left_x = portrait.get_left()[0]
+        top_y = portrait.get_top()[1]
+
+        def y_of(row):                             # image row -> scene y
+            return top_y - row * px
+
+        board_left = -config.frame_width / 2 + 0.45
+        frame_w = 70 * px                          # thickness of board frame
+        board_rows = (426, 486, 496, 1214, 1227)   # frame lines at the cut
+        border_rows = (8, 1394)                    # the drawing's own border
+
+        lines = VGroup()
+        for row in board_rows:
+            inset = 0.0 if row in (426, 1227) else (frame_w if row != 486 else frame_w * 0.85)
+            lines.add(Line([left_x, y_of(row), 0], [board_left + inset, y_of(row), 0]))
+        for row in border_rows:
+            lines.add(Line([left_x, y_of(row), 0], [-config.frame_width / 2, y_of(row), 0]))
+        sides = VGroup(
+            Line([board_left, y_of(426), 0], [board_left, y_of(1227), 0]),
+            Line([board_left + frame_w, y_of(496), 0], [board_left + frame_w, y_of(1214), 0]),
+            Line([board_left + 0.85 * frame_w, y_of(486), 0],
+                 [board_left + 0.85 * frame_w, y_of(1220), 0]),
+            Line([board_left, y_of(426), 0], [board_left + frame_w, y_of(496), 0]),
+            Line([board_left, y_of(1227), 0], [board_left + frame_w, y_of(1214), 0]),
+        )
+        VGroup(lines, sides).set_stroke(CHALK, width=2.2)
+
+        # The board's writing surface, between the extended frame lines.
+        inner_left = board_left + frame_w
+        inner_right = left_x + 281 * px
+        board_center = np.array([(inner_left + inner_right) / 2,
+                                 (y_of(496) + y_of(1214)) / 2, 0.0])
+
+        name = Text("Euphemia Lofton Haynes", font_size=50, weight=BOLD, color=CHALK)
+        subtitle = Text("Mathematics as an Open Door", font_size=34, color=CHALK,
+                        slant=ITALIC)
+        dates = Text("1890 \u2013 1980", font_size=24, color=CHALK)
+        title = VGroup(name, subtitle).arrange(DOWN, buff=0.3)
+        title.move_to(board_center + 0.55 * UP)
+        if title.width > inner_right - inner_left - 0.6:
+            title.scale_to_fit_width(inner_right - inner_left - 0.6)
+
+        # A chalk flourish: one period of a gentle wave under the subtitle,
+        # with the dates written along it.
+        flourish_w = subtitle.width * 0.9
+        flourish_center = subtitle.get_bottom() + 0.75 * DOWN
+        flourish = ParametricFunction(
+            lambda t: flourish_center + np.array([
+                flourish_w * (t - 0.5), 0.16 * math.sin(TAU * t), 0.0,
+            ]),
+            t_range=[0, 1],
+        ).set_stroke(CHALK, width=2.5)
+        dates.next_to(flourish, DOWN, buff=0.28)
+
+        # Reveal the drawing from the bottom up, as if sketched in.
+        cover = Rectangle(width=portrait.width + 0.1, height=portrait.height + 0.1)
+        cover.move_to(portrait).set_fill(self.camera.background_color, opacity=1)
+        cover.set_stroke(width=0)
+        self.add(portrait, cover)
+        self.play(
+            cover.animate.stretch(0.001, dim=1, about_edge=UP),
+            run_time=2.6,
+            rate_func=rate_functions.ease_in_out_sine,
+        )
+        self.remove(cover)
+
+        # The board grows out of the drawing toward the left.
+        self.play(Create(lines), run_time=1.3, rate_func=rate_functions.ease_out_sine)
+        self.play(Create(sides), run_time=0.6)
+
+        # Chalk title.
+        self.play(Write(name), run_time=2.2)
+        self.play(Write(subtitle), run_time=1.6)
+        self.play(Create(flourish), FadeIn(dates, shift=0.1 * UP), run_time=1.2)
+        self.wait(2.4)
+
+        self.play(
+            FadeOut(Group(portrait, lines, sides, name, subtitle, flourish, dates)),
+            run_time=1.4,
+        )
+        self.wait(0.3)
+
+    # ------------------------------------------------------------------
+    # End credits
+    # ------------------------------------------------------------------
+
+    def end_credits(self):
+        """Credits roll beside the portrait, then her 1945 words close the film."""
+        portrait = self._portrait()
+        portrait.height = config.frame_height
+        portrait.to_edge(LEFT, buff=0)
+        portrait.set_opacity(0.55)
+        self.play(FadeIn(portrait), run_time=1.5)
+
+        styles = {
+            "b": dict(font_size=34, weight=BOLD),
+            "h": dict(font_size=22, slant=ITALIC),
+            "t": dict(font_size=28),
+            "s": dict(font_size=21),
+        }
+        column_x = portrait.get_right()[0] + (config.frame_width / 2 - portrait.get_right()[0]) / 2
+        column_w = config.frame_width / 2 - portrait.get_right()[0] - 0.6
+
+        roll = VGroup()
+        y = 0.0
+        for kind, text in CREDITS:
+            if not kind:
+                y -= 0.42
+                continue
+            line = Text(text, color=CHALK, **styles[kind])
+            if line.width > column_w:
+                line.scale_to_fit_width(column_w)
+            if kind == "h":
+                y -= 0.18
+            line.move_to([column_x, y - line.height / 2, 0])
+            y -= line.height + 0.16
+            roll.add(line)
+
+        # Start just below the frame and roll until the last line is gone.
+        roll.shift((-config.frame_height / 2 - 0.3 - roll.get_top()[1]) * UP)
+        distance = roll.height + config.frame_height + 0.6
+        speed = 0.9                                     # scene units per second
+        self.add(roll)
+        self.play(roll.animate.shift(distance * UP),
+                  run_time=distance / speed, rate_func=linear)
+        self.remove(roll)
+
+        # Closing words, centered in the space beside the portrait.
+        quote = VGroup(*[
+            Text(line, font_size=40, slant=ITALIC, color=CHALK) for line in CLOSING_QUOTE
+        ]).arrange(DOWN, buff=0.22)
+        attribution = Text(CLOSING_ATTRIBUTION, font_size=24, color=CHALK)
+        closing = VGroup(quote, attribution).arrange(DOWN, buff=0.5)
+        closing.move_to([column_x, 0, 0])
+        if closing.width > column_w:
+            closing.scale_to_fit_width(column_w)
+
+        self.play(LaggedStart(*[Write(l) for l in quote], lag_ratio=0.55), run_time=3.6)
+        self.play(FadeIn(attribution, shift=0.1 * UP), run_time=1.0)
+        self.wait(3.5)
+        self.play(FadeOut(Group(portrait, closing)), run_time=2.0)
+        self.wait(0.5)
+
