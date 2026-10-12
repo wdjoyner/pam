@@ -861,12 +861,20 @@ def act_rotate(fig, step, scene, name="I.G. NoreMe", *,
     return None
 
 
+def _dest_x(step, action):
+    """A locomotion step's destination x ("x", or the README's "to_x")."""
+    for key in ("x", "to_x"):
+        if key in step:
+            return step[key]
+    raise KeyError(f'{action} step needs a destination "x" (or "to_x"): {step}')
+
+
 def act_walk_to(fig, step, scene, name="I.G. NoreMe", *,
                 props=None, cast=None):
     """Walk the figure to an x position."""
     if step.get("_collect_anims"):
         _warn_parallel("walk_to", name)
-    fig.walk_to(step["x"], scene)
+    fig.walk_to(_dest_x(step, "walk_to"), scene)
     _drag_attached_props(fig, name, props, scene)
     return None
 
@@ -876,7 +884,7 @@ def act_run_to(fig, step, scene, name="I.G. NoreMe", *,
     """Run the figure to an x position."""
     if step.get("_collect_anims"):
         _warn_parallel("run_to", name)
-    fig.run_to(step["x"], scene)
+    fig.run_to(_dest_x(step, "run_to"), scene)
     _drag_attached_props(fig, name, props, scene)
     return None
 
@@ -1116,7 +1124,7 @@ def act_carry(fig, step, scene, name="I.G. NoreMe", *,
 
     if named_prop is not None:
         fig._snap_obj_to_wrists(named_prop)
-        fig.carry(named_prop, step["x"], scene,
+        fig.carry(named_prop, _dest_x(step, "carry"), scene,
                   companions=companion_mobs if companion_mobs else None,
                   torso_companions=torso_companion_mobs if torso_companion_mobs else None)
         fig._snap_obj_to_wrists(named_prop)
@@ -1128,7 +1136,7 @@ def act_carry(fig, step, scene, name="I.G. NoreMe", *,
             fill_color=color, fill_opacity=0.9,
         ).move_to(fig.offset + np.array([0.5, 0.5, 0]))
         scene.play(FadeIn(parcel), run_time=0.3)
-        fig.carry(parcel, step["x"], scene,
+        fig.carry(parcel, _dest_x(step, "carry"), scene,
                   companions=companion_mobs if companion_mobs else None)
         scene.play(FadeOut(parcel), run_time=0.3)
     return None
@@ -1814,7 +1822,7 @@ def act_rush_to(fig, step, scene, name="I.G. NoreMe", *,
     # Lean into rush pose, then run, then settle
     rush = fig._bp.get("poses", {}).get("rush_lean", fig._bp["standing_side"])
     fig.morph_to(rush, scene, rt=0.2, rate=rush_from_start)
-    fig.run_to(step["x"], scene)
+    fig.run_to(_dest_x(step, "rush_to"), scene)
     fig.morph_to(fig._bp["standing_front"], scene, rt=0.25, rate=smooth)
     _drag_attached_props(fig, name, props, scene)
     return None
@@ -1840,7 +1848,7 @@ def act_squeeze_through(fig, step, scene, name="I.G. NoreMe", *,
     rt = step.get("rt", 0.25)
     squeeze = fig._bp.get("poses", {}).get("squeeze", fig._bp["standing_side"])
     fig.morph_to(squeeze, scene, rt=rt, rate=smooth)
-    fig.walk_to(step["x"], scene)
+    fig.walk_to(_dest_x(step, "squeeze_through"), scene)
     fig.morph_to(fig._bp["standing_front"], scene, rt=rt, rate=smooth)
     _drag_attached_props(fig, name, props, scene)
     return None

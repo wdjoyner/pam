@@ -2006,6 +2006,28 @@ class _SoundCues:
 _SIDECAR_ACTIONS = ("cast", "faces", "scene_props", "props")
 
 
+def _normalize_dest_keys(node):
+    """Accept "to_x" as a spelling of a step's destination "x".
+
+    The README documents locomotion steps as {"action": "walk_to",
+    "to_x": ...}, while every handler (walk_to, run_to, rush_to,
+    squeeze_through, carry, trot_to, and their parallel forms) reads
+    "x".  Copy "to_x" into "x" wherever "x" is absent, recursing into
+    nested blocks such as a parallel step's "do" list, so both
+    spellings work.  "x" wins when a step gives both.
+    """
+    if isinstance(node, dict):
+        if "to_x" in node and "x" not in node:
+            node["x"] = node["to_x"]
+        for v in node.values():
+            if isinstance(v, (dict, list)):
+                _normalize_dest_keys(v)
+    elif isinstance(node, list):
+        for v in node:
+            _normalize_dest_keys(v)
+    return node
+
+
 def _merge_sidecar(actions: list, script_path: str) -> list:
     """Load and merge an optional cast+props sidecar into *actions*.
 
@@ -2294,6 +2316,7 @@ class PAMPlayer(MovingCameraScene):
         # PAM_SIDECAR=path, or pam_sidecar.json next to PAM_SCRIPT.
         # Scene definitions take priority on collision; no-op if absent.
         actions = _merge_sidecar(actions, script_path)
+        actions = _normalize_dest_keys(actions)      # "to_x" -> "x"
 
         # ── in-scene audio cues (v0.9.21, backburner item 7) ─────────────
         # Populated by {"action": "audio", "defaults": {...}} blocks;
