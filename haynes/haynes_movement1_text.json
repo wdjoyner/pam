@@ -1,0 +1,274 @@
+{
+  "_about": [
+    "All words in Euphemia Haynes, Movement I: what is spoken and what appears on screen.",
+    "Edit text here; haynes_movement1.py and generate_movement1_audio.py both read this file.",
+    "After changing any 'narration', rerun generate_movement1_audio.py to rebuild the audio.",
+    "Narration may be one string or a list of sentences (they are joined with spaces).",
+    "Credit line kinds: b = bold, h = small italic heading, t = text, s = small text, \"\" = blank gap."
+  ],
+  "narration": {
+    "m1_00_opening": [
+      "For Euphemia Haynes, mathematics was never merely a collection of calculations.",
+      "She wrote that mathematics is no more the art of reckoning and computation than architecture is the art of making bricks, or painting the art of mixing colors.",
+      "The pieces matter.",
+      "But mathematics begins when we discover the structure that joins them."
+    ],
+    "m1_01_reason": [
+      "A correct answer was not enough.",
+      "Haynes wanted the student to discover why a statement is true.",
+      "She wrote:",
+      "He understands it, he will retain it for it is his belief.",
+      "It has not been imposed.",
+      "The difference is the difference between receiving an answer and constructing an idea for oneself."
+    ],
+    "m1_02_inquiry": [
+      "Her classroom ideal was active: observation, experimentation, construction, reflection, and then another look.",
+      "A mathematical object could be changed, tested, and examined from another direction.",
+      "Learning meant participating in the mathematical process rather than watching it from outside."
+    ],
+    "m1_03_constant_variable": [
+      "Haynes also used mathematical concepts as ways of thinking.",
+      "Consider constant and variable.",
+      "Some features of a problem remain fixed while others change.",
+      "The important question is not simply what changed, but what the change allows us to see."
+    ],
+    "m1_04_relationships": [
+      "Mathematics is also a study of relationship and dependence.",
+      "Change one quantity and another responds.",
+      "A function records that dependence.",
+      "The emphasis shifts from isolated facts toward connections, consequences, and structure."
+    ],
+    "m1_05_freedom": [
+      "And then there is dimension: the number of independent directions in which movement is possible.",
+      "A point has no freedom of motion.",
+      "On a line it gains one direction.",
+      "On a plane it gains another.",
+      "In space, possibility expands again.",
+      "This gives us a visual metaphor for the larger promise of education: knowledge can open paths that were previously closed.",
+      "Mathematics can become an open door."
+    ]
+  },
+  "title_card": {
+    "name": "Euphemia Lofton Haynes",
+    "subtitle": "Mathematics as an Open Door",
+    "dates": "1890 – 1980"
+  },
+  "opening": {
+    "equations": [
+      "7\\times8=56",
+      "\\sqrt{81}=9",
+      "\\frac34+\\frac12=\\frac54",
+      "12^2=144",
+      "15-7=8",
+      "6\\cdot6=36"
+    ],
+    "computation": "COMPUTATION",
+    "structure": "STRUCTURE",
+    "movement_title": "MOVEMENT I",
+    "movement_subtitle": "BEYOND COMPUTATION"
+  },
+  "reason": {
+    "equation": "3^2+4^2=5^2",
+    "understands": "UNDERSTANDS",
+    "imposed": "IMPOSED"
+  },
+  "inquiry": {
+    "_note": "Four words, in order around the ring (top right, top left, bottom left, bottom right).",
+    "cycle": [
+      "OBSERVE",
+      "EXPERIMENT",
+      "CONSTRUCT",
+      "REFLECT"
+    ]
+  },
+  "constant_variable": {
+    "constant": "CONSTANT",
+    "variable": "VARIABLE",
+    "learner": "LEARNER",
+    "_note": "Four qualities orbiting the learner (right, top, left, bottom).",
+    "qualities": [
+      "SCORE",
+      "SPEED",
+      "METHOD",
+      "EXPERIENCE"
+    ]
+  },
+  "relationships": {
+    "relationship": "RELATIONSHIPS",
+    "formula": "y=f(x)",
+    "interdependence": "INTERDEPENDENCE",
+    "_note": "Four nodes of the web (left, top, right, bottom).",
+    "nodes": [
+      "STUDENT",
+      "TEACHER",
+      "CURRICULUM",
+      "EXPERIENCE"
+    ]
+  },
+  "freedom": {
+    "zero": "0",
+    "one_degree": "1 DEGREE OF FREEDOM",
+    "two_degrees": "2 DEGREES OF FREEDOM",
+    "possibilities": "MORE POSSIBILITIES",
+    "door": "MATH",
+    "life": "LIFE",
+    "opportunity": "OPPORTUNITY",
+    "freedom": "FREEDOM"
+  },
+  "credits": [
+    [
+      "b",
+      "EUPHEMIA LOFTON HAYNES"
+    ],
+    [
+      "t",
+      "1890 – 1980"
+    ],
+    [
+      "",
+      ""
+    ],
+    [
+      "t",
+      "The first African American woman"
+    ],
+    [
+      "t",
+      "to earn a Ph.D. in mathematics"
+    ],
+    [
+      "t",
+      "Catholic University of America, 1943"
+    ],
+    [
+      "",
+      ""
+    ],
+    [
+      "",
+      ""
+    ],
+    [
+      "b",
+      "MATHEMATICS AS AN OPEN DOOR"
+    ],
+    [
+      "t",
+      "Movement I"
+    ],
+    [
+      "",
+      ""
+    ],
+    [
+      "h",
+      "Written and directed by"
+    ],
+    [
+      "t",
+      "David Joyner"
+    ],
+    [
+      "",
+      ""
+    ],
+    [
+      "h",
+      "Narration drawn from"
+    ],
+    [
+      "t",
+      "E. L. Haynes, “Mathematics — Symbolic Logic,”"
+    ],
+    [
+      "s",
+      "address to teachers of mathematics, Washington, D.C., 1945"
+    ],
+    [
+      "",
+      ""
+    ],
+    [
+      "h",
+      "Sources"
+    ],
+    [
+      "s",
+      "The Haynes–Lofton Family Papers,"
+    ],
+    [
+      "s",
+      "Catholic University of America"
+    ],
+    [
+      "s",
+      "S. E. Kelly, C. Shinners, K. Zoroufy, “Euphemia Lofton Haynes:"
+    ],
+    [
+      "s",
+      "Bringing Education Closer to the ‘Goal of Perfection’,”"
+    ],
+    [
+      "s",
+      "Notices of the AMS 64 (2017)"
+    ],
+    [
+      "s",
+      "D. Pierce, transcription of the 1945 address"
+    ],
+    [
+      "",
+      ""
+    ],
+    [
+      "h",
+      "With thanks to"
+    ],
+    [
+      "t",
+      "Edray Goins  ·  John Stigall"
+    ],
+    [
+      "t",
+      "Nathan Alexander  ·  Susan Kelly"
+    ],
+    [
+      "s",
+      "and the librarians of the Catholic University of America"
+    ],
+    [
+      "",
+      ""
+    ],
+    [
+      "h",
+      "Animation"
+    ],
+    [
+      "t",
+      "Manim Community Edition"
+    ],
+    [
+      "h",
+      "Narration voice"
+    ],
+    [
+      "t",
+      "Kokoro text-to-speech"
+    ],
+    [
+      "h",
+      "Portrait"
+    ],
+    [
+      "t",
+      "Public-domain line drawing"
+    ]
+  ],
+  "closing_quote": [
+    "We will teach,",
+    "we will do more than that,",
+    "we will inspire."
+  ],
+  "closing_attribution": "— Euphemia Lofton Haynes, 1945"
+}

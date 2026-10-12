@@ -37,54 +37,17 @@ MANIFEST_PATH = AUDIO_DIR / "audio_manifest.json"
 PORTRAIT_PATH = HERE / "assets" / "haynes_portrait_lineart.png"
 CHALK = "#f2ead8"
 
-# End credits, top to bottom. ("", ...) is a gap; ("h", text) a heading;
-# ("b", text) a bold line; ("t", text) ordinary text; ("s", text) small.
-CREDITS = [
-    ("b", "EUPHEMIA LOFTON HAYNES"),
-    ("t", "1890 – 1980"),
-    ("", ""),
-    ("t", "The first African American woman"),
-    ("t", "to earn a Ph.D. in mathematics"),
-    ("t", "Catholic University of America, 1943"),
-    ("", ""),
-    ("", ""),
-    ("b", "MATHEMATICS AS AN OPEN DOOR"),
-    ("t", "Movement I"),
-    ("", ""),
-    ("h", "Written and directed by"),
-    ("t", "David Joyner"),
-    ("", ""),
-    ("h", "Narration drawn from"),
-    ("t", "E. L. Haynes, \u201cMathematics \u2014 Symbolic Logic,\u201d"),
-    ("s", "address to teachers of mathematics, Washington, D.C., 1945"),
-    ("", ""),
-    ("h", "Sources"),
-    ("s", "The Haynes\u2013Lofton Family Papers,"),
-    ("s", "Catholic University of America"),
-    ("s", "S. E. Kelly, C. Shinners, K. Zoroufy, \u201cEuphemia Lofton Haynes:"),
-    ("s", "Bringing Education Closer to the \u2018Goal of Perfection\u2019,\u201d"),
-    ("s", "Notices of the AMS 64 (2017)"),
-    ("s", "D. Pierce, transcription of the 1945 address"),
-    ("", ""),
-    ("h", "With thanks to"),
-    ("t", "Edray Goins  \u00b7  John Stigall"),
-    ("t", "Nathan Alexander  \u00b7  Susan Kelly"),
-    ("s", "and the librarians of the Catholic University of America"),
-    ("", ""),
-    ("h", "Animation"),
-    ("t", "Manim Community Edition"),
-    ("h", "Narration voice"),
-    ("t", "Kokoro text-to-speech"),
-    ("h", "Portrait"),
-    ("t", "Public-domain line drawing"),
-]
+TEXT_PATH = HERE / "haynes_movement1_text.json"
 
-CLOSING_QUOTE = (
-    "We will teach,",
-    "we will do more than that,",
-    "we will inspire.",
-)
-CLOSING_ATTRIBUTION = "\u2014 Euphemia Lofton Haynes, 1945"
+
+def _load_text(path: Path = TEXT_PATH) -> dict:
+    """All on-screen words (and the narration) live in one JSON file."""
+    if not path.exists():
+        raise FileNotFoundError(f"Missing {path}; it holds every word in the film.")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+TEXT = _load_text()
 
 
 # ---------------------------------------------------------------------------
@@ -439,14 +402,8 @@ class HaynesMovementOne(NarratedScene):
         dur = self.start_narration("m1_00_opening")
         elapsed = 0.0
 
-        equations = [
-            MathTex(r"7\times8=56"),
-            MathTex(r"\sqrt{81}=9"),
-            MathTex(r"\frac34+\frac12=\frac54"),
-            MathTex(r"12^2=144"),
-            MathTex(r"15-7=8"),
-            MathTex(r"6\cdot6=36"),
-        ]
+        words = TEXT["opening"]
+        equations = [MathTex(tex) for tex in words["equations"]]
 
         field = VGroup()
         for row in range(5):
@@ -461,7 +418,7 @@ class HaynesMovementOne(NarratedScene):
         )
         elapsed += 3.4
 
-        word = Text("COMPUTATION", weight=BOLD).scale(1.1)
+        word = Text(words["computation"], weight=BOLD).scale(1.1)
         self.play(
             FadeOut(field, scale=0.85),
             FadeIn(word, scale=1.15),
@@ -486,7 +443,7 @@ class HaynesMovementOne(NarratedScene):
             radius=3.7, start_angle=58 * DEGREES, angle=64 * DEGREES,
             arc_center=[0, -1.15, 0],
         ).set_stroke(opacity=0.5)
-        structure = CurveText("STRUCTURE", font_size=40, weight=BOLD).place_on(
+        structure = CurveText(words["structure"], font_size=40, weight=BOLD).place_on(
             keystone_arc, 0.0, 1.0, normal_offset=0.28,
         )
         self.play(
@@ -509,8 +466,8 @@ class HaynesMovementOne(NarratedScene):
 
         # The film title now has its own card; this is the movement title.
         title = VGroup(
-            Text("MOVEMENT I", weight=BOLD, font_size=46),
-            Text("BEYOND COMPUTATION", font_size=32),
+            Text(words["movement_title"], weight=BOLD, font_size=46),
+            Text(words["movement_subtitle"], font_size=32),
         ).arrange(DOWN, buff=0.28)
         self.play(FadeIn(title, shift=0.18 * UP), run_time=1.4)
         self.wait(1.6)
@@ -553,7 +510,8 @@ class HaynesMovementOne(NarratedScene):
         dur = self.start_narration("m1_01_reason")
         elapsed = 0.0
 
-        equation = MathTex(r"3^2+4^2=5^2").scale(1.55)
+        words = TEXT["reason"]
+        equation = MathTex(words["equation"]).scale(1.55)
         opening_fade = []
         if self._opening_transition is not None:
             opening_fade.append(FadeOut(self._opening_transition))
@@ -620,7 +578,7 @@ class HaynesMovementOne(NarratedScene):
             arc_center=[3.4, -6.0, 0],
         )
         curved_word = text_along_curve(
-            "UNDERSTANDS",
+            words["understands"],
             understands_arc,
             font_size=32,
             start_alpha=0.0,
@@ -635,7 +593,7 @@ class HaynesMovementOne(NarratedScene):
         )
         elapsed += 2.6
 
-        imposed = Text("IMPOSED", weight=BOLD).scale(1.0).to_edge(DOWN)
+        imposed = Text(words["imposed"], weight=BOLD).scale(1.0).to_edge(DOWN)
         self.play(FadeIn(imposed, shift=2 * DOWN), run_time=0.8)
         self.play(
             imposed.animate.shift(0.25 * DOWN),
@@ -675,12 +633,15 @@ class HaynesMovementOne(NarratedScene):
         # so neither collides with the epicycloid inside.
         ring_r = 3.3
         cycle = ring(ring_r)
-        spans = {          # (start, end) as fractions of a full turn, CCW
-            "OBSERVE": (0.035, 0.165),
-            "EXPERIMENT": (0.300, 0.465),
-            "CONSTRUCT": (0.540, 0.700),
-            "REFLECT": (0.800, 0.935),
-        }
+        cycle_words = TEXT["inquiry"]["cycle"]
+        first, second, third, fourth = cycle_words
+        span_list = [      # (start, end) as fractions of a full turn, CCW
+            (0.035, 0.165),   # top right
+            (0.300, 0.465),   # top left
+            (0.540, 0.700),   # bottom left
+            (0.800, 0.935),   # bottom right
+        ]
+        spans = dict(zip(cycle_words, span_list))
         words, arcs = {}, {}
         for name, (a0, a1) in spans.items():
             top = 0.0 < (a0 + a1) / 2 < 0.5
@@ -696,11 +657,11 @@ class HaynesMovementOne(NarratedScene):
             self.play(Create(arcs[name]), write_along(words[name]), *others,
                       run_time=run_time)
 
-        reveal("OBSERVE")
+        reveal(first)
         elapsed += 1.7
 
         curve2 = epicycloid(R=R, r=R / 4)
-        reveal("EXPERIMENT", Transform(curve1, curve2), run_time=3.6)
+        reveal(second, Transform(curve1, curve2), run_time=3.6)
         elapsed += 3.6
 
         rays = VGroup(*[
@@ -708,13 +669,13 @@ class HaynesMovementOne(NarratedScene):
             for a in np.linspace(0.05, 0.95, 9)
         ])
         reveal(
-            "CONSTRUCT",
+            third,
             LaggedStart(*[Create(r) for r in rays], lag_ratio=0.08),
             run_time=2.4,
         )
         elapsed += 2.4
 
-        reveal("REFLECT")
+        reveal(fourth)
         elapsed += 1.7
 
         # "...and then another look": the whole cycle turns once more.
@@ -724,7 +685,7 @@ class HaynesMovementOne(NarratedScene):
             self.play(
                 Rotate(rays, angle=TAU / 5, about_point=ORIGIN),
                 Rotate(cycle_group, angle=TAU / 10, about_point=ORIGIN),
-                Indicate(words["OBSERVE"], scale_factor=1.12),
+                Indicate(words[first], scale_factor=1.12),
                 run_time=remaining,
                 rate_func=smooth,
             )
@@ -747,10 +708,11 @@ class HaynesMovementOne(NarratedScene):
         radius = ValueTracker(1.5)
         circle = always_redraw(lambda: Circle(radius=radius.get_value()))
         center = Dot()
-        const = Text("CONSTANT", font_size=30).next_to(center, DOWN, buff=0.35)
+        cv = TEXT["constant_variable"]
+        const = Text(cv["constant"], font_size=30).next_to(center, DOWN, buff=0.35)
         # VARIABLE rides the top of the circle with a fixed length, so it
         # bends tightly when the radius is small and flattens as it grows.
-        var = CurveText("VARIABLE", font_size=30)
+        var = CurveText(cv["variable"], font_size=30)
         var_length = 2.5
 
         def ride_circle(word):
@@ -784,10 +746,10 @@ class HaynesMovementOne(NarratedScene):
         var.clear_updaters()
         self.play(FadeOut(VGroup(circle, center, const, var)), run_time=0.8)
         learner = Dot(radius=0.16)
-        learner_word = Text("LEARNER", weight=BOLD, font_size=32).next_to(learner, DOWN)
+        learner_word = Text(cv["learner"], weight=BOLD, font_size=32).next_to(learner, DOWN)
         qualities = VGroup(*[
             Text(t, font_size=25)
-            for t in ("SCORE", "SPEED", "METHOD", "EXPERIENCE")
+            for t in cv["qualities"]
         ])
         orbit = ValueTracker(0.0)
         for q, angle in zip(qualities, np.linspace(0, TAU, 4, endpoint=False)):
@@ -854,7 +816,8 @@ class HaynesMovementOne(NarratedScene):
         )
         # RELATIONSHIPS is written along the graph just behind the moving
         # point: the word literally follows the dependence of y on x.
-        relation = CurveText("RELATIONSHIPS", font_size=34, weight=BOLD).place_on(
+        rel = TEXT["relationships"]
+        relation = CurveText(rel["relationship"], font_size=34, weight=BOLD).place_on(
             graph, 0.04, 0.96, normal_offset=0.26,
         )
         self.play(
@@ -865,7 +828,7 @@ class HaynesMovementOne(NarratedScene):
         )
         elapsed += 6.5
 
-        formula = MathTex(r"y=f(x)").to_corner(UR)
+        formula = MathTex(rel["formula"]).to_corner(UR)
         self.play(FadeIn(formula), run_time=1.0)
         elapsed += 1.0
 
@@ -876,17 +839,14 @@ class HaynesMovementOne(NarratedScene):
         )
         elapsed += 1.2
 
-        positions = {
-            "student": LEFT * 3,
-            "teacher": UP * 1.8,
-            "curriculum": RIGHT * 3,
-            "experience": DOWN * 1.8,
-        }
-        nodes = VGroup(*[Dot(p, radius=0.14) for p in positions.values()])
+        # Node labels come from the text file, in the order left, top,
+        # right, bottom.
+        node_places = (LEFT * 3, UP * 1.8, RIGHT * 3, DOWN * 1.8)
+        nodes = VGroup(*[Dot(p, radius=0.14) for p in node_places])
         labels = VGroup(*[
-            Text(name.upper(), font_size=24).next_to(dot_obj, direction)
-            for (name, _), dot_obj, direction in zip(
-                positions.items(), nodes, (LEFT, UP, RIGHT, DOWN)
+            Text(name, font_size=24).next_to(dot_obj, direction)
+            for name, dot_obj, direction in zip(
+                rel["nodes"], nodes, (LEFT, UP, RIGHT, DOWN)
             )
         ])
         edges = VGroup(
@@ -900,7 +860,7 @@ class HaynesMovementOne(NarratedScene):
         self.play(
             Transform(
                 relation,
-                Text("INTERDEPENDENCE", weight=BOLD, font_size=34).to_edge(UP),
+                Text(rel["interdependence"], weight=BOLD, font_size=34).to_edge(UP),
             ),
             Create(edges),
             FadeIn(nodes),
@@ -928,13 +888,13 @@ class HaynesMovementOne(NarratedScene):
         elapsed = 0.0
 
         p = Dot(radius=0.14)
-        zero = Text("0", font_size=28).next_to(p, DOWN)
+        zero = Text(TEXT["freedom"]["zero"], font_size=28).next_to(p, DOWN)
         self.play(FadeIn(p), FadeIn(zero), run_time=0.8)
         self.wait(0.5)
         elapsed += 1.3
 
         line = Line(LEFT * 5, RIGHT * 5)
-        one = Text("1 DEGREE OF FREEDOM", font_size=28).to_edge(UP)
+        one = Text(TEXT["freedom"]["one_degree"], font_size=28).to_edge(UP)
         self.play(Create(line), Transform(zero, one), run_time=1.3)
         self.play(p.animate.shift(4 * RIGHT), run_time=2.0)
         self.play(p.animate.shift(7 * LEFT), run_time=2.2)
@@ -945,13 +905,13 @@ class HaynesMovementOne(NarratedScene):
             y_range=[-3, 3, 1],
             background_line_style={"stroke_opacity": 0.25},
         )
-        two = Text("2 DEGREES OF FREEDOM", font_size=28).to_edge(UP)
+        two = Text(TEXT["freedom"]["two_degrees"], font_size=28).to_edge(UP)
         self.play(FadeOut(line), FadeIn(plane), Transform(zero, two), run_time=1.4)
         self.play(p.animate.move_to([3.5, 2.0, 0]), run_time=1.5)
         self.play(p.animate.move_to([-2.5, -1.5, 0]), run_time=1.5)
         elapsed += 4.4
 
-        possibilities = Text("MORE POSSIBILITIES", weight=BOLD, font_size=36)
+        possibilities = Text(TEXT["freedom"]["possibilities"], weight=BOLD, font_size=36)
         self.play(FadeIn(possibilities), run_time=1.0)
         self.play(possibilities.animate.scale(1.25), run_time=1.0)
         elapsed += 2.0
@@ -972,7 +932,7 @@ class HaynesMovementOne(NarratedScene):
         glow.set_fill(DOOR_LIGHT, opacity=0.0).set_stroke(opacity=0)
         glow.set_z_index(1)
         door = SwingingDoor(width=4.0, height=4.9, center=door_center,
-                            label="MATH", label_size=50)
+                            label=TEXT["freedom"]["door"], label_size=50)
 
         self.add(glow)
         self.play(Create(frame), FadeIn(door.mobjects), run_time=1.7)
@@ -1012,7 +972,7 @@ class HaynesMovementOne(NarratedScene):
         t = 0.0
 
         # 1. LIFE is printed in the doorway.
-        life = Text("LIFE", weight=BOLD, font_size=76).move_to(door_center)
+        life = Text(TEXT["freedom"]["life"], weight=BOLD, font_size=76).move_to(door_center)
         life.set_z_index(7)
         self.add(life)
         self.play(write_along(life, fade_width=0.6), run_time=1.2)
@@ -1031,7 +991,7 @@ class HaynesMovementOne(NarratedScene):
         t += 1.5
 
         # 3. LIFE expands and becomes OPPORTUNITY.
-        opportunity = Text("OPPORTUNITY", weight=BOLD, font_size=64).set_z_index(7)
+        opportunity = Text(TEXT["freedom"]["opportunity"], weight=BOLD, font_size=64).set_z_index(7)
         self.play(
             ReplacementTransform(life, opportunity, path_arc=-PI / 3),
             run_time=1.6,
@@ -1045,7 +1005,7 @@ class HaynesMovementOne(NarratedScene):
                 math.cos(TAU * (0.25 - u)), math.sin(TAU * (0.25 - u)), 0.0,
             ])
 
-        opp_ring = CurveText("OPPORTUNITY", font_size=46, weight=BOLD)
+        opp_ring = CurveText(TEXT["freedom"]["opportunity"], font_size=46, weight=BOLD)
         opp_ring.place_on(clockwise(2.1), -0.43, 0.43, normal_offset=0.0,
                           keep_upright=False)
         opp_ring.set_z_index(7)
@@ -1058,7 +1018,7 @@ class HaynesMovementOne(NarratedScene):
         t += 3.2
 
         # 5. The ring collapses to a point and FREEDOM bursts out of it.
-        freedom = Text("FREEDOM", weight=BOLD, font_size=84).set_z_index(7)
+        freedom = Text(TEXT["freedom"]["freedom"], weight=BOLD, font_size=84).set_z_index(7)
         self.play(
             opportunity.animate.scale(0.02).set_opacity(0),
             run_time=0.5,
@@ -1168,10 +1128,10 @@ class HaynesMovementOne(NarratedScene):
         board_center = np.array([(inner_left + inner_right) / 2,
                                  (y_of(496) + y_of(1214)) / 2, 0.0])
 
-        name = Text("Euphemia Lofton Haynes", font_size=50, weight=BOLD, color=CHALK)
-        subtitle = Text("Mathematics as an Open Door", font_size=34, color=CHALK,
-                        slant=ITALIC)
-        dates = Text("1890 \u2013 1980", font_size=24, color=CHALK)
+        card = TEXT["title_card"]
+        name = Text(card["name"], font_size=50, weight=BOLD, color=CHALK)
+        subtitle = Text(card["subtitle"], font_size=34, color=CHALK, slant=ITALIC)
+        dates = Text(card["dates"], font_size=24, color=CHALK)
         title = VGroup(name, subtitle).arrange(DOWN, buff=0.3)
         title.move_to(board_center + 0.55 * UP)
         if title.width > inner_right - inner_left - 0.6:
@@ -1240,7 +1200,7 @@ class HaynesMovementOne(NarratedScene):
 
         roll = VGroup()
         y = 0.0
-        for kind, text in CREDITS:
+        for kind, text in TEXT["credits"]:
             if not kind:
                 y -= 0.42
                 continue
@@ -1264,9 +1224,9 @@ class HaynesMovementOne(NarratedScene):
 
         # Closing words, centered in the space beside the portrait.
         quote = VGroup(*[
-            Text(line, font_size=40, slant=ITALIC, color=CHALK) for line in CLOSING_QUOTE
+            Text(line, font_size=40, slant=ITALIC, color=CHALK) for line in TEXT["closing_quote"]
         ]).arrange(DOWN, buff=0.22)
-        attribution = Text(CLOSING_ATTRIBUTION, font_size=24, color=CHALK)
+        attribution = Text(TEXT["closing_attribution"], font_size=24, color=CHALK)
         closing = VGroup(quote, attribution).arrange(DOWN, buff=0.5)
         closing.move_to([column_x, 0, 0])
         if closing.width > column_w:

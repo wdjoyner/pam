@@ -9,6 +9,8 @@ Outputs are written to ``haynes/audio/movement1`` together with an
 ``audio_manifest.json`` file containing measured durations.  The Manim scene
 reads that manifest at render time, so narration timing does not need to be
 hard-coded into the animation source.
+
+The narration text itself lives in ``haynes_movement1_text.json``.
 """
 
 from __future__ import annotations
@@ -23,40 +25,23 @@ from kokoro import KPipeline
 
 SAMPLE_RATE = 24000
 
-NARRATION = {
-    "m1_00_opening": (
-        "For Euphemia Haynes, mathematics was never merely a collection of calculations. "
-        "She wrote that mathematics is no more the art of reckoning and computation than "
-        "architecture is the art of making bricks, or painting the art of mixing colors. "
-        "The pieces matter. But mathematics begins when we discover the structure that joins them."
-    ),
-    "m1_01_reason": (
-        "A correct answer was not enough. Haynes wanted the student to discover why a statement is true. "
-        "She wrote: He understands it, he will retain it for it is his belief. It has not been imposed. "
-        "The difference is the difference between receiving an answer and constructing an idea for oneself."
-    ),
-    "m1_02_inquiry": (
-        "Her classroom ideal was active: observation, experimentation, construction, reflection, and then another look. "
-        "A mathematical object could be changed, tested, and examined from another direction. "
-        "Learning meant participating in the mathematical process rather than watching it from outside."
-    ),
-    "m1_03_constant_variable": (
-        "Haynes also used mathematical concepts as ways of thinking. Consider constant and variable. "
-        "Some features of a problem remain fixed while others change. "
-        "The important question is not simply what changed, but what the change allows us to see."
-    ),
-    "m1_04_relationships": (
-        "Mathematics is also a study of relationship and dependence. "
-        "Change one quantity and another responds. A function records that dependence. "
-        "The emphasis shifts from isolated facts toward connections, consequences, and structure."
-    ),
-    "m1_05_freedom": (
-        "And then there is dimension: the number of independent directions in which movement is possible. "
-        "A point has no freedom of motion. On a line it gains one direction. On a plane it gains another. "
-        "In space, possibility expands again. This gives us a visual metaphor for the larger promise of education: "
-        "knowledge can open paths that were previously closed. Mathematics can become an open door."
-    ),
-}
+TEXT_PATH = Path(__file__).resolve().parent / "haynes_movement1_text.json"
+
+
+def load_narration(path: Path = TEXT_PATH) -> dict[str, str]:
+    """Read the narration from the shared text file.
+
+    Each clip may be one string or a list of sentences; lists are joined
+    with single spaces.
+    """
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        clip_id: " ".join(text) if isinstance(text, list) else text
+        for clip_id, text in data["narration"].items()
+    }
+
+
+NARRATION = load_narration()
 
 
 def _audio_to_numpy(audio) -> np.ndarray:

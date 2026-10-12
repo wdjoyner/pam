@@ -5,6 +5,7 @@ It does not depend on PAM for its visuals.
 
 ## Files
 
+- `haynes_movement1_text.json` — **every word in the film**: the narration, all on-screen words, the title card and the credits. Edit text here; the two scripts below both read it.
 - `haynes_movement1.py` — Manim animation. It mixes narration into the MP4 with Manim `add_sound()`.
 - `generate_movement1_audio.py` — generates the narration WAV files with Kokoro and writes a duration manifest.
 - `assets/haynes_portrait_lineart.png` — public-domain line drawing of Haynes, converted to cream line art on a transparent background; used by the title card and the end credits.
@@ -70,4 +71,4 @@ manim -pqh haynes/haynes_movement1.py HaynesMovementOne
 - Both doors use `SwingingDoor`, a hinged panel with fake perspective. The final door reads MATH while closed and swings open to reveal LIFE.
 - `CurveText` lays a word along any curve (or any function `t -> point`), reading left to right; `write_along` reveals its letters in step with the curve being drawn; calling `place_on` from an updater lets a word ride a moving curve (VARIABLE on the changing circle).
 - Film order: title card → opening → five scenes → LIFE / OPPORTUNITY / FREEDOM finale → end credits.
-- The credits text lives in the `CREDITS` list near the top of `haynes_movement1.py`; edit it there.
+- To change wording, edit `haynes_movement1_text.json` only. If you change any `narration`, rerun `generate_movement1_audio.py`; the animation picks up the new clip lengths automatically.
