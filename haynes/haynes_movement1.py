@@ -340,6 +340,7 @@ class NarratedScene(Scene):
     def setup(self):
         super().setup()
         self._audio_manifest = self._load_audio_manifest()
+        self._clip_starts: dict[str, float] = {}
 
     def _load_audio_manifest(self) -> dict:
         if not MANIFEST_PATH.exists():
@@ -358,7 +359,39 @@ class NarratedScene(Scene):
         if not path.exists():
             raise FileNotFoundError(path)
         self.add_sound(str(path))
+        self._clip_starts[clip_id] = self.renderer.time
         return float(clip["duration"])
+
+    def quote_time(self, clip_id: str, starts_with: str) -> float | None:
+        """Seconds from the start of the film at which a quoted phrase is spoken.
+
+        Uses the per-sentence start times that generate_movement1_audio.py
+        records in the manifest; for older manifests without them, estimates
+        from the phrase's position in the clip's text. Returns None if the
+        clip hasn't played or the phrase isn't in its narration.
+        """
+        if clip_id not in self._clip_starts:
+            return None
+        clip = self._audio_manifest["clips"][clip_id]
+        needle = " ".join(starts_with.lower().split())
+
+        def find(haystack: str) -> int:
+            return " ".join(haystack.lower().split()).find(needle)
+
+        for i, seg in enumerate(clip.get("segments", [])):
+            at = find(seg["text"])
+            if at >= 0:
+                seg_end = (clip["segments"][i + 1]["start"]
+                           if i + 1 < len(clip["segments"]) else clip["duration"])
+                frac = at / max(len(seg["text"]), 1)
+                return self._clip_starts[clip_id] + seg["start"] + frac * (seg_end - seg["start"])
+
+        text = " ".join(TEXT["narration"][clip_id]) if isinstance(
+            TEXT["narration"][clip_id], list) else TEXT["narration"][clip_id]
+        at = find(text)
+        if at < 0:
+            return None
+        return self._clip_starts[clip_id] + clip["duration"] * at / max(len(text), 1)
 
     def finish_narration(
         self,
@@ -1198,20 +1231,45 @@ class HaynesMovementOne(NarratedScene):
         column_x = portrait.get_right()[0] + (config.frame_width / 2 - portrait.get_right()[0]) / 2
         column_w = config.frame_width / 2 - portrait.get_right()[0] - 0.6
 
+        def wrapped(text, kind):
+            """Break genuinely long text into lines that fit the credits column.
+
+            A line only slightly too wide is kept whole and shrunk to fit.
+            """
+            if Text(text, **styles[kind]).width <= 1.3 * column_w:
+                return [text]
+            lines, current = [], ""
+            for word in text.split():
+                trial = f"{current} {word}".strip()
+                if current and Text(trial, **styles[kind]).width > column_w:
+                    lines.append(current)
+                    current = word
+                else:
+                    current = trial
+            return lines + ([current] if current else [])
+
+        entries = []
+        for kind, text in TEXT["credits"]:
+            if kind == "quotations":
+                entries.extend(self._quotation_credits())
+            else:
+                entries.append((kind, text))
+
         roll = VGroup()
         y = 0.0
-        for kind, text in TEXT["credits"]:
+        for kind, text in entries:
             if not kind:
                 y -= 0.42
                 continue
-            line = Text(text, color=CHALK, **styles[kind])
-            if line.width > column_w:
-                line.scale_to_fit_width(column_w)
             if kind == "h":
                 y -= 0.18
-            line.move_to([column_x, y - line.height / 2, 0])
-            y -= line.height + 0.16
-            roll.add(line)
+            for piece in wrapped(text, kind):
+                line = Text(piece, color=CHALK, **styles[kind])
+                if line.width > column_w:
+                    line.scale_to_fit_width(column_w)
+                line.move_to([column_x, y - line.height / 2, 0])
+                y -= line.height + 0.16
+                roll.add(line)
 
         # Start just below the frame and roll until the last line is gone.
         roll.shift((-config.frame_height / 2 - 0.3 - roll.get_top()[1]) * UP)
@@ -1237,4 +1295,23 @@ class HaynesMovementOne(NarratedScene):
         self.wait(3.5)
         self.play(FadeOut(Group(portrait, closing)), run_time=2.0)
         self.wait(0.5)
+
+    def _quotation_credits(self) -> list[tuple[str, str]]:
+        """Credit lines naming the source and time stamp of each quotation."""
+        q = TEXT.get("quotations")
+        if not q:
+            return []
+        lines = [("h", q.get("heading", "Quotations"))]
+        for item in q["items"]:
+            seconds = self.quote_time(item["clip"], item["starts_with"])
+            if seconds is None:
+                stamp = "--:--:--"
+            else:
+                whole = int(round(seconds))
+                stamp = f"{whole // 3600:02d}:{whole % 3600 // 60:02d}:{whole % 60:02d}"
+            lines.append(("s", q["template"].format(
+                time=stamp, excerpt=item.get("excerpt", ""), source=item.get("source", ""),
+            )))
+            lines.append(("", ""))
+        return lines[:-1]
 

@@ -4,7 +4,8 @@
     "Edit text here; haynes_movement1.py and generate_movement1_audio.py both read this file.",
     "After changing any 'narration', rerun generate_movement1_audio.py to rebuild the audio.",
     "Narration may be one string or a list of sentences (they are joined with spaces).",
-    "Credit line kinds: b = bold, h = small italic heading, t = text, s = small text, \"\" = blank gap."
+    "Credit line kinds: b = bold, h = small italic heading, t = text, s = small text, \"\" = blank gap.",
+    "The line [\"quotations\", \"\"] in credits marks where the quotation sources (below) are listed, with time stamps filled in at render time."
   ],
   "narration": {
     "m1_00_opening": [
@@ -189,6 +190,14 @@
       ""
     ],
     [
+      "quotations",
+      ""
+    ],
+    [
+      "",
+      ""
+    ],
+    [
       "h",
       "Sources"
     ],
@@ -226,11 +235,7 @@
     ],
     [
       "t",
-      "Edray Goins  ·  John Stigall"
-    ],
-    [
-      "t",
-      "Nathan Alexander  ·  Susan Kelly"
+      "John Stigall"
     ],
     [
       "s",
@@ -270,5 +275,27 @@
     "we will do more than that,",
     "we will inspire."
   ],
-  "closing_attribution": "— Euphemia Lofton Haynes, 1945"
+  "closing_attribution": "— Euphemia Lofton Haynes, 1945",
+  "quotations": {
+    "_note": [
+      "Each item names the narration clip and the opening words of the quote exactly as they appear in that clip's narration.",
+      "{time} is filled in at render time (hh:mm:ss, from the start of the film); {excerpt} and {source} come from the item."
+    ],
+    "heading": "Quotations",
+    "template": "Haynes’ quote “{excerpt}” (around {time}) is from {source}.",
+    "items": [
+      {
+        "clip": "m1_00_opening",
+        "starts_with": "mathematics is no more the art of reckoning",
+        "excerpt": "…no more the art of reckoning and computation…",
+        "source": "her address “Mathematics — Symbolic Logic” to teachers of mathematics in junior and senior high schools, Washington, D.C., 1945"
+      },
+      {
+        "clip": "m1_01_reason",
+        "starts_with": "He understands it",
+        "excerpt": "He understands it, he will retain it…",
+        "source": "the same 1945 address"
+      }
+    ]
+  }
 }

@@ -54,15 +54,34 @@ def _audio_to_numpy(audio) -> np.ndarray:
     return np.asarray(audio, dtype=np.float32).reshape(-1)
 
 
-def synthesize(pipeline: KPipeline, text: str, voice: str, speed: float) -> np.ndarray:
+def synthesize(
+    pipeline: KPipeline, text: str, voice: str, speed: float,
+) -> tuple[np.ndarray, list[dict]]:
+    """Return the clip's audio and where each spoken segment starts.
+
+    Kokoro speaks long text in segments (roughly sentences). The start time
+    of each segment, in seconds from the start of the clip, is recorded so
+    the end credits can give accurate time stamps for quotations.
+    """
     chunks: list[np.ndarray] = []
+    segments: list[dict] = []
+    position = 0
     for result in pipeline(text, voice=voice, speed=speed):
         audio = result.audio if hasattr(result, "audio") else result[2]
+        spoken = getattr(result, "graphemes", None)
+        if spoken is None and isinstance(result, tuple):
+            spoken = result[0]
         if audio is not None:
-            chunks.append(_audio_to_numpy(audio))
+            samples = _audio_to_numpy(audio)
+            segments.append({
+                "start": round(position / SAMPLE_RATE, 3),
+                "text": str(spoken or ""),
+            })
+            chunks.append(samples)
+            position += len(samples)
     if not chunks:
         raise RuntimeError("Kokoro returned no audio.")
-    return np.concatenate(chunks)
+    return np.concatenate(chunks), segments
 
 
 def main() -> None:
@@ -88,7 +107,7 @@ def main() -> None:
 
     for clip_id, text in NARRATION.items():
         print(f"Synthesizing {clip_id}...")
-        audio = synthesize(pipeline, text, args.voice, args.speed)
+        audio, segments = synthesize(pipeline, text, args.voice, args.speed)
         wav_path = audio_dir / f"{clip_id}.wav"
         sf.write(wav_path, audio, SAMPLE_RATE, subtype="PCM_16")
         duration = len(audio) / SAMPLE_RATE
@@ -96,6 +115,7 @@ def main() -> None:
             "file": wav_path.name,
             "duration": round(duration, 3),
             "text": text,
+            "segments": segments,
         }
         print(f"  {wav_path.relative_to(here)} ({duration:.3f} s)")
 
