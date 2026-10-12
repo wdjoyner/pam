@@ -43,6 +43,13 @@ Quick start
     gov.fade_out(self)
 """
 
+# Depth/z-order constants used by pam_player.py (documented in the
+# v0.9.23 reference book).  Keep these at package scope so callers may
+# import them via ``from pam import ...``.
+DEPTH_Z_BACKGROUND = -1000
+DEPTH_Z_BUBBLE = 1000
+DEPTH_ATTACH_Z_STEP = 0.001
+
 from .poses import (                      # noqa: F401 — public API
     # constants
     JOINTS, EDGES,
