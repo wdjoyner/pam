@@ -88,6 +88,17 @@ def text_along_curve(
         raise ValueError("end_alpha must be greater than start_alpha")
 
     alphas, points, lengths = _arc_length_lookup(curve, start_alpha, end_alpha)
+
+    # If the chosen stretch of curve runs right-to-left on screen (e.g. the
+    # top of a counterclockwise circle), walking it in the curve's own
+    # direction would lay the word down backwards ("SDNATSREDNU"). Walk it
+    # the other way instead so the word always reads left to right.
+    if keep_upright and points[-1][0] < points[0][0]:
+        alphas = alphas[::-1]
+        points = points[::-1]
+        lengths = np.zeros(len(points))
+        lengths[1:] = np.cumsum(np.linalg.norm(np.diff(points, axis=0), axis=1))
+
     total_length = float(lengths[-1])
     if total_length <= 1e-9:
         return VGroup()
@@ -119,7 +130,9 @@ def text_along_curve(
             elif angle < -PI / 2:
                 angle += PI
 
-        normal = np.array([-tangent[1], tangent[0], 0.0])
+        # Offset along the glyph's own "up" so letters always sit above the
+        # curve as read, even where a single glyph had to be flipped.
+        normal = np.array([-math.sin(angle), math.cos(angle), 0.0])
         glyph = Text(ch, font_size=font_size)
         glyph.rotate(angle)
         glyph.move_to(p + normal_offset * normal)
@@ -167,11 +180,91 @@ def epicycloid(R: float = 2.2, r: float = 0.62, shift=ORIGIN) -> ParametricFunct
     return ParametricFunction(f, t_range=[0, TAU], stroke_width=4)
 
 
+DOOR_FILL = "#2b3242"
+DOOR_LIGHT = "#f3d58a"
+DOOR_OPEN_ANGLE = 105 * DEGREES
+
+
+class SwingingDoor:
+    """A flat door hinged on its left edge that swings open toward the viewer.
+
+    ``self.opening`` is a ValueTracker for the swing angle (0 = closed,
+    105 degrees = swung out past the frame so the doorway is fully clear). The free edge moves toward the hinge as
+    ``cos(angle)`` and grows slightly taller as it comes toward the camera,
+    which reads as perspective without needing a 3-D camera. Any ``label``
+    is painted on the door: it foreshortens with the door and dims as the
+    door turns edge-on, so it never floats in the doorway.
+    """
+
+    PERSPECTIVE = 0.16
+
+    def __init__(self, width: float, height: float, center=ORIGIN, label: str | None = None,
+                 label_size: float = 58):
+        self.width = width
+        self.height = height
+        self.center = np.asarray(center, dtype=float)
+        self.hinge_x = self.center[0] - width / 2
+        self.opening = ValueTracker(0.0)
+        self._label_template = (
+            Text(label, weight=BOLD, font_size=label_size) if label else None
+        )
+
+        self.panel = always_redraw(self._make_panel)
+        self.panel.set_z_index(3)
+        self.handle = always_redraw(self._make_handle)
+        self.handle.set_z_index(5)
+        self.label = always_redraw(self._make_label) if label else VMobject()
+        self.label.set_z_index(4)
+
+    def _geometry(self):
+        theta = self.opening.get_value()
+        c, s = math.cos(theta), math.sin(theta)
+        free_x = self.hinge_x + self.width * c
+        half_h = self.height / 2
+        free_half_h = half_h * (1 + self.PERSPECTIVE * s)
+        return c, s, free_x, half_h, free_half_h
+
+    def _make_panel(self):
+        _, _, free_x, half_h, free_half_h = self._geometry()
+        cy = self.center[1]
+        return Polygon(
+            [self.hinge_x, cy + half_h, 0],
+            [free_x, cy + free_half_h, 0],
+            [free_x, cy - free_half_h, 0],
+            [self.hinge_x, cy - half_h, 0],
+        ).set_fill(DOOR_FILL, opacity=1.0).set_stroke(WHITE, width=3)
+
+    def _make_handle(self):
+        c, _, free_x, _, _ = self._geometry()
+        # Past 90 degrees the door has swung beyond the frame; the handle
+        # stays on the free edge's inner side either way.
+        inset = 0.30 * c if abs(c) > 0.05 else 0.015 * np.sign(c or 1)
+        return Dot(radius=0.09).move_to([free_x - inset, self.center[1], 0])
+
+    def _make_label(self):
+        c, s, free_x, _, _ = self._geometry()
+        label = self._label_template.copy()
+        label.stretch(max(c, 0.02), dim=0)
+        label.stretch(1 + 0.5 * self.PERSPECTIVE * s, dim=1)
+        label.move_to([(self.hinge_x + free_x) / 2, self.center[1], 0])
+        label.set_opacity(max(0.0, min(1.0, 1.4 * c - 0.2)))
+        return label
+
+    @property
+    def mobjects(self) -> VGroup:
+        return VGroup(self.panel, self.label, self.handle)
+
+    def freeze(self):
+        """Stop the redraw updaters (e.g. once the door has finished moving)."""
+        for m in self.mobjects:
+            m.clear_updaters()
+
+
 # ---------------------------------------------------------------------------
 # Narrated scene base
 # ---------------------------------------------------------------------------
 
-class NarratedThreeDScene(ThreeDScene):
+class NarratedScene(Scene):
     def setup(self):
         super().setup()
         self._audio_manifest = self._load_audio_manifest()
@@ -214,7 +307,7 @@ class NarratedThreeDScene(ThreeDScene):
 # Main film
 # ---------------------------------------------------------------------------
 
-class HaynesMovementOne(NarratedThreeDScene):
+class HaynesMovementOne(NarratedScene):
     """Movement I — Haynes's philosophy of teaching mathematics."""
 
     def construct(self):
@@ -303,31 +396,30 @@ class HaynesMovementOne(NarratedThreeDScene):
         self.play(Transform(circle, door_frame), run_time=1.8)
         elapsed += 1.8
 
-        panel = Rectangle(width=4.8, height=5.2).move_to(door_frame)
-        knob = Dot(radius=0.08).move_to(panel.get_right() + 0.30 * LEFT)
-        doorway_glow = Rectangle(width=4.7, height=5.1)
-        doorway_glow.set_fill(opacity=0.16).set_stroke(opacity=0)
+        door = SwingingDoor(width=4.8, height=5.2, center=door_frame.get_center())
+        doorway_glow = Rectangle(width=4.8, height=5.2).move_to(door_frame)
+        doorway_glow.set_fill(DOOR_LIGHT, opacity=0.16).set_stroke(opacity=0)
+        doorway_glow.set_z_index(1)
         self.add(doorway_glow)
-        self.bring_to_back(doorway_glow)
 
         self.play(
             FadeOut(title, shift=0.16 * UP),
-            FadeIn(panel),
-            FadeIn(knob),
+            FadeIn(door.mobjects),
             run_time=1.0,
         )
         elapsed += 1.0
 
         self.play(
-            panel.animate.stretch(0.14, dim=0, about_edge=LEFT),
-            knob.animate.move_to(door_frame.get_left() + 0.20 * RIGHT),
-            doorway_glow.animate.set_fill(opacity=0.30),
+            door.opening.animate.set_value(DOOR_OPEN_ANGLE),
+            doorway_glow.animate.set_fill(opacity=0.32),
             run_time=2.0,
+            rate_func=smooth,
         )
+        door.freeze()
         elapsed += 2.0
 
         self.finish_narration(dur, elapsed, minimum_pause=0.1)
-        self._opening_transition = VGroup(circle, panel, knob, doorway_glow)
+        self._opening_transition = VGroup(circle, door.mobjects, doorway_glow)
 
     # ------------------------------------------------------------------
     # Scene 1: a correct answer is not the same as understanding
@@ -352,14 +444,19 @@ class HaynesMovementOne(NarratedThreeDScene):
         self.play(FadeOut(check), equation.animate.to_edge(UP), run_time=1.2)
         elapsed += 1.2
 
-        A = np.array([-2.6, -1.8, 0.0])
-        B = np.array([1.4, -1.8, 0.0])
-        C = np.array([1.4, 1.2, 0.0])
+        # A 3-4-5 triangle with its three squares spans 7 units vertically
+        # at unit scale; s = 0.48 keeps the whole figure below the equation.
+        s = 0.55
+        fig_shift = np.array([-1.2, -0.35, 0.0])
+        A = s * np.array([-2.0, -1.5, 0.0]) + fig_shift
+        B = s * np.array([2.0, -1.5, 0.0]) + fig_shift
+        C = s * np.array([2.0, 1.5, 0.0]) + fig_shift
         tri = Polygon(A, B, C)
         labels = VGroup(
-            MathTex("4").next_to(Line(A, B), DOWN),
-            MathTex("3").next_to(Line(B, C), RIGHT),
-            MathTex("5").move_to((A + C) / 2 + np.array([-0.35, 0.2, 0])),
+            # Inside the triangle, each near the side it names.
+            MathTex("4").scale(0.7).move_to(B + np.array([-0.45, 0.17, 0])),
+            MathTex("3").scale(0.7).move_to((B + C) / 2 + np.array([-0.2, 0.25, 0])),
+            MathTex("5").scale(0.7).move_to((A + C) / 2 + np.array([0.14, -0.18, 0])),
         )
         self.play(
             Create(tri),
@@ -379,9 +476,9 @@ class HaynesMovementOne(NarratedThreeDScene):
         elapsed += 3.4
 
         areas = VGroup(
-            MathTex("16").move_to(sq4.get_center()),
-            MathTex("9").move_to(sq3.get_center()),
-            MathTex("25").move_to(sq5.get_center()),
+            MathTex("16").scale(0.85).move_to(sq4.get_center()),
+            MathTex("9").scale(0.85).move_to(sq3.get_center()),
+            MathTex("25").scale(0.85).move_to(sq5.get_center()),
         )
         self.play(
             LaggedStart(*[FadeIn(a, scale=0.7) for a in areas], lag_ratio=0.22),
@@ -391,14 +488,20 @@ class HaynesMovementOne(NarratedThreeDScene):
         self.play(Indicate(areas[2]), run_time=1.0)
         elapsed += 3.8
 
-        circum = Circle(radius=3.0).move_to([-0.6, -0.25, 0])
+        # A gentle arc in the open space to the right of the figure.
+        understands_arc = Arc(
+            radius=7.0,
+            start_angle=72 * DEGREES,
+            angle=33 * DEGREES,
+            arc_center=[3.4, -6.0, 0],
+        )
         curved_word = text_along_curve(
             "UNDERSTANDS",
-            circum,
-            font_size=28,
-            start_alpha=0.08,
-            end_alpha=0.40,
-            normal_offset=0.22,
+            understands_arc,
+            font_size=32,
+            start_alpha=0.0,
+            end_alpha=1.0,
+            normal_offset=0.0,
         )
         self.play(
             LaggedStart(*[FadeIn(g) for g in curved_word], lag_ratio=0.10),
@@ -430,19 +533,23 @@ class HaynesMovementOne(NarratedThreeDScene):
         dur = self.start_narration("m1_02_inquiry")
         elapsed = 0.0
 
-        curve1 = epicycloid(R=2.25, r=0.65)
-        base = Circle(radius=2.25).set_stroke(opacity=0.35)
+        # R/r an integer closes the curve (3 cusps, then 4 cusps), and
+        # R + 2r <= 3.0 keeps both shapes inside the frame.
+        R = 1.8
+        curve1 = epicycloid(R=R, r=R / 3)
+        base = Circle(radius=R).set_stroke(opacity=0.35)
+        word_ring = Circle(radius=3.25)
         self.play(Create(base), run_time=1.0)
         self.play(Create(curve1), run_time=5.2, rate_func=linear)
         elapsed += 6.2
 
         observe = text_along_curve(
             "OBSERVE",
-            curve1,
-            font_size=26,
-            start_alpha=0.03,
-            end_alpha=0.20,
-            normal_offset=0.20,
+            word_ring,
+            font_size=28,
+            start_alpha=0.04,
+            end_alpha=0.17,
+            normal_offset=0.0,
         )
         self.play(
             LaggedStart(*[FadeIn(g) for g in observe], lag_ratio=0.12),
@@ -450,7 +557,7 @@ class HaynesMovementOne(NarratedThreeDScene):
         )
         elapsed += 1.7
 
-        curve2 = epicycloid(R=2.25, r=0.92)
+        curve2 = epicycloid(R=R, r=R / 4)
         experiment = Text("EXPERIMENT", weight=BOLD).scale(0.65).to_corner(UR)
         self.play(FadeIn(experiment), Transform(curve1, curve2), run_time=3.6)
         elapsed += 3.6
@@ -469,11 +576,11 @@ class HaynesMovementOne(NarratedThreeDScene):
 
         reflect = text_along_curve(
             "REFLECT",
-            curve1,
-            font_size=26,
-            start_alpha=0.58,
-            end_alpha=0.80,
-            normal_offset=0.20,
+            word_ring,
+            font_size=28,
+            start_alpha=0.54,
+            end_alpha=0.67,
+            normal_offset=0.0,
         )
         self.play(
             LaggedStart(*[FadeIn(g) for g in reflect], lag_ratio=0.12),
@@ -533,18 +640,30 @@ class HaynesMovementOne(NarratedThreeDScene):
             Text(t, font_size=25)
             for t in ("SCORE", "SPEED", "METHOD", "EXPERIENCE")
         ])
+        orbit = ValueTracker(0.0)
         for q, angle in zip(qualities, np.linspace(0, TAU, 4, endpoint=False)):
-            q.move_to(2.4 * np.array([np.cos(angle), np.sin(angle), 0]))
+            # Orbit the learner while staying upright and readable.
+            q.add_updater(
+                lambda m, a=angle: m.move_to(
+                    2.4 * np.array([
+                        np.cos(a + orbit.get_value()),
+                        np.sin(a + orbit.get_value()),
+                        0,
+                    ])
+                )
+            )
         self.play(
             FadeIn(learner),
             FadeIn(learner_word),
             LaggedStart(*[FadeIn(q) for q in qualities], lag_ratio=0.15),
             run_time=2.0,
         )
-        self.play(Rotate(qualities, angle=PI / 2, about_point=ORIGIN), run_time=2.8)
+        self.play(orbit.animate.set_value(PI / 2), run_time=2.8)
         elapsed += 5.6
 
         self.finish_narration(dur, elapsed)
+        for q in qualities:
+            q.clear_updaters()
         self.play(FadeOut(VGroup(learner, learner_word, qualities)), run_time=0.8)
 
     # ------------------------------------------------------------------
@@ -686,37 +805,39 @@ class HaynesMovementOne(NarratedThreeDScene):
         )
         elapsed += 1.0
 
+        # The door reads MATH while closed. LIFE is painted on the far wall,
+        # beneath the opaque door, and is only seen once the door swings open.
+        door_center = np.array([0.0, -0.55, 0.0])
         frame = RoundedRectangle(width=4.3, height=5.2, corner_radius=0.08)
-        glow = Rectangle(width=4.0, height=4.9)
-        glow.set_fill(opacity=0.24).set_stroke(opacity=0)
-        life_text = Text("LIFE", weight=BOLD, font_size=72).move_to(glow)
-        subtext = Text("OPPORTUNITY  •  FREEDOM", font_size=24)
+        frame.move_to(door_center).set_z_index(6)
+        glow = Rectangle(width=4.0, height=4.9).move_to(door_center)
+        glow.set_fill(DOOR_LIGHT, opacity=0.0).set_stroke(opacity=0)
+        glow.set_z_index(1)
+        life_text = Text("LIFE", weight=BOLD, font_size=72).move_to(door_center)
+        life_text.set_z_index(2)
+        subtext = Text("OPPORTUNITY  •  FREEDOM", font_size=22)
         subtext.next_to(life_text, DOWN, buff=0.38)
+        if subtext.width > 3.6:
+            subtext.scale_to_fit_width(3.6)
+        subtext.set_z_index(2)
 
-        panel = Rectangle(width=4.0, height=4.9).move_to(frame)
-        math_text = Text("MATH", weight=BOLD, font_size=58).move_to(panel)
-        handle = Dot(radius=0.09).move_to(panel.get_right() + 0.28 * LEFT)
+        door = SwingingDoor(width=4.0, height=4.9, center=door_center, label="MATH", label_size=50)
 
+        # Everything behind the door is in place before the door appears,
+        # but the opaque door (z-index 3+) hides it completely.
         self.add(glow, life_text, subtext)
-        self.bring_to_back(glow, life_text, subtext)
-        self.play(
-            Create(frame),
-            FadeIn(panel),
-            FadeIn(math_text),
-            FadeIn(handle),
-            run_time=1.7,
-        )
+        self.play(Create(frame), FadeIn(door.mobjects), run_time=1.7)
         elapsed += 1.7
         self.wait(0.7)
         elapsed += 0.7
 
         self.play(
-            panel.animate.stretch(0.08, dim=0, about_edge=LEFT),
-            handle.animate.move_to(frame.get_left() + 0.18 * RIGHT),
-            FadeOut(math_text, shift=0.35 * LEFT),
+            door.opening.animate.set_value(DOOR_OPEN_ANGLE),
             glow.animate.set_fill(opacity=0.38),
             run_time=3.0,
+            rate_func=smooth,
         )
+        door.freeze()
         elapsed += 3.0
 
         self.play(Indicate(life_text, scale_factor=1.10), run_time=1.2)
