@@ -249,6 +249,199 @@ def build_floral_arrangement(name: str, x=0.0, y=0.0,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  POTTED PLANT  (floor-standing — pot + soil rim + broad leaves)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  Side-view schematic (default sizing):
+#
+#        /|  |\          ← outer leaves (broad ellipses, ±40° from vertical)
+#       / |  | \
+#      /  |  |  \
+#         |  |           ← inner leaf pair (narrower, more upright ±18°)
+#         |  |
+#      ┌──────────┐      ← soil rim (thin dark ellipse strip)
+#      │          │      ← pot body (trapezoid: wider at top than base)
+#      └──────────┘
+#
+#  Attachment points:
+#      "floor"    — centre of pot base (world anchor)
+#      "rim"      — top centre of the soil rim (place things here)
+#      "surface"  — alias for "rim"
+#      "top"      — topmost point of the tallest leaf
+#
+#  Tipping / falling animation is handled externally by pam_player via
+#  a Rotate animation on the returned VGroup; the group's rotation origin
+#  is the "floor" attachment point.
+
+def build_potted_plant(name: str, x=0.0, y=-2.6,
+                       pot_width=0.55, pot_height=0.40,
+                       leaf_spread=0.70, leaf_height=0.90,
+                       pot_color=None, soil_color=None,
+                       leaf_color=None, leaf_count=5,
+                       label=None,
+                       parent=None, attach=None, attrs=None,
+                       prop_registry=None, **kwargs) -> VGroup:
+    """Build a floor-standing potted plant with broad decorative leaves.
+
+    Parameters
+    ----------
+    name         : registry name.
+    x, y         : position of the pot base centre.  Default ``(0.0, -2.6)``.
+    pot_width    : width of the pot at its widest (top) edge.
+                   Default ``0.55``.
+    pot_height   : height of the pot body (excluding soil rim).
+                   Default ``0.40``.
+    leaf_spread  : total horizontal span of the outermost leaves (tip to tip).
+                   Default ``0.70``.
+    leaf_height  : height of the tallest leaf above the soil rim.
+                   Default ``0.90``.
+    pot_color    : fill color of the pot body.  Default terracotta
+                   ``"#c8603a"``.
+    soil_color   : fill color of the soil rim strip.  Default dark brown
+                   ``"#3a2a1a"``.
+    leaf_color   : fill color of all leaves.  Default medium green
+                   ``"#3a8a3a"``.  A slightly lighter highlight is derived
+                   automatically for the inner leaf pair.
+    leaf_count   : total number of leaves (minimum 3, maximum 8).
+                   Leaves are distributed symmetrically about the centre
+                   axis.  Default ``5``.
+    label        : optional string rendered as a small label above the
+                   topmost leaf tip.
+    parent       : name of a parent prop or character node, or ``None``.
+    attach       : named attachment point on the parent.
+    attrs        : dict of visual overrides — ``"scale"``, ``"inclination"``.
+    prop_registry : live prop dict, needed when *parent* is set.
+    """
+    _node_stub = {"name": name, "kind": "potted_plant",
+                  "parent": parent, "attach": attach,
+                  "attrs": attrs or {}, "x": x, "y": y}
+    if parent and prop_registry:
+        pos = resolve_position(_node_stub, prop_registry)
+        x, y = float(pos[0]), float(pos[1])
+
+    pc  = pot_color  or "#c8603a"   # terracotta
+    sc  = soil_color or "#3a2a1a"   # dark soil
+    lc  = leaf_color or "#3a8a3a"   # medium green
+    sw  = PROP_DEFAULTS["stroke_width"]
+
+    # clamp leaf_count
+    leaf_count = max(3, min(8, leaf_count))
+
+    parts = []
+
+    # ── pot body ────────────────────────────────────────────────────────────
+    # Trapezoid: wider at the top rim, narrower at the base.
+    # Built from a Polygon: base_w = pot_width * 0.70, top_w = pot_width.
+    base_w = pot_width * 0.70
+    top_w  = pot_width
+    pot_top_y    = y + pot_height
+    pot_base_y   = y
+
+    pot_body = Polygon(
+        np.array([x - base_w / 2, pot_base_y, 0]),
+        np.array([x + base_w / 2, pot_base_y, 0]),
+        np.array([x + top_w  / 2, pot_top_y,  0]),
+        np.array([x - top_w  / 2, pot_top_y,  0]),
+        color=pc, fill_color=pc, fill_opacity=1.0,
+        stroke_width=sw,
+    )
+    parts.append(pot_body)
+
+    # ── soil rim ─────────────────────────────────────────────────────────────
+    # Thin ellipse strip sitting on top of the pot.
+    rim_h   = pot_height * 0.12
+    rim_y   = pot_top_y + rim_h / 2
+    soil_rim = Ellipse(
+        width=top_w, height=rim_h,
+        color=sc, fill_color=sc, fill_opacity=1.0,
+        stroke_width=0.5,
+    ).move_to(np.array([x, rim_y, 0]))
+    parts.append(soil_rim)
+
+    soil_top_y = pot_top_y + rim_h   # where leaves emerge from
+
+    # ── leaves ───────────────────────────────────────────────────────────────
+    # Leaves are broad ellipses anchored at the soil surface, fanning outward.
+    # Angles are distributed symmetrically; the centre leaf (if leaf_count is
+    # odd) points straight up.  Each leaf pivots around its base point.
+    #
+    # Leaf dimensions scale with leaf_spread and leaf_height:
+    #   leaf_w (ellipse minor axis) = leaf_spread / leaf_count * 0.90
+    #   leaf_h (ellipse major axis) = leaf_height * (1.0 - 0.15 * |angle_frac|)
+    #     → outer leaves are slightly shorter than the centre leaf.
+
+    # derive highlight color (10 % lighter) for inner leaves
+    def _lighten(hex_color: str, factor: float = 0.15) -> str:
+        h = hex_color.lstrip("#")
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        r = min(255, int(r + (255 - r) * factor))
+        g = min(255, int(g + (255 - g) * factor))
+        b = min(255, int(b + (255 - b) * factor))
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    lc_inner = _lighten(lc, 0.18)
+
+    # angular spread: outermost leaves at ±max_angle from vertical
+    max_angle_deg = 42.0
+    if leaf_count == 1:
+        angles_deg = [0.0]
+    else:
+        angles_deg = [
+            -max_angle_deg + i * (2 * max_angle_deg / (leaf_count - 1))
+            for i in range(leaf_count)
+        ]
+
+    leaf_w_base = (leaf_spread / leaf_count) * 0.95
+
+    for ang_deg in angles_deg:
+        ang_rad    = np.radians(ang_deg)
+        angle_frac = abs(ang_deg) / max_angle_deg   # 0 = centre, 1 = outer
+
+        l_h = leaf_height * (1.0 - 0.18 * angle_frac)
+        l_w = leaf_w_base * (1.0 + 0.12 * (1.0 - angle_frac))  # inner slightly wider
+
+        # leaf centre in upright (unrotated) position: half-height above base
+        leaf_cx = x
+        leaf_cy = soil_top_y + l_h / 2
+
+        fill = lc_inner if angle_frac < 0.35 else lc
+
+        leaf = Ellipse(
+            width=l_w, height=l_h,
+            color=fill, fill_color=fill, fill_opacity=0.92,
+            stroke_color=_lighten(lc, 0.05), stroke_width=0.7,
+        ).move_to(np.array([leaf_cx, leaf_cy, 0]))
+
+        # rotate around the leaf base point (soil surface)
+        base_pt = np.array([x, soil_top_y, 0])
+        leaf.rotate(ang_rad, about_point=base_pt)
+        parts.append(leaf)
+
+    # top of tallest leaf (centre leaf, unrotated)
+    top_y = soil_top_y + leaf_height
+
+    # ── optional label ────────────────────────────────────────────────────────
+    if label:
+        lbl = _make_label(label, x, top_y + 0.15, color=lc)
+        parts.append(lbl)
+
+    group = VGroup(*parts)
+    _apply_attrs(group, attrs or {})
+
+    return _attach_pam_attrs(
+        group, name, "potted_plant", x, y,
+        surface_y=top_y,
+        attachments={
+            "floor":   np.array([x, pot_base_y,  0]),
+            "rim":     np.array([x, soil_top_y,  0]),
+            "surface": np.array([x, soil_top_y,  0]),
+            "top":     np.array([x, top_y,        0]),
+        },
+        parent=parent, attach=attach, attrs=attrs,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  POCKET DOOR  (sliding panels — animated open / close)
 # ─────────────────────────────────────────────────────────────────────────────
 #
