@@ -82,6 +82,8 @@ from .figure import (                     # noqa: F401
     AlienGraph,
     DogGraph,
     GovernorGraph,
+    # v0.9.23 (backburner items 10-11, 2.5D depth system)
+    apply_depth_z, DEPTH_Z_BACKGROUND, DEPTH_Z_BUBBLE, DEPTH_ATTACH_Z_STEP,
 )
 
 from .props import (                      # noqa: F401
