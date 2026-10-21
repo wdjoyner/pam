@@ -366,6 +366,79 @@ def _rot_xy(p, theta, pivot=None):
     return np.array([px + c * x - s * y, py + s * x + c * y, z])
 
 
+# ── 2.5D depth system, z-index bands (v0.9.23, backburner items 10-11, ──
+# design-doc step 2) ───────────────────────────────────────────────────
+#
+# Layering only — no scale/geometry effect (that is step 3).  Bands, per
+# PAM_25D_DESIGN.md decision D3:
+#
+#     set_background image            z = DEPTH_Z_BACKGROUND (-1000)
+#     world layer (figures + props)   z = depth               (0, -6, ...)
+#     intra-figure attachments        z = depth + n*DEPTH_ATTACH_Z_STEP
+#     bubbles / overlay_caption       z = DEPTH_Z_BUBBLE  (+1000)
+#
+# Tie behavior at equal depth: verified against the pinned Manim version
+# (Manim Community v0.20.1) that extract_mobject_family_members()
+# (manim/utils/family.py) does `sorted(family, key=lambda m: m.z_index)`
+# — Python's sorted() is stable (Timsort) — so figures/props sharing a
+# depth keep their scene-insertion order, matching current (pre-depth)
+# behavior exactly. No epsilon*spawn_index fallback is needed on this
+# version; if a future Manim version changes this, the fallback
+# described in D8 is the documented escape hatch.
+DEPTH_Z_BACKGROUND  = -1000.0
+DEPTH_Z_BUBBLE       = 1000.0
+DEPTH_ATTACH_Z_STEP  = 0.001   # per-attachment increment above body z
+
+# Canonical attachment inventory for D4 — mobjects that live OUTSIDE
+# fig.group and must be re-banded alongside it. Single-mobject
+# attachments are looked up by attribute name directly; dict-valued
+# attachments (gloves, shoes: {side: mobject}) are expanded. This list
+# is the union of the two existing per-feature inventories already in
+# the codebase (the focus/focus_reset dimming list in pam_player.py,
+# and the fuller rotate-bundle list documented in actions.py's
+# act_rotate — head_face, torso_icon, harness, gloves, shoes,
+# _name_tag) so a future 6th attachment type only needs to be added
+# here once.
+_DEPTH_SINGLE_ATTACHMENTS = ("head_face", "torso_icon", "harness", "_name_tag")
+_DEPTH_DICT_ATTACHMENTS   = ("gloves", "shoes")
+
+
+def apply_depth_z(fig) -> None:
+    """Assign depth-derived z_index to *fig*'s body and every attachment.
+
+    Single source of truth for D3/D4: ``fig.group`` gets
+    ``z_index = fig.depth``; every attachment in
+    ``_DEPTH_SINGLE_ATTACHMENTS`` / ``_DEPTH_DICT_ATTACHMENTS`` present
+    on the figure gets a small fractional bump above that, preserving
+    intra-figure layering (e.g. a face image above its now-transparent
+    head dot) under depth-based sorting. Figures without any depth
+    system involvement (``fig.depth`` defaulting to 0.0) land at
+    z_index 0 — the same value fig.group has always implicitly sorted
+    at, so this is a no-op for pre-depth scenes.
+
+    Called from fade_in / spawn_prop / cast redefinition (step 2), and
+    from the locomotion per-frame updater once that exists (step 7-8).
+    """
+    z = float(getattr(fig, "depth", 0.0))
+    group = getattr(fig, "group", None)
+    if group is not None and hasattr(group, "set_z_index"):
+        group.set_z_index(z)
+
+    _bump_state = {"i": 1}
+
+    def _bump(mob) -> None:
+        if mob is not None and hasattr(mob, "set_z_index"):
+            mob.set_z_index(z + DEPTH_ATTACH_Z_STEP * _bump_state["i"])
+            _bump_state["i"] += 1
+
+    for _attr in _DEPTH_SINGLE_ATTACHMENTS:
+        _bump(getattr(fig, _attr, None))
+    for _attr in _DEPTH_DICT_ATTACHMENTS:
+        _dict = getattr(fig, _attr, None) or {}
+        for _mob in _dict.values():
+            _bump(_mob)
+
+
 class HumanGraph:
     """
     A 15-vertex, 16-edge humanoid skeleton rendered in manim.
@@ -564,6 +637,28 @@ class HumanGraph:
         self._scale_sx = scale_sx
         self._scale_sy = scale_sy
         self._scale_anchor = scale_anchor
+        # v0.9.23 (backburner items 10-11, 2.5D depth system): depth,
+        # depth_rescale, depth_scale are normally set by pam_player.py
+        # right after construction (see fade_in), but default here so
+        # direct Python API use (bypassing the player) and any
+        # _apply_scale call before that wiring still behaves like
+        # depth 0 / no rescale. _depth_ground_joint names the joint
+        # that must stay fixed under depth-scale regardless of what
+        # anchor body-scale uses (design-doc D2) — "lankle" is the
+        # joint the rest of PAM already treats as the ground line
+        # (e.g. the default fade_in scale anchor).
+        self.depth         = 0.0
+        self.depth_rescale = False
+        self.depth_scale   = 1.0
+        self._depth_ground_joint = "lankle"
+        # v0.9.23 (2.5D step 7): the scene's depth_k, snapshotted at
+        # fade_in time (see pam_player.py) so depth-animated locomotion
+        # can recompute depth_scale from an interpolated depth without
+        # needing a reference back to the scene's _DepthConfig. Like
+        # every other PAM preamble constant, this is captured once at
+        # declaration/spawn time — a depth_config change mid-scene
+        # won't retroactively update already-spawned figures.
+        self._depth_k = 0.08
         # Walk-and-talk follow (v0.9.14): a persistent speech bubble
         # registered on this figure, or None.  Set by say(persist=True),
         # cleared by clear_bubble / clear_all_bubbles.  Read by
@@ -800,14 +895,59 @@ class HumanGraph:
         return self._scale_sx != 1.0 or self._scale_sy != 1.0
 
     def _apply_scale(self, pose):
-        """Apply the persistent scale factor to a pose.  Returns the
-        pose unchanged if no scaling is active."""
-        if not self.is_scaled:
-            return pose
-        return scale_pose(pose, sy=self._scale_sy, sx=self._scale_sx,
-                          anchor=self._scale_anchor)
+        """Apply the persistent body-scale factor AND the 2.5D depth-
+        scale factor to a pose (v0.9.23, backburner items 10-11,
+        design-doc D1/D2). Returns the pose unchanged if neither is
+        active.
 
-    def set_scale(self, sy=1.0, sx=1.0, anchor="lankle"):
+        Body-scale (self._scale_sx/_scale_sy) uses self._scale_anchor
+        — whatever joint the author chose (default "lankle").
+        Depth-scale is composed SEPARATELY on top of that, always
+        anchored at self._depth_ground_joint ("lankle"), regardless of
+        what anchor body-scale used. scale_pose's anchor mechanism
+        leaves its anchor joint's position exactly unchanged by
+        construction (a + s*(v-a), v=a -> a), so composing the two
+        scales this way needs no separate offset compensation on
+        fig.offset — verified numerically before relying on it here:
+        a body-scale anchored at "torso" followed by a depth-scale
+        anchored at "lankle" leaves the (already torso-shifted) lankle
+        position exactly invariant under the second scale.
+        """
+        out = pose
+        if self.is_scaled:
+            out = scale_pose(out, sy=self._scale_sy, sx=self._scale_sx,
+                             anchor=self._scale_anchor)
+        ds = getattr(self, "depth_scale", 1.0)
+        if ds != 1.0:
+            ground = getattr(self, "_depth_ground_joint", "lankle")
+            if ground in out:
+                out = scale_pose(out, sy=ds, sx=ds, anchor=ground)
+            # else: no ground joint by this name on this build — fall
+            # through unscaled by depth rather than raising, matching
+            # PAM's warn-and-continue philosophy elsewhere. (Shouldn't
+            # happen for HumanGraph/AlienGraph builds shipped in PAM.)
+        return out
+
+    def _inv_scale_x(self) -> float:
+        """Inverse of the TOTAL x-scale (body-scale * depth-scale)
+        currently applied by _apply_scale (v0.9.23, backburner items
+        10-11, D1). Superset of the pre-depth `1/_scale_sx if
+        is_scaled else 1.0` pattern used throughout actions.py /
+        actions_interactions.py to convert a desired world-space delta
+        into a pose-space delta that _apply_scale will correctly
+        re-scale back up (e.g. point_at, hand_to, grab_arm rest-pose
+        unscaling)."""
+        sx = self._scale_sx if self.is_scaled else 1.0
+        sx *= getattr(self, "depth_scale", 1.0)
+        return 1.0 / sx if sx else 1.0
+
+    def _inv_scale_y(self) -> float:
+        """See _inv_scale_x."""
+        sy = self._scale_sy if self.is_scaled else 1.0
+        sy *= getattr(self, "depth_scale", 1.0)
+        return 1.0 / sy if sy else 1.0
+
+
         """Set a persistent scale factor.  Every subsequent morph_to,
         turn, walk_to, wave, etc. will apply this scaling automatically.
 
@@ -872,6 +1012,14 @@ class HumanGraph:
             + float(angle)
         self.offset = _rot_xy(self.offset, float(angle),
                               pivot=pivot_world)
+
+    def apply_depth_z(self) -> None:
+        """Assign depth-derived z_index to this figure and its
+        attachments (v0.9.23, backburner items 10-11, design-doc
+        step 2/D3/D4). Thin wrapper around the shared module-level
+        ``apply_depth_z()`` — see it for the actual banding logic.
+        Inherited by AlienGraph."""
+        apply_depth_z(self)
 
     def _to_world(self, p, off):
         """Map a scaled pose-space point to world space, honoring the
@@ -1073,8 +1221,26 @@ class HumanGraph:
         plan.append((self._bp["standing_side"], 0.0))  # settle
         return plan
 
+    def _lerp_depth_state(self, d0: float, depth_target: float,
+                          alpha: float) -> float:
+        """Interpolate depth linearly toward *depth_target* at
+        parameter *alpha* in [0, 1], starting from *d0* (the depth
+        captured at the START of the move, NOT re-read from
+        self.depth each call — see callers). Recomputes
+        self.depth_scale from the INTERPOLATED depth via the
+        reciprocal law if self.depth_rescale is active; never
+        interpolates the scale value itself (design-doc D7 — the
+        reciprocal law's curvature is what reads as perspective).
+        Returns the new depth for convenience."""
+        d = d0 + alpha * (depth_target - d0)
+        self.depth = d
+        if getattr(self, "depth_rescale", False):
+            k = getattr(self, "_depth_k", 0.08)
+            self.depth_scale = 1.0 / (1.0 - k * d)
+        return d
+
     def walk_to(self, x_target: float, scene: Scene,
-                rt_per_kf=0.22, rate=smooth):
+                rt_per_kf=0.22, rate=smooth, depth=None):
         """
         Walk (side-view) from current x to *x_target*.
 
@@ -1086,6 +1252,18 @@ class HumanGraph:
         else ``"left"`` — used by the shoe-attach updater to mirror
         shoe orientation during walks.  No-op walks (|dx| < 0.01) leave
         facing unchanged.
+
+        depth : float, optional (v0.9.23, backburner items 10-11,
+            2.5D step 7) — target depth for this move. Interpolated
+            linearly across the walk's keyframes; depth_scale (if
+            depth_rescale is active) is re-derived from the
+            interpolated depth each keyframe via the reciprocal law,
+            not linearly interpolated itself. After the move,
+            self.depth/self.depth_scale land exactly on the target,
+            as if the figure had been spawned there. z_index is NOT
+            updated per-keyframe here (that's step 8); apply_depth_z()
+            is left to the caller (pam_player.py) to call once at the
+            end of the move.
         """
         dx_total = x_target - self.offset[0]
         if abs(dx_total) < 0.01:
@@ -1097,23 +1275,55 @@ class HumanGraph:
         steps = max(n_kf, int(round(abs(dx_total) / abs(dx_per_kf))))
         dx_per_kf = dx_total / steps   # exact redistribution
 
+        _d0 = self.depth if depth is not None else None
+
         for i in range(steps):
             kf = cycle[i % n_kf]
+            if depth is not None:
+                self._lerp_depth_state(_d0, depth, (i + 1) / steps)
+                # v0.9.23 (2.5D step 8, D8): continuous z re-banding
+                # during the move. Manim re-sorts mobjects by z_index
+                # fresh on every render call (verified in step 2 —
+                # extract_mobject_family_members always does
+                # sorted(family, key=z_index), never cached), so simply
+                # re-assigning z_index before each keyframe's
+                # scene.play() is sufficient for correct occlusion —
+                # no per-render-frame updater/polling registry needed,
+                # matching D8's "prefer the simple design" guidance.
+                # Crossings resolve at keyframe granularity (PAM's
+                # gait animation is already a discrete per-keyframe
+                # loop, not one continuous animation).
+                if hasattr(self, "apply_depth_z"):
+                    self.apply_depth_z()
             self.morph_to(kf, scene, rt=rt_per_kf, rate=rate,
                           dx=dx_per_kf)
 
         # settle
+        if depth is not None:
+            # Land exactly on the target regardless of float rounding
+            # across the loop above.
+            self.depth = depth
+            if self.depth_rescale:
+                k = getattr(self, "_depth_k", 0.08)
+                self.depth_scale = 1.0 / (1.0 - k * depth)
         self.morph_to(self._bp["standing_side"], scene, rt=0.25, rate=smooth)
+        if depth is not None and hasattr(self, "apply_depth_z"):
+            # v0.9.23 (2.5D step 7): z_index set once at the END of a
+            # depth-animated move (D3 bands) — continuous re-ordering
+            # DURING the move is step 8's job.
+            self.apply_depth_z()
 
     # ── choreography: run ────────────────────────────────────────────────────
 
     def run_to(self, x_target: float, scene: Scene,
-               rt_per_kf=0.12, rate=smooth):
+               rt_per_kf=0.12, rate=smooth, depth=None):
         """Run (side-view) to *x_target*.  Same logic as walk_to but
         uses the run cycle and faster timing.
 
         v0.9.16: updates ``self.facing`` to ``"right"`` if dx_total > 0,
-        else ``"left"`` — see walk_to for rationale."""
+        else ``"left"`` — see walk_to for rationale.
+
+        depth : float, optional — see walk_to (2.5D step 7)."""
         dx_total = x_target - self.offset[0]
         if abs(dx_total) < 0.01:
             return
@@ -1123,12 +1333,25 @@ class HumanGraph:
         steps = max(n_kf, int(round(abs(dx_total) / 0.35)))
         dx_per_kf = dx_total / steps
 
+        _d0 = self.depth if depth is not None else None
+
         for i in range(steps):
             kf = cycle[i % n_kf]
+            if depth is not None:
+                self._lerp_depth_state(_d0, depth, (i + 1) / steps)
+                if hasattr(self, "apply_depth_z"):
+                    self.apply_depth_z()   # 2.5D step 8 — see walk_to
             self.morph_to(kf, scene, rt=rt_per_kf, rate=rate,
                           dx=dx_per_kf)
 
+        if depth is not None:
+            self.depth = depth
+            if self.depth_rescale:
+                k = getattr(self, "_depth_k", 0.08)
+                self.depth_scale = 1.0 / (1.0 - k * depth)
         self.morph_to(self._bp["standing_side"], scene, rt=0.20, rate=smooth)
+        if depth is not None and hasattr(self, "apply_depth_z"):
+            self.apply_depth_z()   # 2.5D step 7 — see walk_to
 
     # ── choreography: sit / stand ────────────────────────────────────────────
 
@@ -1553,6 +1776,11 @@ class HumanGraph:
             )
 
         bubble = VGroup(box, tail, txt)
+        # v0.9.23 (2.5D step 2 hardening): every speech bubble —
+        # transient or persistent — sits in the bubble band (D3),
+        # on top of every possible figure/prop depth AND any
+        # sticky per-character z_index (v0.9.19).
+        bubble.set_z_index(DEPTH_Z_BUBBLE)
         fade_anims = [FadeIn(bubble, scale=0.85)] + (extra_anims or [])
         scene.play(*fade_anims, run_time=rt_in)
         scene.wait(hold)
@@ -2030,6 +2258,15 @@ class DogGraph:
         self.offset = np.array(_off, dtype=float)
         # v0.9.22 (item 4): accumulated planar rotation — see HumanGraph.
         self._pam_rotation = 0.0
+        # v0.9.23 (backburner items 10-11, 2.5D depth system): see
+        # HumanGraph.__init__ for the rationale. "fl_paw" is DogGraph's
+        # ground-contact joint (all four paws share the same y in
+        # DOG_STANDING; front-left is an arbitrary but stable choice).
+        self.depth         = 0.0
+        self.depth_rescale = False
+        self.depth_scale   = 1.0
+        self._depth_ground_joint = "fl_paw"
+        self._depth_k = 0.08
         # Walk-and-talk follow (v0.9.14): a persistent speech bubble
         # registered on this figure, or None.  Set by say(persist=True),
         # cleared by clear_bubble / clear_all_bubbles.  Read by morph_to
@@ -2261,6 +2498,37 @@ class DogGraph:
         self.offset = _rot_xy(self.offset, float(angle),
                               pivot=pivot_world)
 
+    def apply_depth_z(self) -> None:
+        """See HumanGraph.apply_depth_z (v0.9.23, backburner items
+        10-11, design-doc step 2/D3/D4)."""
+        apply_depth_z(self)
+
+    def _apply_scale(self, pose):
+        """Apply the 2.5D depth-scale factor to a pose (v0.9.23,
+        backburner items 10-11, design-doc D1/D2). DogGraph has no
+        body-scale feature (unlike HumanGraph), so this only ever
+        applies depth_scale, anchored at self._depth_ground_joint
+        ("fl_paw" — a front paw, PAM's dog ground-contact joint) so a
+        depth-scaled dog doesn't float/sink. See
+        HumanGraph._apply_scale for the anchor-composition reasoning."""
+        ds = getattr(self, "depth_scale", 1.0)
+        if ds == 1.0:
+            return pose
+        ground = getattr(self, "_depth_ground_joint", "fl_paw")
+        if ground in pose:
+            return scale_pose(pose, sy=ds, sx=ds, anchor=ground)
+        return pose
+
+    def _inv_scale_x(self) -> float:
+        """See HumanGraph._inv_scale_x. DogGraph has no body-scale, so
+        this is purely the inverse of depth_scale."""
+        ds = getattr(self, "depth_scale", 1.0)
+        return 1.0 / ds if ds else 1.0
+
+    def _inv_scale_y(self) -> float:
+        """See _inv_scale_x."""
+        return self._inv_scale_x()
+
     def _to_world(self, p, off):
         """Pose-space → world, honoring accumulated rotation
         (v0.9.22, item 4)."""
@@ -2269,16 +2537,21 @@ class DogGraph:
             return _rot_xy(p, th) + off
         return p + off
 
+
+
     def morph_to(self, target_pose, scene: Scene,
                  rt=0.18, rate=linear, dx=0.0, dy=0.0):
         new_off = self.offset + np.array([dx, dy, 0.0])
+        # v0.9.23 (backburner items 10-11, D1): depth-scale the target
+        # pose the same way HumanGraph does, via _apply_scale.
+        t = self._apply_scale(target_pose)
         anims = []
         for n in self.dots:
             anims.append(self.dots[n].animate.move_to(
-                self._to_world(target_pose[n], new_off)))
+                self._to_world(t[n], new_off)))
         for (a, b), line in self.lines.items():
-            pa = self._to_world(target_pose[a], new_off)
-            pb = self._to_world(target_pose[b], new_off)
+            pa = self._to_world(t[a], new_off)
+            pb = self._to_world(t[b], new_off)
             if np.linalg.norm(pa - pb) > 0.01:
                 anims.append(line.animate.put_start_and_end_on(pa, pb))
         # Walk-and-talk follow (v0.9.14): if this figure has a
@@ -2290,20 +2563,22 @@ class DogGraph:
                 new_off + self._persistent_bubble.pam_follows_offset
             ))
         scene.play(*anims, run_time=rt, rate_func=rate)
-        self.pose = target_pose
+        self.pose = target_pose   # store unscaled
         self.offset = new_off
 
     def set_pose(self, target_pose, dx=0.0, dy=0.0):
         new_off = self.offset + np.array([dx, dy, 0.0])
+        # v0.9.23 (backburner items 10-11, D1): see morph_to above.
+        t = self._apply_scale(target_pose)
         for n in self.dots:
             self.dots[n].move_to(
-                self._to_world(target_pose[n], new_off))
+                self._to_world(t[n], new_off))
         for (a, b), line in self.lines.items():
-            pa = self._to_world(target_pose[a], new_off)
-            pb = self._to_world(target_pose[b], new_off)
+            pa = self._to_world(t[a], new_off)
+            pb = self._to_world(t[b], new_off)
             if np.linalg.norm(pa - pb) > 0.01:
                 line.put_start_and_end_on(pa, pb)
-        self.pose = target_pose
+        self.pose = target_pose   # store unscaled
         self.offset = new_off
 
     # ── choreography: trot ───────────────────────────────────────────────────
@@ -2323,9 +2598,24 @@ class DogGraph:
         plan.append((self._standing_pose, 0.0))
         return plan
 
+    def _lerp_depth_state(self, d0: float, depth_target: float,
+                          alpha: float) -> float:
+        """See HumanGraph._lerp_depth_state (v0.9.23, backburner items
+        10-11, design-doc D7)."""
+        d = d0 + alpha * (depth_target - d0)
+        self.depth = d
+        if getattr(self, "depth_rescale", False):
+            k = getattr(self, "_depth_k", 0.08)
+            self.depth_scale = 1.0 / (1.0 - k * d)
+        return d
+
     def trot_to(self, x_target: float, scene: Scene,
-                rt_per_kf=0.18, rate=smooth, stride: float = 0.14):
-        """Trot (side-view) to x_target using the 4-frame trot cycle."""
+                rt_per_kf=0.18, rate=smooth, stride: float = 0.14,
+                depth=None):
+        """Trot (side-view) to x_target using the 4-frame trot cycle.
+
+        depth : float, optional — see HumanGraph.walk_to (2.5D step 7).
+        """
         dx_total = x_target - self.offset[0]
         if abs(dx_total) < 0.01:
             return
@@ -2334,10 +2624,23 @@ class DogGraph:
         steps = max(n_kf, int(round(abs(dx_total) / stride)))
         dx_per_kf = dx_total / steps
 
+        _d0 = self.depth if depth is not None else None
+
         for i in range(steps):
+            if depth is not None:
+                self._lerp_depth_state(_d0, depth, (i + 1) / steps)
+                if hasattr(self, "apply_depth_z"):
+                    self.apply_depth_z()   # 2.5D step 8 — see HumanGraph.walk_to
             self.morph_to(cycle[i % n_kf], scene,
                           rt=rt_per_kf, rate=rate, dx=dx_per_kf)
+        if depth is not None:
+            self.depth = depth
+            if self.depth_rescale:
+                k = getattr(self, "_depth_k", 0.08)
+                self.depth_scale = 1.0 / (1.0 - k * depth)
         self.morph_to(self._standing_pose, scene, rt=0.22, rate=smooth)
+        if depth is not None and hasattr(self, "apply_depth_z"):
+            self.apply_depth_z()   # 2.5D step 7 — see HumanGraph.walk_to
 
     # ── speech bubble ────────────────────────────────────────────────────────
 
@@ -2402,6 +2705,11 @@ class DogGraph:
             fill_opacity=0.95, stroke_width=1.5,
         )
         bubble = VGroup(box, tail, txt)
+        # v0.9.23 (2.5D step 2 hardening): every speech bubble —
+        # transient or persistent — sits in the bubble band (D3),
+        # on top of every possible figure/prop depth AND any
+        # sticky per-character z_index (v0.9.19).
+        bubble.set_z_index(DEPTH_Z_BUBBLE)
         fade_anims = [FadeIn(bubble, scale=0.85)] + (extra_anims or [])
         scene.play(*fade_anims, run_time=rt_in)
         scene.wait(hold)
@@ -2575,7 +2883,26 @@ class GovernorGraph:
         self._schlegel_dots: list = []
         self._schlegel_lines: list = []
         self._label_mob: Mobject | None = None
+        # v0.9.23 (backburner items 10-11, 2.5D depth system): governors
+        # float rather than stand on a ground line, so depth-rescale
+        # here is a plain uniform scale about the shape's own centre —
+        # no ground-contact joint/compensation applies (unlike
+        # HumanGraph/DogGraph). Applied once at spawn (see
+        # apply_depth_rescale, called from pam_player.py's spawn_prop
+        # dodecahedron branch) rather than threaded through a pose
+        # system, since GovernorGraph has none.
+        self.depth         = 0.0
+        self.depth_rescale = False
+        self.depth_scale   = 1.0
         self._build()
+
+    def apply_depth_rescale(self) -> None:
+        """Scale the whole shape about its own centre by depth_scale.
+        No-op at depth_scale == 1.0. Idempotent only if called once per
+        depth_scale value — call before fade_in, not repeatedly."""
+        ds = getattr(self, "depth_scale", 1.0)
+        if ds != 1.0 and self._group is not None:
+            self._group.scale(ds)
 
     def _build(self):
         x, y = self._x, self._y
@@ -2633,6 +2960,13 @@ class GovernorGraph:
     @property
     def group(self) -> VGroup:
         return self._group
+
+    def apply_depth_z(self) -> None:
+        """See HumanGraph.apply_depth_z (v0.9.23, backburner items
+        10-11, design-doc step 2/D3/D4). GovernorGraph has no
+        head_face/torso_icon/gloves/etc., so this only bands
+        ``self.group`` — harmless no-op for the attachment loop."""
+        apply_depth_z(self)
 
     # ── spin updater (spin style only) ───────────────────────────────────────
 
@@ -2829,6 +3163,11 @@ class GovernorGraph:
         )
 
         bubble = VGroup(box, tail, txt)
+        # v0.9.23 (2.5D step 2 hardening): every speech bubble —
+        # transient or persistent — sits in the bubble band (D3),
+        # on top of every possible figure/prop depth AND any
+        # sticky per-character z_index (v0.9.19).
+        bubble.set_z_index(DEPTH_Z_BUBBLE)
 
         if self._style == "schlegel":
             fade_anims = [FadeIn(bubble, scale=0.88),
