@@ -185,7 +185,14 @@ class Tracer:
             except Exception:
                 color = "#ffffff"
             style = getattr(fig, "style", {}) or {}
+            self._find_cast_ref()
+            spec = (self.cast_ref or {}).get(name) or {}
+            if not isinstance(spec, dict):
+                spec = {}
             self.cast[name] = {
+                "gender": spec.get("gender"),
+                "build": spec.get("build") if isinstance(spec.get("build"), str)
+                else None,
                 "class": type(fig).__name__,
                 "figure_type": figure_type,
                 "joints": list(fig.dots.keys()),
@@ -197,13 +204,17 @@ class Tracer:
             self.tracks[name] = []
             self.visibility[name] = []
 
-    def _scan_cast(self):
-        """Fallback discovery: PAMPlayer.construct's `cast` local."""
+    def _find_cast_ref(self):
+        """Locate PAMPlayer.construct's `cast` dict (once)."""
         if self.cast_ref is None:
             for fr in inspect.stack():
                 if fr.function == "construct" and "cast" in fr.frame.f_locals:
                     self.cast_ref = fr.frame.f_locals["cast"]
                     break
+
+    def _scan_cast(self):
+        """Fallback discovery of figures from PAMPlayer's `cast`."""
+        self._find_cast_ref()
         if not isinstance(self.cast_ref, dict):
             return
         for name, entry in self.cast_ref.items():

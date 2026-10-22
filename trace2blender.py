@@ -30,6 +30,10 @@ Options:
     --tilt DEG         camera tilt down toward the floor (default 8;
                        ignored by the flat look)
     --no-bubbles       leave out the speech bubbles
+    --female A,B       draw these characters with a female chest (narrow
+                       top, wide bottom, bust); --male A,B the reverse.
+                       Otherwise the screenplay's "gender" is used, and a
+                       "narrow" build counts as female.
 
 Coordinate mapping: PAM/Manim (x right, y up) -> Blender (x right, z up),
 characters live on the y = 0 plane, the camera looks along +y.
@@ -70,6 +74,8 @@ class Options:
     footlock = True
     bob = 1.0
     look = "eevee"
+    female = ()
+    male = ()
     tilt = 8.0
     bubbles = True
 
@@ -101,6 +107,10 @@ def parse_args(argv):
             opt.tilt = float(a[i + 1]); i += 1
         elif k == "--no-bubbles":
             opt.bubbles = False
+        elif k == "--female":
+            opt.female = tuple(x for x in a[i + 1].split(",") if x); i += 1
+        elif k == "--male":
+            opt.male = tuple(x for x in a[i + 1].split(",") if x); i += 1
         else:
             pos.append(k)
         i += 1
@@ -1058,7 +1068,17 @@ ENGINE_EEVEE = ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE")   # 4.2-4.4 / 3.x, 5.x
 CAM_DIST = 20.0
 TORSO_JOINTS = {"neck", "torso", "torso_left", "torso_right"}
 REF_HEIGHT = 5.1          # head-to-ankle height of a default front-view figure
-LIMB_R, TORSO_R, NECK_R, HEAD_R = 0.10, 0.15, 0.09, 0.50
+LIMB_R, TORSO_R, NECK_R, HEAD_R = 0.20, 0.15, 0.09, 0.50
+HINGE_SCALE = 1.35        # knee/elbow balls this much wider than the limb
+HINGES = {"lknee", "rknee", "lelbow", "relbow"}
+CHEST_CORNERS = ("lshoulder", "rshoulder", "rhip", "lhip")
+CHEST_DEPTH = 0.36        # front-to-back thickness of the chest slab
+CHEST_PAD = 0.24          # extra width, so side views still show a body
+CHEST_GRID = 8            # chest surface subdivisions (for the bust)
+FEMALE_TOP = 0.45         # female chest: top width relative to the shoulders
+FEMALE_FLARE = 1.6        # female chest: bottom at least this x the top
+BUST_R = 0.20             # female chest: bust radius (times figure scale)
+BUST_U, BUST_V = 0.27, 0.30   # bust position across / down the chest
 FONT_PATHS = (
     "/System/Library/Fonts/Supplemental/Courier New Bold.ttf",
     "/Library/Fonts/Courier New Bold.ttf",
@@ -1173,6 +1193,47 @@ def ground_level(T):
     return lo
 
 
+def floor_schedule(T):
+    """[(t, ground_y)]: the floor height for each stretch of the film,
+    taken as the lowest foot among the characters on stage whenever the
+    cast on stage changes.  Scenes stand characters at different
+    heights, so one floor for the whole film would leave some floating."""
+    feet = {n: [j for j in info["joints"] if "ankle" in j or "paw" in j]
+            for n, info in T["cast"].items()}
+    tracks = {n: sorted(T["tracks"].get(n, []), key=lambda p: p["t1"])
+              for n in T["cast"]}
+
+    def pos_at(n, t):
+        cur = T["initial"].get(n) or {}
+        for p in tracks[n]:
+            if p["t1"] <= t + 1e-6:
+                cur = p["to"]
+            else:
+                break
+        return cur
+
+    events = sorted({row[0] for rows in T["visibility"].values()
+                     for row in rows})
+    state = {n: False for n in T["cast"]}
+    vis_rows = {n: sorted(T["visibility"].get(n, [])) for n in T["cast"]}
+    out = []
+    for t in events:
+        for n, rows in vis_rows.items():
+            for tt, on, _ in rows:
+                if tt <= t + 1e-6:
+                    state[n] = bool(on)
+        ys = []
+        for n, on in state.items():
+            if on and feet[n]:
+                c = pos_at(n, t + 0.5)        # just after a fade-in starts
+                ys += [c[j][1] for j in feet[n] if j in c]
+        if ys:
+            g = min(ys)
+            if not out or abs(out[-1][1] - g) > 0.05:
+                out.append((t, g))
+    return out
+
+
 def setup_look(bpy, sc, T, opt, bg_rgb):
     """Render engine, lights and stage for the chosen --look."""
     if opt.look == "flat":
@@ -1229,18 +1290,30 @@ def setup_look(bpy, sc, T, opt, bg_rgb):
             sc.world.node_tree.nodes["Background"].inputs["Strength"].default_value = 1.0
         except Exception:
             pass
-    # stage: floor at the characters' feet and a back wall
-    g = ground_level(T)
-    if g is None:
-        return
+    # stage: floor at the on-stage characters' feet and a back wall
+    sched = floor_schedule(T)
+    if not sched:
+        g = ground_level(T)
+        if g is None:
+            return
+        sched = [(0.0, g)]
     stage = material(bpy, "Stage", tuple(min(1.0, c * 2.2 + 0.01) for c in bg_rgb)
                      + (1.0,), roughness=0.8)
-    floor_z = g - LIMB_R * 0.9
+    floor_z = sched[0][1] - LIMB_R * 0.6
     bpy.ops.mesh.primitive_plane_add(size=400, location=(0, 0, floor_z))
     fl = bpy.context.active_object
     fl.name = "Floor"
     fl.data.materials.append(stage)
-    bpy.ops.mesh.primitive_plane_add(size=400, location=(0, 4.0, floor_z + 200),
+    if len(sched) > 1:
+        for k, (t, g) in enumerate(sched):
+            fl.location.z = g - LIMB_R * 0.6
+            fl.keyframe_insert("location", index=2,
+                               frame=1.0 if k == 0 else 1 + t * opt.fps)
+        for fc in _id_fcurves(fl):
+            for kp in fc.keyframe_points:
+                kp.interpolation = "CONSTANT"
+    # tall enough to reach below the floor at every height it takes
+    bpy.ops.mesh.primitive_plane_add(size=400, location=(0, 4.0, floor_z),
                                      rotation=(math.pi / 2, 0, 0))
     wl = bpy.context.active_object
     wl.name = "BackWall"
@@ -1293,6 +1366,134 @@ def _font_metrics(bpy, font):
     bpy.data.objects.remove(ob)
     bpy.data.curves.remove(cu)
     return max(adv, 1e-3), max(line_h, 1e-3)
+
+
+def has_chest(joints, look):
+    return look != "flat" and all(j in joints for j in CHEST_CORNERS)
+
+
+def is_torso_edge(a, b):
+    """Edges that the chest slab replaces: the struts inside the torso
+    (shoulders/hips to the torso joints) and the shoulder and hip bars."""
+    inner = {"torso", "torso_left", "torso_right"}
+    ends = {a, b}
+    if ends & inner:
+        return not ends & {"neck", "head"}
+    return ends in ({"lshoulder", "rshoulder"}, {"lhip", "rhip"})
+
+
+def is_female(name, info, opt):
+    """--female/--male override the screenplay; otherwise the cast's
+    "gender", and a "narrow" build counts as female when none is given."""
+    if name in opt.female:
+        return True
+    if name in opt.male:
+        return False
+    g = (info.get("gender") or "").lower()
+    if g:
+        return g == "female"
+    return (info.get("build") or "") == "narrow"
+
+
+def chest_corner_values(V, joints, female, sf):
+    """Chest corner positions for every key (columns x, y for the four
+    corners in CHEST_CORNERS order), derived from the shoulders and hips.
+    Male: the joints' own spread plus padding (wide top, narrow bottom).
+    Female: a narrower top and a wider bottom.  Both keep a minimum width
+    so a side view still shows a body."""
+    ji = {j: i for i, j in enumerate(joints)}
+    P = lambda j: V[:, 2 * ji[j]:2 * ji[j] + 2]
+    ls, rs, rh, lh = (P(j) for j in CHEST_CORNERS)
+    pad = CHEST_PAD * sf / 2
+
+    def frame(a, b):
+        mid = (a + b) / 2
+        half = (b - a) / 2
+        n = np.linalg.norm(half, axis=1)
+        d = np.where(n[:, None] > 1e-4, half / np.maximum(n, 1e-9)[:, None],
+                     np.array([1.0, 0.0]))
+        return mid, d, n
+
+    ms, ds, ns = frame(ls, rs)
+    mh, dh, nh = frame(lh, rh)
+    if female:
+        top = FEMALE_TOP * ns + pad
+        bot = np.maximum(nh + pad, FEMALE_FLARE * top)
+    else:
+        top = ns + pad
+        bot = nh + pad
+    out = [ms - ds * top[:, None], ms + ds * top[:, None],
+           mh + dh * bot[:, None], mh - dh * bot[:, None]]
+    return np.concatenate(out, axis=1)
+
+
+def bust_values(CV):
+    """Per-key centers of the two bust shapes: points on the upper
+    chest, a bilinear blend of the four chest corners."""
+    ls, rs, rh, lh = (CV[:, 2 * i:2 * i + 2] for i in range(4))
+    out = []
+    for u in (BUST_U, 1 - BUST_U):
+        v = BUST_V
+        out.append((1 - u) * (1 - v) * ls + u * (1 - v) * rs
+                   + u * v * rh + (1 - u) * v * lh)
+    return np.concatenate(out, axis=1)
+
+
+def build_chest(bpy, col, name, corners, mat, sf, female):
+    """A solid chest: a subdivided box whose surface is a bilinear blend
+    of four corner empties (hook modifiers with bilinear vertex weights),
+    beveled for a rounded look.  (Female busts are separate objects; see
+    bust_values.)"""
+    import bmesh
+    d = CHEST_DEPTH * sf / 2
+    nu = nv = CHEST_GRID
+    bm = bmesh.new()
+    front, back = {}, {}
+    for j in range(nv + 1):
+        for i in range(nu + 1):
+            u, v = i / nu, j / nv
+            front[i, j] = bm.verts.new((0.0, -d, 0.0))
+            back[i, j] = bm.verts.new((0.0, d, 0.0))
+    for j in range(nv):
+        for i in range(nu):
+            bm.faces.new([front[i, j], front[i + 1, j], front[i + 1, j + 1],
+                          front[i, j + 1]])
+            bm.faces.new([back[i, j + 1], back[i + 1, j + 1], back[i + 1, j],
+                          back[i, j]])
+    ring = ([(i, 0) for i in range(nu)] + [(nu, j) for j in range(nv)]
+            + [(i, nv) for i in range(nu, 0, -1)] + [(0, j) for j in range(nv, 0, -1)])
+    for k in range(len(ring)):
+        a, b = ring[k], ring[(k + 1) % len(ring)]
+        bm.faces.new([front[a], front[b], back[b], back[a]])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    me = bpy.data.meshes.new(f"{name}.chest")
+    bm.to_mesh(me)
+    bm.free()
+    ob = bpy.data.objects.new(f"{name}.chest", me)
+    col.objects.link(ob)
+    ob.data.materials.append(mat)
+    # bilinear corner weights: (u, v) = (0,0) ls, (1,0) rs, (1,1) rh, (0,1) lh
+    groups = [ob.vertex_groups.new(name=c) for c in CHEST_CORNERS]
+    for vtx in me.vertices:
+        idx = vtx.index // 2
+        i, j = idx % (nu + 1), idx // (nu + 1)
+        u, v = i / nu, j / nv
+        for g, w in zip(groups, ((1 - u) * (1 - v), u * (1 - v), u * v,
+                                 (1 - u) * v)):
+            if w > 0:
+                g.add([vtx.index], w, "REPLACE")
+    for g, corner in zip(groups, CHEST_CORNERS):
+        h = ob.modifiers.new(f"hook {corner}", "HOOK")
+        h.object = corners[corner]
+        h.vertex_group = g.name
+    bev = ob.modifiers.new("round", "BEVEL")
+    bev.width = 0.06 * sf
+    bev.segments = 3
+    if hasattr(bev, "limit_method"):
+        bev.limit_method = "ANGLE"
+    for poly in me.polygons:
+        poly.use_smooth = True
+    return ob
 
 
 def build_bubbles(bpy, sc, T, rates, opt, native, tilt):
@@ -1498,6 +1699,8 @@ def build(trace_path, out_path, opt=None):
                      else HEAD_R * sf)
             else:
                 r = JOINT_R if opt.look == "flat" else jr.get(j, LIMB_R * sf)
+                if opt.look != "flat" and j in HINGES:
+                    r *= HINGE_SCALE
             ball = bpy.data.objects.new(f"{name}.{j}.ball", ball_me)
             col.objects.link(ball)
             ball.material_slots[0].link = "OBJECT"
@@ -1506,8 +1709,49 @@ def build(trace_path, out_path, opt=None):
             ball.location = (0, 0, 0)
             ball.scale = (r, r, r)
             meshes.append(ball)
+        chest = has_chest(joints, opt.look) and info.get("class") != "DogGraph"
+        if chest and keys.f:
+            female = is_female(name, info, opt)
+            CV = chest_corner_values(np.array(keys.v), joints, female, sf)
+            ck = KeyList(opt.fps)
+            ck.f, ck.v, ck.spec = list(keys.f), list(CV), list(keys.spec)
+            corners = {}
+            for ci, c in enumerate(CHEST_CORNERS):
+                e = bpy.data.objects.new(f"{name}.chest.{c}", None)
+                e.empty_display_size = 0.05
+                e.parent = root
+                col.objects.link(e)
+                corners[c] = e
+                apply_keys(bpy, e, "location",
+                           [(0, 2 * ci, lambda v: v), (2, 2 * ci + 1, lambda v: v)],
+                           ck)
+            meshes.append(build_chest(bpy, col, name, corners, mat, sf, female))
+            if female:
+                bk = KeyList(opt.fps)
+                bk.f, bk.v, bk.spec = list(keys.f), list(bust_values(CV)), list(keys.spec)
+                for bi, side in enumerate(("l", "r")):
+                    e = bpy.data.objects.new(f"{name}.bust.{side}", None)
+                    e.empty_display_size = 0.05
+                    e.parent = root
+                    col.objects.link(e)
+                    apply_keys(bpy, e, "location",
+                               [(0, 2 * bi, lambda v: v), (2, 2 * bi + 1, lambda v: v)],
+                               bk)
+                    ball = bpy.data.objects.new(f"{name}.bust.{side}.ball", ball_me)
+                    col.objects.link(ball)
+                    ball.material_slots[0].link = "OBJECT"
+                    ball.material_slots[0].material = mat
+                    ball.parent = e
+                    rb = BUST_R * sf
+                    # sits on the chest's front face, flattened front-to-back
+                    ball.location = (0, -CHEST_DEPTH * sf / 2, 0)
+                    ball.scale = (rb, rb * 0.75, rb * 0.9)
+                    meshes.append(ball)
+            stats[name]["chest"] = "female" if female else "male"
         for a, b in info["edges"]:
             if a not in empties or b not in empties:
+                continue
+            if chest and is_torso_edge(a, b):
                 continue
             ob = bpy.data.objects.new(f"{name}.{a}-{b}", bone_me)
             col.objects.link(ob)
