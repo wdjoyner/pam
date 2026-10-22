@@ -562,6 +562,7 @@ from pam.poses import POSES, STANDING_FRONT, STANDING_SIDE, scale_pose
 from pam.poses import DOG_JOINTS, DOG_STANDING
 from pam.props import build_prop, resolve_position
 from pam.actions import ACTION_REGISTRY, _resolve_speaker
+from pam import hooks as _pam_hooks
 
 
 BG_COLOR    = "#0a0e1a"
@@ -2669,6 +2670,24 @@ class PAMPlayer(MovingCameraScene):
 
         # ── single-action dispatcher (returns anims list or None) ────────
         def _dispatch_one(step: dict, name: str, collect_anims=False):
+            """Run _dispatch_one_impl, bracketed by pam.hooks
+            "action_begin" / "action_end" events when a listener is
+            subscribed (see pam/hooks.py).  Without a listener this is a
+            plain pass-through."""
+            if not _pam_hooks.active():
+                return _dispatch_one_impl(step, name, collect_anims)
+            _aid = _pam_hooks.next_action_id()
+            _pam_hooks.emit("action_begin", action_id=_aid, name=name,
+                            action=step.get("action"), step=step,
+                            scene=self, collect_anims=collect_anims)
+            try:
+                return _dispatch_one_impl(step, name, collect_anims)
+            finally:
+                _pam_hooks.emit("action_end", action_id=_aid, name=name,
+                                action=step.get("action"), step=step,
+                                scene=self, collect_anims=collect_anims)
+
+        def _dispatch_one_impl(step: dict, name: str, collect_anims=False):
             """Execute one action for one character.
 
             If *collect_anims* is True and the action is parallelisable,
@@ -2802,6 +2821,11 @@ class PAMPlayer(MovingCameraScene):
                     fig.set_pose(fig.pose)
 
                 rt = step.get("duration", step.get("rt"))
+                if _pam_hooks.active():
+                    # Announce the figure before its fade-in plays, so
+                    # listeners can follow it from its first frame.
+                    _pam_hooks.emit("figure", name=name, fig=fig,
+                                    figure_type=figure_type, scene=self)
                 if figure_type == "dog":
                     if rt is not None:
                         fig.fade_in(self, rt_edges=rt, rt_dots=rt * 0.7)
@@ -3816,6 +3840,9 @@ class PAMPlayer(MovingCameraScene):
                               f"{existing.get('figure_type')!r}, not "
                               f"'dog'; skipping cast side of dual "
                               f"registration to avoid clobbering.")
+                    if _pam_hooks.active():
+                        _pam_hooks.emit("figure", name=pname, fig=dog,
+                                        figure_type="dog", scene=self)
                     dog.fade_in(self, rt_edges=rt, rt_dots=rt * 0.7)
                     continue
 
@@ -4377,6 +4404,9 @@ class PAMPlayer(MovingCameraScene):
                 # always sit in the bubble band (D3), on top of every
                 # possible figure/prop depth.
                 bubble.set_z_index(DEPTH_Z_BUBBLE)
+                if _pam_hooks.active():
+                    _pam_hooks.bubble(self, bubble, owner=pname, text=text,
+                                      style="os" if _prop_os else None)
 
                 # ── Persistence handling ─────────────────────────────────
                 # "persist": true           — bubble stays until clear_bubble
@@ -4927,6 +4957,11 @@ class PAMPlayer(MovingCameraScene):
 
             # ── parallel ─────────────────────────────────────────────────
             if act == "parallel":
+                if _pam_hooks.active():
+                    _par_aid = _pam_hooks.next_action_id()
+                    _pam_hooks.emit("action_begin", action_id=_par_aid,
+                                    name=None, action="parallel", step=step,
+                                    scene=self, collect_anims=False)
                 sub_actions = step.get("do", [])
                 rt = step.get("rt", 0.4)
                 # Strip annotation keys that would cause the step to be skipped
@@ -5025,6 +5060,12 @@ class PAMPlayer(MovingCameraScene):
                                 new_off = mover.offset + np.array([dx, 0, 0])
                                 # build anims differently for dog vs humanoid
                                 if kind == "dog":
+                                    if _pam_hooks.active():
+                                        # this branch places the raw
+                                        # (unscaled, unrotated) pose
+                                        _pam_hooks.pose_target(
+                                            mover, pose, new_off,
+                                            local=pose)
                                     for n in mover.dots:
                                         all_anims.append(
                                             mover.dots[n].animate.move_to(
@@ -5085,6 +5126,10 @@ class PAMPlayer(MovingCameraScene):
                         elif sub["action"] == "fade_out":
                             for tname in _targets(sub):
                                 cast[tname]["fig"] = None
+                if _pam_hooks.active():
+                    _pam_hooks.emit("action_end", action_id=_par_aid,
+                                    name=None, action="parallel", step=step,
+                                    scene=self, collect_anims=False)
                 continue
 
             # ── set_background ──────────────────────────────────────────
@@ -5105,8 +5150,20 @@ class PAMPlayer(MovingCameraScene):
             if act == "group_translate":
                 handler = ACTION_REGISTRY.get("group_translate")
                 if handler:
+                    _gt_aid = None
+                    if _pam_hooks.active():
+                        _gt_aid = _pam_hooks.next_action_id()
+                        _pam_hooks.emit("action_begin", action_id=_gt_aid,
+                                        name=None, action="group_translate",
+                                        step=step, scene=self,
+                                        collect_anims=False)
                     handler(None, step, self, "__group__",
                             props=props, cast=cast)
+                    if _gt_aid is not None:
+                        _pam_hooks.emit("action_end", action_id=_gt_aid,
+                                        name=None, action="group_translate",
+                                        step=step, scene=self,
+                                        collect_anims=False)
                 continue
 
             targets = _targets(step)

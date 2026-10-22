@@ -32,6 +32,7 @@ from .poses import (
     build_poses,
 )
 from .builds import BUILDS, get_build
+from . import hooks as _hooks
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  DEFAULT COLOUR PALETTE  (override via HumanGraph constructor)
@@ -1034,6 +1035,8 @@ class HumanGraph:
         Applies the persistent scale factor if active, and the
         figure's accumulated rotation (v0.9.22, item 4)."""
         t = self._apply_scale(target)
+        if _hooks.active():
+            _hooks.pose_target(self, target, off, local=t)
         anims = []
         for n in self.dots:
             anims.append(self.dots[n].animate.move_to(
@@ -1048,6 +1051,9 @@ class HumanGraph:
 
     def fade_in(self, scene: Scene, rt_edges=1.4, rt_dots=1.0):
         """Animate the figure appearing: edges first, then dots."""
+        if _hooks.active():
+            _hooks.emit("fade", fig=self, scene=scene, direction="in",
+                        rt=rt_edges + rt_dots)
         scene.play(LaggedStart(
             *[Create(l) for l in self.lines.values()],
             lag_ratio=0.06, run_time=rt_edges,
@@ -1062,6 +1068,8 @@ class HumanGraph:
 
     def fade_out(self, scene: Scene, rt=1.0):
         """Fade out the entire figure."""
+        if _hooks.active():
+            _hooks.emit("fade", fig=self, scene=scene, direction="out", rt=rt)
         scene.play(FadeOut(self.edge_group), FadeOut(self.dot_group),
                    run_time=rt)
 
@@ -1092,6 +1100,9 @@ class HumanGraph:
             anims.append(self._persistent_bubble.animate.move_to(
                 new_off + self._persistent_bubble.pam_follows_offset
             ))
+        if _hooks.active():
+            _hooks.segment(self, scene, "morph", rt, rate, target_pose,
+                           new_off)
         scene.play(*anims, run_time=rt, rate_func=rate)
         self.pose = target_pose       # store unscaled
         self.offset = new_off
@@ -1101,6 +1112,10 @@ class HumanGraph:
         Applies persistent scale if active."""
         new_off = self.offset + np.array([dx, dy, 0.0])
         t = self._apply_scale(target_pose)
+        if _hooks.active():
+            # set_pose has no scene; the listener supplies the time.
+            _hooks.segment(self, None, "set", 0.0, None, target_pose,
+                           new_off, local=t)
         for n in self.dots:
             self.dots[n].move_to(self._to_world(t[n], new_off))
         for (a, b), line in self.lines.items():
@@ -1152,11 +1167,18 @@ class HumanGraph:
             anims.append(self.dots[n].animate.move_to(edge_on[n]))
         for (a, b), line in self.lines.items():
             anims += self._safe_line_anim((a, b), line, edge_on[a], edge_on[b])
+        if _hooks.active():
+            _hooks.segment(self, scene, "turn_squash", rt_squash,
+                           there_and_back_with_pause, None, off,
+                           targets=edge_on)
         scene.play(*anims, run_time=rt_squash,
                    rate_func=there_and_back_with_pause)
 
         # Phase 2 — expand to target pose (scaled)
         anims = self._pose_anims(to_pose, off)  # _pose_anims applies scale
+        if _hooks.active():
+            _hooks.segment(self, scene, "turn", rt_expand, smooth, to_pose,
+                           off)
         scene.play(*anims, run_time=rt_expand, rate_func=smooth)
         self.pose = to_pose
 
@@ -1781,6 +1803,9 @@ class HumanGraph:
         # on top of every possible figure/prop depth AND any
         # sticky per-character z_index (v0.9.19).
         bubble.set_z_index(DEPTH_Z_BUBBLE)
+        if _hooks.active():
+            _hooks.bubble(scene, bubble, owner=self, text=wrapped,
+                          style=locals().get("bubble_style"))
         fade_anims = [FadeIn(bubble, scale=0.85)] + (extra_anims or [])
         scene.play(*fade_anims, run_time=rt_in)
         scene.wait(hold)
@@ -2471,6 +2496,9 @@ class DogGraph:
     # ── core animation ───────────────────────────────────────────────────────
 
     def fade_in(self, scene: Scene, rt_edges=1.2, rt_dots=0.8):
+        if _hooks.active():
+            _hooks.emit("fade", fig=self, scene=scene, direction="in",
+                        rt=rt_edges + rt_dots)
         scene.play(LaggedStart(
             *[Create(l) for l in self.lines.values()],
             lag_ratio=0.05, run_time=rt_edges,
@@ -2485,6 +2513,8 @@ class DogGraph:
             scene.play(Create(self.harness), run_time=0.4)
 
     def fade_out(self, scene: Scene, rt=1.0):
+        if _hooks.active():
+            _hooks.emit("fade", fig=self, scene=scene, direction="out", rt=rt)
         anims = [FadeOut(self.edge_group), FadeOut(self.dot_group)]
         if self.harness is not None:
             anims.append(FadeOut(self.harness))
@@ -2562,6 +2592,9 @@ class DogGraph:
             anims.append(self._persistent_bubble.animate.move_to(
                 new_off + self._persistent_bubble.pam_follows_offset
             ))
+        if _hooks.active():
+            _hooks.segment(self, scene, "morph", rt, rate, target_pose,
+                           new_off, local=t)
         scene.play(*anims, run_time=rt, rate_func=rate)
         self.pose = target_pose   # store unscaled
         self.offset = new_off
@@ -2570,6 +2603,9 @@ class DogGraph:
         new_off = self.offset + np.array([dx, dy, 0.0])
         # v0.9.23 (backburner items 10-11, D1): see morph_to above.
         t = self._apply_scale(target_pose)
+        if _hooks.active():
+            _hooks.segment(self, None, "set", 0.0, None, target_pose,
+                           new_off, local=t)
         for n in self.dots:
             self.dots[n].move_to(
                 self._to_world(t[n], new_off))
@@ -2710,6 +2746,9 @@ class DogGraph:
         # on top of every possible figure/prop depth AND any
         # sticky per-character z_index (v0.9.19).
         bubble.set_z_index(DEPTH_Z_BUBBLE)
+        if _hooks.active():
+            _hooks.bubble(scene, bubble, owner=self, text=wrapped,
+                          style=locals().get("bubble_style"))
         fade_anims = [FadeIn(bubble, scale=0.85)] + (extra_anims or [])
         scene.play(*fade_anims, run_time=rt_in)
         scene.wait(hold)
@@ -3168,6 +3207,9 @@ class GovernorGraph:
         # on top of every possible figure/prop depth AND any
         # sticky per-character z_index (v0.9.19).
         bubble.set_z_index(DEPTH_Z_BUBBLE)
+        if _hooks.active():
+            _hooks.bubble(scene, bubble, owner=self, text=wrapped,
+                          style=locals().get("bubble_style"))
 
         if self._style == "schlegel":
             fade_anims = [FadeIn(bubble, scale=0.88),

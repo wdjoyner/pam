@@ -28,6 +28,7 @@ Uses the same imports as actions.py:
 
 from __future__ import annotations
 from copy import deepcopy
+from pam import hooks as _hooks
 import numpy as np
 from manim import (
     Text, FadeIn, FadeOut, VGroup, RoundedRectangle, Line,
@@ -100,7 +101,10 @@ def _build_pink_bubble(text, x, y, side="right", font_size=18):
     box.move_to(np.array([bubble_x, bubble_y, 0]))
     txt.move_to(box.get_center())
 
-    return VGroup(box, tail, txt)
+    bubble = VGroup(box, tail, txt)
+    if _hooks.active():
+        _hooks.bubble(None, bubble, text=text, style="aside")
+    return bubble
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -437,6 +441,9 @@ def act_hand_to(fig, step, scene, name="I.G. NoreMe", *,
     prop.pam_y = target_fig.offset[1]
     fig._held_prop = None
     target_fig._held_prop = prop
+    if _hooks.active():
+        _hooks.prop_event("release", fig, scene, prop, prop_name)
+        _hooks.prop_event("attach", target_fig, scene, prop, prop_name)
 
     return None
 
