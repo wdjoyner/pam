@@ -30,6 +30,7 @@ PAM was developed for the *Too Nice to Die* animated sci-fi production pipeline,
 - [Props and scene objects](#props-and-scene-objects)
 - [Actions](#actions)
 - [Camera system](#camera-system)
+- [Blender export](#blender-export)
 - [Environment variables](#environment-variables)
 - [Project layout](#project-layout)
 - [Development guide](#development-guide)
@@ -58,7 +59,7 @@ It can:
 - attach wardrobe overlays such as name tags, gloves, shoes, torso icons, dog harnesses, and service labels;
 - drive camera framing from screenplay annotations;
 - convert Fountain+ scripts into PAM JSON plus prompt metadata;
-- optionally export layout information to Blender.
+- export the animation to Blender as solid 3D stick figures with smooth motion, planted feet, shadows, and speech bubbles, or export layout information only.
 
 PAM’s design priority is **screenplay-driven blocking**. It answers production questions quickly:
 
@@ -99,14 +100,20 @@ Fountain screenplay (.fountain)
         v
 blocking MP4
         |
-        v
-+------------------+
-|  pam2blender.py  |
-|  optional export |
+        +------------------------------+
+        v                              v
++------------------+          +------------------+
+|  pam_trace.py    |          |  pam2blender.py  |
+|  motion trace    |          |  layout export   |
++------------------+          +------------------+
+        |                              |
+        v                              v
++------------------+          Blender layout /
+| trace2blender.py |          lights / camera / props
 +------------------+
         |
         v
-Blender layout / lights / camera / props
+animated 3D .blend (motion, camera, bubbles)
         |
         v
 AI video generation or manual refinement
@@ -252,7 +259,7 @@ Recommended baseline:
 - NumPy and SciPy, typically installed through Manim
 - FFmpeg and system libraries required by Manim
 - optional: LaTeX, if scenes use TeX-rendered labels
-- optional: Blender 4.x, if using `pam2blender.py`
+- optional: Blender (4.2, 4.4, and 5.2 tested; 3.x supported), for `trace2blender.py` and `pam2blender.py`
 
 ### Clone
 
@@ -1327,6 +1334,90 @@ Safe speech-bubble placement:
 
 ---
 
+## Blender export
+
+PAM has two Blender paths:
+
+| Tool | What it exports |
+|---|---|
+| `pam_trace.py` + `trace2blender.py` | **The animation itself:** every character's motion, timing, camera moves, visibility, and speech bubbles, as an animated `.blend` with solid 3D stick figures, lights, a floor, and shadows. |
+| `pam2blender.py` | **Layout only:** cameras, lights, props, and character placeholders from the screenplay JSON, as a Blender Python script. |
+
+### Motion export in three commands
+
+From the PAM folder, with the Python environment that renders PAM active:
+
+```bash
+PAM_SCRIPT=screenplay_alice-meets-bob.json python pam_trace.py alice_trace.json
+blender --background --python trace2blender.py -- alice_trace.json alice.blend --female alice
+blender --background alice.blend --render-anim
+```
+
+1. `pam_trace.py` plays the screenplay in Manim's dry-run mode (no video is written) and records a motion trace (JSON). The 46-second Alice scene traces in about 10 seconds; the 100-minute TNTD feature takes about 25–40 minutes.
+2. `trace2blender.py` builds `alice.blend` from the trace, in seconds.
+3. `--render-anim` renders the video next to the `.blend` (for example `alice_0001-1390.mp4`). You can also open the `.blend` in Blender and press the spacebar to play it.
+
+On a Mac, `blender` is usually not on the `PATH`; use `/Applications/Blender.app/Contents/MacOS/Blender`, or add an alias:
+
+```bash
+echo 'alias blender=/Applications/Blender.app/Contents/MacOS/Blender' >> ~/.bash_profile
+```
+
+Tested with Blender 4.2, 4.4, and 5.2; written to also work with 3.x.
+
+### What the Blender version adds
+
+- **Smooth motion.** Each move keeps the rate function PAM used (`smooth`, `rush_from_start`, …), mapped to Blender's own easing curves where they match and baked frame by frame where they don't. Walks, runs, and carries follow a smooth spline through the keyframe poses with a steady root.
+- **Planted feet.** Feet stay put while they carry weight (no sliding), with knees solved to match, a slight hip dip so the legs can reach, and a subtle hip bob. Foot contacts come from `POSE_CONTACTS` in `pam/hooks.py`.
+- **A 3D look.** Thick rounded limbs with knee and elbow joints, a solid four-cornered chest that follows the shoulders and hips, lights, a floor and back wall with cast shadows, and a camera tilted slightly toward the floor.
+- **Gendered chests.** Male chests are wide at the shoulders and narrow at the hips; female chests the reverse. The cast's `"gender"` field is used automatically (a `"narrow"` build counts as female when no gender is given); `--female` / `--male` override it.
+- **Speech bubbles,** with PAM's colors, tails, phone/off-screen style, and timing, following walk-and-talk speakers.
+- **Fade-ins and fade-outs, camera moves, and background colors** from the Manim scene.
+
+### `trace2blender.py` options
+
+Options go after the `.blend` name.
+
+| Option | Effect |
+|---|---|
+| `--look eevee` | Default: solid rounded figures, lights, shadows (EEVEE). |
+| `--look studio` | Same figures with fast Workbench shading. |
+| `--look flat` | The original thin, unlit look. |
+| `--female A,B` / `--male A,B` | Override a character's chest shape. |
+| `--bust` | Add a bust to female chests (off by default). |
+| `--tilt DEG` | Camera tilt toward the floor (default 8; 0 for a straight-on view). |
+| `--no-bubbles` | Leave out speech bubbles. |
+| `--res WxH`, `--fps N` | Render size (default 1280x720) and frame rate (default 30). |
+| `--no-footlock`, `--bob S` | Turn off foot locking; scale or (with 0) remove the hip bob. |
+| `--locomotion exact` | Walks use PAM's per-keyframe easing instead of the spline. |
+| `--exact` | Bake every eased move instead of using Blender's easing curves. |
+| `--tol T` | How closely a Blender easing curve must match a PAM rate function to be used (default 0.015). |
+
+### How it works: `pam.hooks`
+
+`pam/hooks.py` lets an outside script listen to PAM while a screenplay plays. PAM emits events for motion segments (from `morph_to`, `set_pose`, `turn`, and `_pose_anims`), figure creation, fade-ins and fade-outs, action begin/end, prop attach/release, and speech bubbles:
+
+```python
+from pam import hooks
+
+def listener(event, data):
+    if event == "segment":
+        print(data["t0"], data["pose_name"], data["rate_name"], data["contacts"])
+
+hooks.subscribe(listener)
+```
+
+The hooks are a no-op unless something subscribes: every emit site is guarded by `if hooks.active():`, and a normal `pam-render` produces exactly the same video with or without them. The trace format is documented at the top of `pam_trace.py`; old version-1 traces still build.
+
+### Current limitations
+
+- Props, faces, wardrobe overlays, head labels, and captions are not exported yet.
+- Dogs get smooth motion but no foot locking.
+- Characters standing at different screen heights in the same shot share one floor, so some may hover slightly (in Manim, lower on screen reads as nearer the camera).
+- Scaled characters (for example `"scale": {"sy": 0.7}`) take overlong strides for their size, so their first and last steps lift the foot early.
+
+---
+
 ## Environment variables
 
 PAM-specific configuration is passed through environment variables because Manim owns the command line.
@@ -1388,8 +1479,11 @@ pam/
 ├── props_environment.py     buildings, sun, moon, dodecahedron, backdrop, panels
 ├── props_accessories.py     accessory builders such as silver hair
 ├── character_gallery.py     visual regression / documentation utility
+├── hooks.py                 optional events for outside tools (pam.hooks)
 ├── fountain2pam.py          Fountain+ to PAM JSON converter
-├── pam2blender.py           PAM JSON to Blender scene exporter
+├── pam_trace.py             records a motion trace for the Blender export
+├── trace2blender.py         builds an animated .blend from a motion trace
+├── pam2blender.py           PAM JSON to Blender layout exporter
 └── tntd_characters.json     canonical TNTD character registry
 ```
 
@@ -1409,7 +1503,8 @@ pam/
 | Body proportions | `builds.py` |
 | Prop geometry | `props_*.py` |
 | Fountain parsing | `fountain2pam.py` |
-| Blender export | `pam2blender.py` |
+| Blender export (motion) | `pam_trace.py`, `trace2blender.py`, `pam/hooks.py` |
+| Blender export (layout) | `pam2blender.py` |
 
 ---
 
@@ -1635,6 +1730,26 @@ PY
 
 If using a virtual environment, make sure both Manim and PAM are installed in that environment.
 
+On an Apple-silicon Mac, `ImportError: ... symbol not found in flat namespace '_cairo_append_path'` means pycairo was built against an Intel (x86_64) cairo from a Homebrew in `/usr/local`. Install the Apple-silicon Homebrew (it lives in `/opt/homebrew`), then rebuild the environment against it:
+
+```bash
+/opt/homebrew/bin/brew install cairo pango pkg-config
+export PATH="/opt/homebrew/bin:$PATH"
+export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig"
+rm -rf .venv && python3 -m venv .venv && source .venv/bin/activate
+pip install --no-cache-dir manim==0.20.1
+```
+
+Avoid having a conda environment and a venv active at the same time (`conda deactivate`).
+
+### `blender: command not found`
+
+On a Mac, Blender is not on the `PATH`. Use `/Applications/Blender.app/Contents/MacOS/Blender` or add the alias shown in [Blender export](#blender-export).
+
+### The Blender render shows an old version
+
+If the build step (`trace2blender.py`) fails, Blender renders the previous `.blend`. Run the build on its own and check that it ends with `wrote ... .blend`. After updating PAM, re-run `pam_trace.py` too: older traces have no speech bubbles or genders.
+
 ---
 
 ## Version highlights
@@ -1796,7 +1911,8 @@ Possible next steps:
 - add a prop-gallery generator;
 - strengthen Fountain+ annotation diagnostics;
 - package `pam-render` and `fountain2pam` as console scripts;
-- continue the bubble-lifecycle migration so bubbles, focus, overlays, and face attachments have simpler z-order semantics.
+- continue the bubble-lifecycle migration so bubbles, focus, overlays, and face attachments have simpler z-order semantics;
+- Blender export: props, faces, and wardrobe; turning PAM's 2.5D depth and screen height into real depth; dog foot locking; facing-aware side views.
 
 ---
 

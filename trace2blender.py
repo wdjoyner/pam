@@ -31,7 +31,8 @@ Options:
                        ignored by the flat look)
     --no-bubbles       leave out the speech bubbles
     --female A,B       draw these characters with a female chest (narrow
-                       top, wide bottom, bust); --male A,B the reverse.
+                       top, wide bottom); --male A,B the reverse.
+    --bust             add a bust to female chests (off by default)
                        Otherwise the screenplay's "gender" is used, and a
                        "narrow" build counts as female.
 
@@ -76,6 +77,7 @@ class Options:
     look = "eevee"
     female = ()
     male = ()
+    bust = False
     tilt = 8.0
     bubbles = True
 
@@ -107,6 +109,8 @@ def parse_args(argv):
             opt.tilt = float(a[i + 1]); i += 1
         elif k == "--no-bubbles":
             opt.bubbles = False
+        elif k == "--bust":
+            opt.bust = True
         elif k == "--female":
             opt.female = tuple(x for x in a[i + 1].split(",") if x); i += 1
         elif k == "--male":
@@ -1726,7 +1730,7 @@ def build(trace_path, out_path, opt=None):
                            [(0, 2 * ci, lambda v: v), (2, 2 * ci + 1, lambda v: v)],
                            ck)
             meshes.append(build_chest(bpy, col, name, corners, mat, sf, female))
-            if female:
+            if female and opt.bust:
                 bk = KeyList(opt.fps)
                 bk.f, bk.v, bk.spec = list(keys.f), list(bust_values(CV)), list(keys.spec)
                 for bi, side in enumerate(("l", "r")):
