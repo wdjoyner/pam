@@ -1376,6 +1376,7 @@ Tested with Blender 4.2, 4.4, and 5.2; written to also work with 3.x.
 - **Speech bubbles,** with PAM's colors, tails, phone/off-screen style, and timing, following walk-and-talk speakers. In close-ups, PAM's bubbles grow on screen with the zoom and can run past the edge of the frame (in the Manim video too); in Blender each bubble keeps the screen size it has in the opening wide shot (down to half size, shrinking toward its tail so it still points at the speaker) and is kept inside the camera frame while it is shown. `--bubbles-world` keeps PAM's world-space size instead.
 - **Props and scene objects.** Desks, tables, consoles (with their monitor), doors, chairs, cellphones, and the Governor dodecahedron become simple 3D models; every other prop type is extruded from its 2D Manim outline, so nothing disappears. Floor-standing props are set on the floor, doors sit in the back wall, and props appear, move, and disappear when they do in Manim (`props`, `spawn_prop`, `remove_prop`, `place_on`, `reparent_prop`, ...).
 - **Held props follow the hands.** Between a figure's attach and release (`carry`, `pick_up`, `grab`, `hand_to`, ...) the prop rides on the holding wrist(s), so it moves with the Blender figure's smoothed walk. A prop placed on a table slides from the hand to the tabletop and rests there, tilted toward the camera if it is a phone. Hats and other `pam_follows` accessories ride on the head or torso.
+- **Faces, wardrobe, labels, and on-screen text.** Faces (`attach_face`), torso icons and name tags (`attach_torso_icon`, `attach_name_tag`), dog harnesses, and head labels become flat decals traced from their Manim outlines, riding on the head, torso, or spine; since the camera always looks from the front they read exactly as in Manim, and the head ball hides while a face replaces it. Gloves become small 3D mitts on the wrists, `attach_shoes` sets the 3D shoes' color and length, and clothed limbs (`clothed_limbs` in a cast style) become tapered sleeves and trouser legs in the band colors, with `torso_color` on the chest. On-screen text, captions, and title text appear where they sit in the Manim frame, even with `--camera wide`.
 - **The Governor** spins slowly (when its `spawn_prop` asks for `"animate": "spin"`, the default), glows gold, flares word by word while it speaks, and dims to amber and slows down in its low-power state (`prop_color` with `#d47b00`).
 - **Fade-ins and fade-outs, camera moves, and background colors** from the Manim scene.
 
@@ -1393,6 +1394,9 @@ Options go after the `.blend` name.
 | `--tilt DEG` | Camera tilt toward the floor (default 8; 0 for a straight-on view). |
 | `--no-bubbles` | Leave out speech bubbles. |
 | `--camera wide` | Hold the widest framing the scene uses for the whole film, instead of following PAM's camera moves and cuts. |
+| `--bubble-lift V` | Raise very dark bubble backgrounds (like the Governor's navy) to brightness V so they stand out on the stage (default 0.5; 0 keeps PAM's colors). |
+| `--no-overlays` | Leave out faces, torso icons, name tags, gloves, PAM's shoes, and on-screen cards. |
+| `--no-labels` | Leave out the head labels. |
 | `--bubbles-world` | Keep PAM's bubble size in close-ups (bubbles are still kept inside the frame). |
 | `--no-props` | Leave out props and scene objects. |
 | `--skin A=#hex,...` | Skin color for these characters' head and limbs (overrides the cast's `"skin"`). |
@@ -1424,7 +1428,8 @@ Prop events carry a `mode` (hooks version 2) that says what kind of hand-off eac
 
 ### Current limitations
 
-- Faces, wardrobe overlays, head labels, captions, and `on_screen_text` are not exported yet.
+- Faces and other decals are flat: in side views a near arm passes behind a face's bib instead of in front of it (Manim draws it on top), and image-file faces (`.png`) are skipped.
+- A figure's colors are taken from its first appearance; a later `change_uniform` is not followed yet.
 - Props without a 3D model (TV monitors, letter graphs, backdrops, ...) are flat extrusions of their Manim outline, and a prop that changes shape inside itself (a laptop opening, a pod lid) keeps the shape it first appeared with.
 - In Manim, desks and doors are drawn from y = −2.6, about half a unit below the characters' feet; Blender lifts them onto the floor, together with anything resting on them.
 - Dogs get smooth motion but no foot locking.

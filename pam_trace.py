@@ -25,7 +25,7 @@ How it works
   hook (rotations, prop-relative nudges, ...) are still captured, with
   the play's own rate function.
 
-Trace format (trace_version 3)
+Trace format (trace_version 4)
 ------------------------------
 {
   "trace_version": 2,
@@ -49,8 +49,30 @@ Trace format (trace_version 3)
   "props":   [{"t", "kind", "char", "prop", "pid", "joints", "hand",
                "mode"}, ...],             # raw attach/release events
   "prop_objects": [prop record, ...],     # (version 3) see below
+  "overlays": [overlay record, ...],      # (version 4) see below
+  "shapes":  {sid: {"box", "parts"}},     # outlines shared by overlays
+  "looks":   {name: [[t, {"edges": {"a-b": {"color", "stroke"?,
+                                            "band"?: [w_a, w_b]}},
+                          "dots": {joint: {"fill", "stroke"}},
+                          "label"?: {...}}], ...]},   # figure colors
+  "head_hidden": {name: [[t, hidden], ...]},   # head dot hidden by a face
   "stats":   {...}
 }
+
+An overlay record (version 4) is something drawn on or around a figure
+besides its bones, or a loose card on screen:
+  {"id", "kind": "face" | "torso_icon" | "name_tag" | "glove" | "shoe" |
+   "card", "char", "joints" (anchor joints; the overlay rides on their
+   average), "offset": [dx, dy] from that anchor, "size": [w, h],
+   "shape": sid (its outline, see "shapes"; none for gloves and shoes),
+   "colors": {"fill", "stroke"}, "t0", "t1", "visibility": [[t, on, op]],
+   cards also: "initial", "geom_box": [x, y, w, h], "moves", "camera"
+   (the Manim camera frame when it first showed)}
+Faces, torso icons, name tags, gloves and shoes are the mobjects PAM
+keeps on a joint with an updater (fig.head_face, fig.torso_icon,
+fig._name_tag, fig.gloves, fig.shoes).  A card is any other mobject on
+screen that is not part of a figure, prop or speech bubble: the
+on_screen_text card, captions, title text, ...
 
 A prop record describes one prop instance (a prop removed and spawned
 again under the same name is a new record):
@@ -107,7 +129,7 @@ from manim.scene.scene import Scene
 
 from pam import hooks
 
-TRACE_VERSION = 3
+TRACE_VERSION = 4
 RATE_SAMPLES = 64
 EPS = 1e-4
 
@@ -180,6 +202,55 @@ def _opacity(mob, limit=16):
             except Exception:
                 pass
     return best
+
+
+def capture_outline(mob, box):
+    """The 2D outline of *mob*: a list of drawn parts (fill / stroke
+    style plus cubic Bezier control points relative to box[:2]), in
+    draw order, and its dominant {"fill", "stroke"} colors."""
+    parts = []
+    best = (0.0, None)
+    for m in _members(mob):
+        try:
+            fo = float(m.get_fill_opacity())
+            so = float(m.get_stroke_opacity())
+            sw = float(m.get_stroke_width())
+        except Exception:
+            continue
+        if fo < 0.02 and (sw <= 0.0 or so < 0.02):
+            continue
+        paths = []
+        try:
+            subs = m.get_subpaths()
+        except Exception:
+            subs = [m.points]
+        for sp in subs:
+            if len(sp) < 4:
+                continue
+            flat = []
+            for pt in sp:
+                flat.append(round(float(pt[0]) - box[0], GEOM_DIGITS))
+                flat.append(round(float(pt[1]) - box[1], GEOM_DIGITS))
+            paths.append(flat)
+        if not paths:
+            continue
+        fill = _hex_of(m.get_fill_color, "#ffffff")
+        stroke = _hex_of(m.get_stroke_color, "#ffffff")
+        parts.append({"fill": fill, "fill_opacity": _r4(fo),
+                      "stroke": stroke, "stroke_opacity": _r4(so),
+                      "stroke_width": _r4(sw), "paths": paths})
+        area = float(m.width) * float(m.height)
+        if fo > 0.3 and area > best[0]:
+            best = (area, (fill, stroke))
+        if len(parts) >= GEOM_MAX_PARTS:
+            break
+    if best[1] is not None:
+        colors = {"fill": best[1][0], "stroke": best[1][1]}
+    elif parts:
+        colors = {"fill": parts[0]["stroke"], "stroke": parts[0]["stroke"]}
+    else:
+        colors = {}
+    return parts, colors
 
 
 class PropTracker:
@@ -321,48 +392,9 @@ class PropTracker:
         return [_r4(op), col]
 
     def _capture_geometry(self, rec, mob, box):
-        parts = []
-        best = (0.0, None)
-        for m in _members(mob):
-            try:
-                fo = float(m.get_fill_opacity())
-                so = float(m.get_stroke_opacity())
-                sw = float(m.get_stroke_width())
-            except Exception:
-                continue
-            if fo < 0.02 and (sw <= 0.0 or so < 0.02):
-                continue
-            paths = []
-            try:
-                subs = m.get_subpaths()
-            except Exception:
-                subs = [m.points]
-            for sp in subs:
-                if len(sp) < 4:
-                    continue
-                flat = []
-                for pt in sp:
-                    flat.append(round(float(pt[0]) - box[0], GEOM_DIGITS))
-                    flat.append(round(float(pt[1]) - box[1], GEOM_DIGITS))
-                paths.append(flat)
-            if not paths:
-                continue
-            fill = _hex_of(m.get_fill_color, "#ffffff")
-            stroke = _hex_of(m.get_stroke_color, "#ffffff")
-            parts.append({"fill": fill, "fill_opacity": _r4(fo),
-                          "stroke": stroke, "stroke_opacity": _r4(so),
-                          "stroke_width": _r4(sw), "paths": paths})
-            area = float(m.width) * float(m.height)
-            if fo > 0.3 and area > best[0]:
-                best = (area, (fill, stroke))
-            if len(parts) >= GEOM_MAX_PARTS:
-                break
+        parts, colors = capture_outline(mob, box)
         rec["geometry"] = {"box": list(box), "parts": parts}
-        if best[1] is not None:
-            rec["colors"] = {"fill": best[1][0], "stroke": best[1][1]}
-        elif parts:
-            rec["colors"] = {"fill": parts[0]["stroke"],
-                             "stroke": parts[0]["stroke"]}
+        rec["colors"] = colors
 
     def step(self, t0, t1, rate, on_stage):
         """Record prop changes over one play [t0, t1] (t0 == t1 for the
@@ -563,6 +595,306 @@ class PropTracker:
         return out
 
 
+# ── overlays: faces, wardrobe, labels, on-screen text ────────────────────
+
+TORSO_ANCHOR = ("lshoulder", "rshoulder", "lhip", "rhip")
+
+
+class OverlayTracker:
+    """Follows what is drawn on and around the figures besides their
+    bones: faces, torso icons, name tags, gloves and shoes (each a
+    separate mobject PAM keeps on a joint with an updater), the figures'
+    own colors (limb lines, clothed-limb bands, joint dots, head label),
+    and any other loose mobject on screen (on_screen_text cards,
+    captions, title text, ...).  Read-only."""
+
+    def __init__(self, tracer):
+        self.tr = tracer
+        self.shapes = {}            # sid -> geometry (deduplicated)
+        self._shape_ids = {}        # geometry json -> sid
+        self.overlays = []
+        self._slots = {}            # (char, slot) -> (mob, rec)
+        self._loose = {}            # id(mob) -> rec (mob kept alive)
+        self._retiring = {}         # id(mob) -> rec: detached, still shown
+        self.looks = {}             # char -> [[t, look], ...]
+        self._look_sig = {}
+        self.head_hidden = {}       # char -> [[t, hidden], ...]
+        self._owned = {}            # id(group) -> group: holds figure parts
+
+    # ── shapes ──────────────────────────────────────────────────────────
+    def shape(self, mob, box):
+        parts, colors = capture_outline(mob, box)
+        if not parts:
+            return None, colors
+        key = json.dumps(parts, separators=(",", ":"))
+        sid = self._shape_ids.get(key)
+        if sid is None:
+            sid = f"s{len(self.shapes) + 1}"
+            self._shape_ids[key] = sid
+            self.shapes[sid] = {"box": [0.0, 0.0, _r4(box[2]), _r4(box[3])],
+                                "parts": parts}
+        return sid, colors
+
+    # ── figure looks ────────────────────────────────────────────────────
+    @staticmethod
+    def _look(fig):
+        edges = {}
+        bands = getattr(fig, "_band_specs", {}) or {}
+        for (a, b), ln in fig.lines.items():
+            spec = bands.get((a, b))
+            if spec:
+                edges[f"{a}-{b}"] = {"color": spec.get("fill"),
+                                     "stroke": spec.get("stroke"),
+                                     "band": [_r4(spec.get("w_a", 0.1)),
+                                              _r4(spec.get("w_b", 0.1))]}
+            else:
+                edges[f"{a}-{b}"] = {"color": _hex_of(ln.get_stroke_color)}
+        dots = {}
+        for j, d in fig.dots.items():
+            c = d[0] if j == "head" and len(getattr(d, "submobjects", [])) else d
+            dots[j] = {"fill": _hex_of(c.get_fill_color),
+                       "stroke": _hex_of(c.get_stroke_color)}
+        return {"edges": edges, "dots": dots}
+
+    def _label(self, fig):
+        """The head label (HumanGraph / AlienGraph head dot = VGroup of
+        circle and Text), as a shape relative to the head center."""
+        d = fig.dots.get("head")
+        subs = getattr(d, "submobjects", []) if d is not None else []
+        if len(subs) < 2:
+            return None
+        lbl = subs[1]
+        try:
+            if not lbl.family_members_with_points():
+                return None
+            c = d[0].get_center()
+            box = [float(c[0]), float(c[1]), float(lbl.width), float(lbl.height)]
+        except Exception:
+            return None
+        sid, colors = self.shape(lbl, box)
+        if sid is None:
+            return None
+        lc = lbl.get_center()
+        return {"shape": sid, "text": getattr(lbl, "text", None),
+                "color": colors.get("fill"),
+                "offset": [_r4(lc[0] - c[0]), _r4(lc[1] - c[1])],
+                "head_radius": _r4(d[0].width / 2)}
+
+    def update_look(self, name, t):
+        fig = self.tr.figs.get(name)
+        if fig is None or not getattr(fig, "lines", None):
+            return
+        try:
+            look = self._look(fig)
+        except Exception:
+            return
+        sig = json.dumps(look, sort_keys=True)
+        if self._look_sig.get(name) == sig:
+            return
+        self._look_sig[name] = sig
+        if name not in self.looks:
+            look["label"] = self._label(fig)
+        self.looks.setdefault(name, []).append([_r4(t), look])
+
+    # ── per-play step ───────────────────────────────────────────────────
+    @staticmethod
+    def _slot_mobs(fig):
+        out = {}
+        for slot, attr in (("face", "head_face"), ("torso_icon", "torso_icon"),
+                           ("name_tag", "_name_tag"), ("harness", "harness")):
+            m = getattr(fig, attr, None)
+            if m is not None:
+                out[slot] = m
+        for attr, kind in (("gloves", "glove"), ("shoes", "shoe")):
+            d = getattr(fig, attr, None) or {}
+            for side, m in d.items():
+                if m is not None:
+                    out[f"{kind}_{side}"] = m
+        return out
+
+    @staticmethod
+    def _anchor(slot, fig, mob=None):
+        if slot == "face":
+            return ["head"]
+        if slot == "harness":
+            return ["spine_mid"]
+        if slot == "name_tag":
+            # on the head, or on a dog's harness: the nearer joint
+            c = mob.get_center() if mob is not None else None
+            cands = [j for j in ("head", "spine_mid") if j in fig.dots]
+            if c is not None and cands:
+                return [min(cands, key=lambda j: float(np.linalg.norm(
+                    fig.dots[j].get_center() - c)))]
+            return ["head"]
+        if slot == "torso_icon":
+            return [j for j in TORSO_ANCHOR if j in fig.dots]
+        if slot.startswith("glove_"):
+            return [slot[-1] + "wrist"]
+        if slot.startswith("shoe_"):
+            return [slot[-1] + "ankle"]
+        return ["head"]
+
+    def _open(self, name, fig, slot, mob, t):
+        c = mob.get_center()
+        box = [float(c[0]), float(c[1]), float(mob.width), float(mob.height)]
+        joints = [j for j in self._anchor(slot, fig, mob) if j in fig.dots]
+        if not joints:
+            return None
+        pts = [fig.dots[j].get_center() for j in joints]
+        ax = sum(p[0] for p in pts) / len(pts)
+        ay = sum(p[1] for p in pts) / len(pts)
+        kind = slot.split("_")[0] if slot.startswith(("glove", "shoe")) \
+            else slot
+        rec = {"id": len(self.overlays) + 1, "kind": kind, "slot": slot,
+               "char": name, "joints": joints,
+               "offset": [_r4(box[0] - ax), _r4(box[1] - ay)],
+               "size": [_r4(box[2]), _r4(box[3])], "t0": _r4(t), "t1": None,
+               "visibility": [], "_mob": mob, "_vis": None}
+        if kind in ("glove", "shoe"):
+            try:
+                rec["colors"] = {"fill": _hex_of(mob.get_fill_color),
+                                 "stroke": _hex_of(mob.get_stroke_color)}
+            except Exception:
+                rec["colors"] = {}
+            rec["shape"] = None
+        else:
+            sid, colors = self.shape(mob, box)
+            rec["shape"], rec["colors"] = sid, colors
+            if sid is None:
+                rec["note"] = f"no outline ({type(mob).__name__})"
+        self.overlays.append(rec)
+        return rec
+
+    @staticmethod
+    def _set_vis(rec, t0, t1, visible, op):
+        if rec["_vis"] != visible:
+            tv = t0 if visible else t1
+            rows = rec["visibility"]
+            if rows and abs(rows[-1][0] - tv) < 1e-6:
+                rows[-1] = [_r4(tv), visible, _r4(op)]
+            else:
+                rows.append([_r4(tv), visible, _r4(op)])
+            rec["_vis"] = visible
+
+    def step(self, t0, t1, rate, on_stage, camera):
+        tr = self.tr
+        known = set()
+        # figure-attached overlays
+        for name, fig in list(tr.figs.items()):
+            if not getattr(fig, "dots", None):
+                continue
+            for ln in list(fig.lines.values()) + list(fig.dots.values()):
+                known.add(id(ln))
+            arm = getattr(fig, "_panel_near_arm", None)
+            if arm is not None:
+                known.add(id(arm))
+            mobs = self._slot_mobs(fig)
+            for slot in set(mobs) | {s for (c, s) in self._slots if c == name}:
+                cur = mobs.get(slot)
+                prev = self._slots.get((name, slot))
+                if prev is not None and prev[0] is not cur:
+                    old, rec = prev
+                    if rec is not None:
+                        if id(old) in on_stage:
+                            # detached but still on screen (fade_out
+                            # clears the reference first): keep it on
+                            # its joint until it leaves
+                            self._retiring[id(old)] = rec
+                        else:
+                            rec["t1"] = _r4(t0)
+                            self._set_vis(rec, t0, t0, False, 0.0)
+                    self._slots.pop((name, slot), None)
+                    prev = None
+                if cur is not None and prev is None:
+                    rec = self._open(name, fig, slot, cur, t0)
+                    self._slots[(name, slot)] = (cur, rec)
+                if cur is not None:
+                    known.add(id(cur))
+                    rec = self._slots[(name, slot)][1]
+                    if rec is not None:
+                        vis = id(cur) in on_stage and _opacity(cur) > 0.01
+                        self._set_vis(rec, t0, t1, vis, 1.0 if vis else 0.0)
+            # head dot hidden (a face replaces it)
+            hd = fig.dots.get("head")
+            if hd is not None:
+                try:
+                    hidden = _opacity(hd) < 0.05
+                except Exception:
+                    hidden = False
+                rows = self.head_hidden.setdefault(name, [])
+                if not rows or rows[-1][1] != hidden:
+                    rows.append([_r4(t0 if hidden else t1), hidden])
+        for k, rec in list(self._retiring.items()):
+            known.add(k)
+            vis = k in on_stage and _opacity(rec["_mob"]) > 0.01
+            self._set_vis(rec, t0, t1, vis, 1.0 if vis else 0.0)
+            if not vis:
+                rec["t1"] = _r4(t1)
+                self._retiring.pop(k, None)
+        # props, bubbles
+        for rec in tr.pt.active.values():
+            known.add(id(rec["_mob"]))
+        known |= set(tr._live_bubbles)
+        known |= tr._bubble_groups
+        # loose mobjects (cards, captions, titles, ...)
+        for top in tr.scene.mobjects:
+            k = id(top)
+            if k in known or k in self._loose or k in self._owned:
+                continue
+            try:
+                fam = top.get_family()
+                if not top.family_members_with_points():
+                    continue
+            except Exception:
+                continue
+            # a group holding a figure's lines or dots (some actions add
+            # a whole figure as one VGroup) belongs to that figure
+            if any(id(m) in known for m in fam):
+                self._owned[k] = top
+                continue
+            rec = {"id": len(self.overlays) + 1, "kind": "card", "char": None,
+                   "joints": [], "shape": None, "colors": {},
+                   "t0": _r4(t0), "t1": None, "visibility": [], "moves": [],
+                   "camera": None, "initial": None, "_mob": top, "_vis": None,
+                   "_box": None}
+            self.overlays.append(rec)
+            self._loose[k] = rec
+        for k, rec in list(self._loose.items()):
+            mob = rec["_mob"]
+            vis_on = k in on_stage
+            op = _opacity(mob) if vis_on else 0.0
+            visible = vis_on and op > 0.01
+            c = mob.get_center()
+            box = [_r4(c[0]), _r4(c[1]), _r4(mob.width), _r4(mob.height)]
+            if rec["initial"] is None:
+                rec["initial"] = box
+                rec["_box"] = box
+            elif box[:2] != rec["_box"][:2] and visible:
+                rec["moves"].append({"t0": _r4(t0), "t1": _r4(t1),
+                                     "rate": rate if t1 > t0 else "linear",
+                                     "from": rec["_box"], "to": box})
+                rec["_box"] = box
+            if visible and rec["shape"] is None and op > 0.5:
+                rec["shape"], rec["colors"] = self.shape(mob, box)
+                rec["geom_box"] = box
+                rec["camera"] = camera
+            self._set_vis(rec, t0, t1, visible, op)
+            if not vis_on and rec["shape"] is not None:
+                rec["t1"] = _r4(t1)
+                self._loose.pop(k, None)
+
+    def result(self):
+        out = []
+        for rec in self.overlays:
+            r = {k: v for k, v in rec.items() if not k.startswith("_")}
+            if r["kind"] == "card" and r.get("shape") is None:
+                continue                  # never drawn
+            if r.get("t1") is None:
+                r["t1"] = _r4(self.tr.now())
+            out.append(r)
+        return out
+
+
 class Tracer:
     def __init__(self):
         self.scene = None
@@ -581,6 +913,9 @@ class Tracer:
         self._open_actions = {}
         self._action_stack = []
         self.pt = PropTracker(self)
+        self.ot = OverlayTracker(self)
+        self._bubble_groups = set()     # ids of bubble VGroups ...
+        self._bubble_keep = []          # ... kept alive so ids stay unique
         self.props_ref = None       # PAMPlayer.construct's PropRegistry
         self.scene_objects_ref = None   # ... and its _scene_objects dict
         self.construct_frame = None
@@ -670,6 +1005,7 @@ class Tracer:
             }
             self.tracks[name] = []
             self.visibility[name] = []
+        self.ot.update_look(name, self.now())
 
     def _find_cast_ref(self):
         """Locate PAMPlayer.construct's `cast` dict, prop registry and
@@ -796,6 +1132,8 @@ class Tracer:
             self.actions.append(rec)
             self._action_stack.append(data["action_id"])
         elif event == "action_end":
+            if data.get("name") in self.figs:
+                self.ot.update_look(data["name"], self.now())
             rec = self._open_actions.pop(data["action_id"], None)
             if rec is not None:
                 rec["t1"] = _r4(self.now())
@@ -866,6 +1204,8 @@ class Tracer:
         }
         self.bubbles.append(rec)
         self._live_bubbles[id(box)] = rec
+        self._bubble_groups.add(id(mob))
+        self._bubble_keep.append(mob)
 
     def _bubble_state(self, on_stage):
         out = {}
@@ -925,6 +1265,7 @@ class Tracer:
             self._set_vis(name, t, v)
         self.pending_set.clear()
         self.pt.step(t, t, "linear", self._on_stage)
+        self.ot.step(t, t, "linear", self._on_stage, cam)
         self._bubble_update(self._on_stage, t, t, "linear")
         if self.cam_state is not None and self.cam_state != cam:
             self.camera.append({"t0": _r4(t), "t1": _r4(t), "rate": "linear",
@@ -1000,6 +1341,7 @@ class Tracer:
             else:
                 self._set_vis(name, t1, v1)
         self.pt.step(t0, t1, play_rate, self._on_stage)
+        self.ot.step(t0, t1, play_rate, self._on_stage, cam)
         self._bubble_update(self._on_stage, t0, t1, play_rate)
         if self.cam_state is not None and self.cam_state != cam:
             self.camera.append({"t0": _r4(t0), "t1": _r4(t1),
@@ -1010,6 +1352,9 @@ class Tracer:
     def result(self):
         tracks = {n: tr for n, tr in self.tracks.items()}
         prop_objects = self.pt.result()
+        overlays = self.ot.result()
+        self.stats["overlays"] = len(overlays)
+        self.stats["shapes"] = len(self.ot.shapes)
         self.stats["prop_objects"] = len(prop_objects)
         self.stats["prop_holds"] = sum(len(p["holds"]) for p in prop_objects)
         return {
@@ -1030,6 +1375,10 @@ class Tracer:
             "actions": self.actions,
             "props": self.pt.events,
             "prop_objects": prop_objects,
+            "overlays": overlays,
+            "shapes": self.ot.shapes,
+            "looks": self.ot.looks,
+            "head_hidden": self.ot.head_hidden,
             "stats": self.stats,
         }
 

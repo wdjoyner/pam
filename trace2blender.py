@@ -30,9 +30,14 @@ Options:
     --tilt DEG         camera tilt down toward the floor (default 8;
                        ignored by the flat look)
     --no-bubbles       leave out the speech bubbles
+    --no-overlays      leave out faces, torso icons, name tags, gloves,
+                       PAM's shoes and on-screen cards (trace version 4)
+    --no-labels        leave out the head labels ("Sidel", "Nona", ...)
     --camera wide      hold the widest framing the scene uses for the
                        whole film, ignoring PAM's camera moves and cuts
                        (default "manim": follow them)
+    --bubble-lift V    raise very dark bubble backgrounds to brightness V
+                       (HSV value, default 0.5; 0 keeps PAM's colors)
     --bubbles-world    keep PAM's world-space bubble size in close-ups
                        (by default a bubble keeps its wide-shot screen size,
                        down to half, and always stays inside the frame)
@@ -111,6 +116,9 @@ class Options:
     shoes = "#4a3020"
     bubble_size = "screen"
     camera = "manim"
+    overlays = True
+    labels = True
+    bubble_lift = 0.50      # see BUBBLE_LIFT
 
 
 def parse_args(argv):
@@ -158,6 +166,12 @@ def parse_args(argv):
             opt.bubble_size = "world"
         elif k == "--camera":
             opt.camera = a[i + 1]; i += 1
+        elif k == "--no-overlays":
+            opt.overlays = False
+        elif k == "--no-labels":
+            opt.labels = False
+        elif k == "--bubble-lift":
+            opt.bubble_lift = float(a[i + 1]); i += 1
         elif k == "--bust":
             opt.bust = True
         elif k == "--female":
@@ -1598,6 +1612,63 @@ def build_chest(bpy, col, name, corners, mat, sf, female):
     return ob
 
 
+def combine_vis(seq, hidden_rows):
+    """Visibility (t, on) changes for something shown when *seq* is on
+    and *hidden_rows* ([[t, hidden], ...]) says it is not hidden."""
+    ev = sorted([(t, 0, on) for t, on in seq] +
+                [(t, 1, h) for t, h in (hidden_rows or [])])
+    on, hid, out, cur = False, False, [], None
+    for t, kind, val in ev:
+        if kind == 0:
+            on = bool(val)
+        else:
+            hid = bool(val)
+        v = on and not hid
+        if v != cur:
+            if out and abs(out[-1][0] - t) < 1e-9:
+                out[-1] = (t, v)
+            else:
+                out.append((t, v))
+            cur = v
+    return out or [(0.0, False)]
+
+
+def subtract_spans(seq, spans):
+    """*seq* visibility with the (t0, t1) *spans* cut out."""
+    rows = []
+    for t0, t1 in spans:
+        rows += [[t0, True], [t1, False]]
+    rows.sort()
+    return combine_vis(seq, rows)
+
+
+_CONES = {}
+
+
+def unit_cone_mesh(bpy, ratio):
+    """Like unit_bone_mesh, but its radius goes from 1 at y=0 to *ratio*
+    at y=1 (a tapered sleeve or trouser leg)."""
+    key = round(ratio, 2)
+    if key in _CONES:
+        return _CONES[key]
+    import bmesh
+    bm = bmesh.new()
+    bmesh.ops.create_cone(bm, cap_ends=True, segments=20, radius1=1.0,
+                          radius2=max(key, 0.05), depth=1.0)
+    for v in bm.verts:
+        z = v.co.z + 0.5          # 0 at the base, 1 at the tip
+        v.co.z = -v.co.y
+        v.co.y = z
+    me = bpy.data.meshes.new(f"cone.{key}")
+    bm.to_mesh(me)
+    bm.free()
+    for poly in me.polygons:
+        poly.use_smooth = True
+    me.materials.append(None)
+    _CONES[key] = me
+    return me
+
+
 def narrow_hips(keys, joints, f):
     """Pull the two hip joints toward their midpoint by factor *f* in
     every key (male figures: narrower hips under wide shoulders).  The
@@ -1655,12 +1726,26 @@ def shoe_keys(T, name, fps):
     return keys
 
 
-def build_shoes(bpy, col, name, empties, sf, shoe_mat, ball_me, T, fps):
+def build_shoes(bpy, col, name, empties, sf, shoe_mat, ball_me, T, fps,
+                pam_shoes=()):
     """An ellipsoid shoe under each ankle, its bottom on the floor when
-    the foot is planted, turned to match the figure's view."""
-    out = []
+    the foot is planted, turned to match the figure's view.  Returns
+    (default shoes by side, [(shoe, visibility rows)] for the shoes PAM
+    attached with attach_shoes, in their own color and length)."""
+    default, extra = {}, []
     keys = shoe_keys(T, name, fps)
     L, W, H = SHOE_L * sf, SHOE_W * sf, SHOE_H * sf
+
+    def shoe_obj(piv, nm, m, l, w, h):
+        shoe = bpy.data.objects.new(nm, ball_me)
+        col.objects.link(shoe)
+        shoe.material_slots[0].link = "OBJECT"
+        shoe.material_slots[0].material = m
+        shoe.parent = piv
+        # the floor sits LIMB_R * 0.6 below a planted ankle (setup_look)
+        shoe.location = (0.0, -SHOE_FWD * sf, -LIMB_R * 0.6 + h / 2)
+        shoe.scale = (w / 2, l / 2, h / 2)
+        return shoe
     for side in ("l", "r"):
         ank = empties.get(f"{side}ankle")
         if ank is None:
@@ -1670,21 +1755,40 @@ def build_shoes(bpy, col, name, empties, sf, shoe_mat, ball_me, T, fps):
         col.objects.link(piv)
         piv.parent = ank
         apply_keys(bpy, piv, "rotation_euler", [(2, 0, lambda v: v)], keys)
-        shoe = bpy.data.objects.new(f"{name}.{side}shoe", ball_me)
-        col.objects.link(shoe)
-        shoe.material_slots[0].link = "OBJECT"
-        shoe.material_slots[0].material = shoe_mat
-        shoe.parent = piv
-        # the floor sits LIMB_R * 0.6 below a planted ankle (setup_look)
-        shoe.location = (0.0, -SHOE_FWD * sf, -LIMB_R * 0.6 + H / 2)
-        shoe.scale = (W / 2, L / 2, H / 2)
-        out.append(shoe)
-    return out
+        if shoe_mat is not None:
+            default[side] = shoe_obj(piv, f"{name}.{side}shoe", shoe_mat,
+                                     L, W, H)
+        for o in pam_shoes:
+            if o.get("slot") != f"shoe_{side}":
+                continue
+            ln = max(float(o["size"][0]), 0.2 * sf)
+            m = material(bpy, f"{name} shoe {o['colors'].get('fill')}",
+                         hex_rgba(o["colors"].get("fill") or "#4a3020"),
+                         roughness=0.3)
+            extra.append((shoe_obj(piv, f"{name}.{side}shoe.{o['id']}", m,
+                                   ln * 1.05, ln * 0.55, max(H, ln * 0.4)),
+                          o.get("visibility") or []))
+    return default, extra
 
 
 BUBBLE_Y = -1.5            # bubble panels' depth (in front of the cast)
 BUBBLE_MARGIN = 0.12       # keep bubbles this far inside the camera frame
 BUBBLE_MIN_SCALE = 0.5     # close-up bubbles shrink to at most this much
+BUBBLE_LIFT = 0.50         # very dark bubble fills are lifted to this HSV
+                           # value (same hue), to stand out on the stage
+
+
+def lift_dark(hx, v_min):
+    """A very dark color raised to brightness *v_min* (HSV value) with its
+    hue and saturation kept; other colors unchanged."""
+    import colorsys
+    h = hx.lstrip("#")[:6]
+    r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    hh, ss, vv = colorsys.rgb_to_hsv(r, g, b)
+    if v_min <= 0 or vv >= v_min:
+        return hx
+    r, g, b = colorsys.hsv_to_rgb(hh, min(ss, 0.85), v_min)
+    return "#%02x%02x%02x" % tuple(int(round(c * 255)) for c in (r, g, b))
 
 
 def _move_eval(c0, moves, rates, t, key=None):
@@ -1807,13 +1911,14 @@ def build_bubbles(bpy, sc, T, rates, opt, native, tilt):
         if not (os_style and b.get("fill_opacity", 1) < 0.05):
             me = _flat_mesh(bpy, "bubble box", _rounded_rect(w, h, 0.15), 0.0)
             ob = bpy.data.objects.new(f"bubble.{b['id']}.box", me)
-            ob.data.materials.append(mat(b["fill"]))
+            ob.data.materials.append(mat(lift_dark(b["fill"], opt.bubble_lift)))
             parts.append(ob)
         if len(b.get("tail") or []) == 3:
             tail = [(x, z) for x, z in b["tail"]]
             me = _flat_mesh(bpy, "bubble tail", tail, 0.0)
             ob = bpy.data.objects.new(f"bubble.{b['id']}.tail", me)
-            ob.data.materials.append(mat(b["fill"] if not os_style else b["stroke"]))
+            ob.data.materials.append(mat(lift_dark(b["fill"], opt.bubble_lift)
+                                         if not os_style else b["stroke"]))
             parts.append(ob)
         # text
         cu = bpy.data.curves.new(f"bubble.{b['id']}.text", "FONT")
@@ -2731,6 +2836,304 @@ def build_props(bpy, sc, T, rates, opt, native, empties):
         T.get("bubbles") or [], empties)
 
 
+# ═════════════════════════════════════════════════════════════════════════
+#  Overlays: faces, torso icons, name tags, harnesses, head labels,
+#  gloves, PAM shoes, and on-screen cards (trace version 4)
+# ═════════════════════════════════════════════════════════════════════════
+#
+# Faces, icons, tags and labels are flat decals made from their Manim
+# outlines, riding just in front of the figure on their anchor joints;
+# the camera always looks from the front, so they read exactly as in
+# Manim.  Each distinct outline is built once, as one mesh in its own
+# collection, and shown through collection instances (TNTD attaches a
+# face 1272 times, from 307 distinct faces).  Cards (on_screen_text,
+# captions, title text) are shown where they sit in the Manim frame,
+# even when the Blender camera differs (--camera wide).
+
+DECAL_Y = {"face": -0.30, "torso_icon": -0.36, "name_tag": -0.38,
+           "harness": -0.16}
+CARD_DIST = 1.0            # cards sit this far in front of the camera,
+                           # ahead of everything (the camera is
+                           # orthographic, so their size does not change)
+DECAL_LAYER = 0.004        # depth between successive outline parts
+BAND_SCALE = 1.25          # clothed-limb radius = band half-width x this
+
+
+def _outline_parts(bpy, parts, mat_of, layer=DECAL_LAYER, extrude=0.002):
+    """Curve objects for a list of outline parts (see pam_trace
+    capture_outline), in the XZ plane; later parts toward -y."""
+    out = []
+    for i, p in enumerate(parts):
+        for kind in ("fill", "stroke"):
+            if kind == "fill" and p["fill_opacity"] < 0.2:
+                continue
+            if kind == "stroke" and (p["stroke_width"] <= 0
+                                     or p["stroke_opacity"] < 0.2):
+                continue
+            cu = bpy.data.curves.new(f"part.{i}.{kind}", "CURVE")
+            cu.resolution_u = 4      # PAM's Bezier segments are short
+            if kind == "fill":
+                cu.dimensions = "2D"
+                cu.fill_mode = "BOTH"
+                cu.extrude = extrude
+                color = p["fill"]
+            else:
+                cu.dimensions = "3D"
+                cu.bevel_depth = max(p["stroke_width"] * 0.005, 0.003)
+                cu.bevel_resolution = 1
+                color = p["stroke"]
+            for flat in p["paths"]:
+                PropBuilder._add_spline(cu, flat, closed_only=(kind == "fill"))
+            if not cu.splines:
+                bpy.data.curves.remove(cu)
+                continue
+            ob = bpy.data.objects.new(cu.name, cu)
+            ob.rotation_euler = (math.pi / 2, 0, 0)
+            ob.location = (0, -layer * (i + (0.5 if kind == "stroke" else 0.0)),
+                           0)
+            out.append((ob, mat_of(color)))
+    return out
+
+
+def outline_meshes(bpy, jobs, mat_of, layer=DECAL_LAYER, batch=40):
+    """Build one mesh object (not linked anywhere) per (name, parts) job,
+    holding every part of that outline with one material slot per color.
+
+    The parts are made as curves and evaluated to meshes in batches: one
+    depsgraph update and one batch_remove per batch.  (Removing IDs one
+    by one, or updating the view layer per outline, gets slow once the
+    scene holds thousands of objects.)"""
+    out = {}
+    for k in range(0, len(jobs), batch):
+        chunk = jobs[k:k + batch]
+        tmp = bpy.data.collections.new("_outline_tmp")
+        bpy.context.scene.collection.children.link(tmp)
+        built = []
+        for name, parts in chunk:
+            obs = _outline_parts(bpy, parts, mat_of, layer)
+            for ob, _ in obs:
+                tmp.objects.link(ob)
+            built.append((name, obs))
+        bpy.context.view_layer.update()
+        dg = bpy.context.evaluated_depsgraph_get()
+        trash = [tmp]
+        for name, obs in built:
+            verts, faces, fmat, mats = [], [], [], []
+            for ob, m in obs:
+                if m not in mats:
+                    mats.append(m)
+                mi = mats.index(m)
+                ev = ob.evaluated_get(dg)
+                try:
+                    me = ev.to_mesh()
+                except Exception:
+                    me = None
+                if me is not None:
+                    M = ob.matrix_world
+                    base = len(verts)
+                    verts += [tuple(M @ v.co) for v in me.vertices]
+                    for poly in me.polygons:
+                        faces.append([base + i for i in poly.vertices])
+                        fmat.append(mi)
+                    ev.to_mesh_clear()
+                trash += [ob, ob.data]
+            me = bpy.data.meshes.new(name)
+            me.from_pydata(verts, [], faces)
+            me.update()
+            for m in mats:
+                me.materials.append(m)
+            if fmat:
+                me.polygons.foreach_set("material_index", fmat)
+            ob = bpy.data.objects.new(name, me)
+            if hasattr(ob, "visible_shadow"):
+                ob.visible_shadow = False
+            out[name] = ob
+        bpy.data.batch_remove(trash)
+    return out
+
+
+def unlit(bpy, cache, hx, glow=False):
+    """Flat color for decals and cards: emission only, so Manim's colors
+    come through unchanged (glow=False keeps them from blooming)."""
+    if hx not in cache:
+        cache[hx] = material(bpy, "flat " + hx, hex_rgba(hx), emission=True)
+    return cache[hx]
+
+
+class OverlayBuilder:
+    def __init__(self, bpy, sc, T, rates, opt, tilt, empties):
+        self.bpy, self.sc, self.T = bpy, sc, T
+        self.rates, self.opt, self.tilt = rates, opt, tilt
+        self.empties = empties
+        self.mats = {}
+        self.shape_cols = {}
+        self.col = bpy.data.collections.new("overlays")
+        sc.collection.children.link(self.col)
+        self.lib = bpy.data.collections.new("overlay_shapes")
+        sc.collection.children.link(self.lib)
+        # the library itself is never rendered, only its instances
+        lc = sc.view_layers[0].layer_collection.children.get("overlay_shapes")
+        if lc is not None:
+            lc.exclude = True
+
+    def prebuild(self, sids):
+        """Build the outline meshes for every shape in *sids* (call it
+        before the scene fills up)."""
+        shapes = self.T.get("shapes") or {}
+        jobs = [(f"shape.{sid}", shapes[sid]["parts"]) for sid in sids
+                if sid not in self.shape_cols and sid in shapes
+                and shapes[sid].get("parts")]
+        obs = outline_meshes(self.bpy, jobs,
+                             lambda hx: unlit(self.bpy, self.mats, hx))
+        for name, ob in obs.items():
+            col = self.bpy.data.collections.new(name)
+            self.lib.children.link(col)
+            col.objects.link(ob)
+            self.shape_cols[name[len("shape."):]] = col
+
+    def shape_collection(self, sid):
+        """A collection holding the outline mesh of shape *sid*, centered
+        on its box center."""
+        if sid not in self.shape_cols:
+            self.prebuild([sid])
+        return self.shape_cols.get(sid)
+
+    def instance(self, name, sid, parent):
+        col = self.shape_collection(sid)
+        if col is None:
+            return None
+        inst = self.bpy.data.objects.new(name, None)
+        inst.instance_type = "COLLECTION"
+        inst.instance_collection = col
+        self.col.objects.link(inst)
+        inst.parent = parent
+        return inst
+
+    @staticmethod
+    def vis_seq(rows):
+        changes, cur = [], False
+        for t, on, *_ in rows:
+            if bool(on) != cur:
+                changes.append((t, bool(on)))
+                cur = bool(on)
+        if changes and changes[0][0] <= 1e-6:
+            return changes
+        return [(0.0, False)] + changes
+
+    def anchored(self, name, char, joints, offset, y):
+        """An empty riding on the average of *joints* of *char*, plus a
+        constant (dx, y, dz) offset."""
+        root = self.bpy.data.objects.new(name, None)
+        root.empty_display_size = 0.05
+        self.col.objects.link(root)
+        n = len(joints)
+        for j in joints:
+            tgt = self.empties.get(char, {}).get(j)
+            if tgt is None:
+                continue
+            c = root.constraints.new("COPY_LOCATION")
+            c.target = tgt
+            c.use_offset = True
+            c.use_y = False
+            c.influence = 1.0 / n
+        root.location = (offset[0], y, offset[1])
+        return root
+
+    def build(self):
+        stats = {"decals": 0, "gloves": 0, "cards": 0, "skipped": 0}
+        for o in self.T.get("overlays") or []:
+            k = o["kind"]
+            if k in ("shoe",):
+                continue                    # handled with the 3D shoes
+            if o["char"] and o["char"] not in self.empties:
+                stats["skipped"] += 1
+                continue
+            tag = f"overlay.{o['id']}.{k}"
+            seq = self.vis_seq(o.get("visibility") or [])
+            if k == "glove":
+                root = self.anchored(tag, o["char"], o["joints"], [0, 0], 0.0)
+                w, h = o["size"]
+                me = self.bpy.data.meshes.get("_glove_ball") or unit_ball_mesh(self.bpy)
+                me.name = "_glove_ball"
+                g = self.bpy.data.objects.new(tag + ".mitt", me)
+                self.col.objects.link(g)
+                g.material_slots[0].link = "OBJECT"
+                g.material_slots[0].material = material(
+                    self.bpy, f"{tag} glove", hex_rgba(o["colors"].get("fill")
+                                                       or "#cc3333"),
+                    roughness=0.4)
+                g.parent = root
+                g.scale = (w / 2, w / 2 * 0.8, h / 2)
+                key_visibility([g], seq, self.opt.fps)
+                stats["gloves"] += 1
+            elif k == "card":
+                if not o.get("shape"):
+                    continue
+                root = self.bpy.data.objects.new(tag, None)
+                self.col.objects.link(root)
+                root.rotation_euler = (-self.tilt, 0, 0)
+                inst = self.instance(tag + ".shape", o["shape"], root)
+                if inst is None:
+                    continue
+                self.card_keys(o, root)
+                key_visibility([inst], seq, self.opt.fps)
+                stats["cards"] += 1
+            else:
+                if not o.get("shape"):
+                    stats["skipped"] += 1
+                    continue
+                root = self.anchored(tag, o["char"], o["joints"],
+                                     o["offset"], DECAL_Y.get(k, -0.3))
+                inst = self.instance(tag + ".shape", o["shape"], root)
+                if inst is None:
+                    continue
+                key_visibility([inst], seq, self.opt.fps)
+                stats["decals"] += 1
+        return stats
+
+    def card_keys(self, o, root):
+        """Place a card where it sits in the Manim frame: Manim camera ->
+        screen position -> Blender camera, frame by frame while shown."""
+        T, opt, rates = self.T, self.opt, self.rates
+        ct, st = math.cos(self.tilt), math.sin(self.tilt)
+        lift = CAM_DIST * st
+        manim = {"camera_initial": T.get("camera_manim_initial")
+                 or T.get("camera_initial"),
+                 "camera": T.get("camera_manim", T.get("camera", [])),
+                 "frame": T["frame"]}
+        rows = o.get("visibility") or []
+        spans = [(t, rows[k + 1][0] if k + 1 < len(rows) else T["duration"])
+                 for k, (t, on, *_) in enumerate(rows) if on]
+        keys = KeyList(opt.fps)
+        for ta, tb in spans:
+            ts = np.concatenate([[ta], _inner_times(ta, tb, opt.fps), [tb]])
+            for t in ts:
+                p = _move_eval(o["initial"], o.get("moves", []), rates, t,
+                               key=lambda b: np.array(b[:2], float))
+                mx, my, mw = camera_at(manim, rates, t + 1e-4)
+                bx, by, bw = camera_at(T, rates, t + 1e-4)
+                k = bw / mw
+                u, v = (p[0] - mx) * k, (p[1] - my) * k
+                # camera at (bx, -CAM_DIST cos, by + lift), looking along
+                # (0, cos, -sin) with up (0, sin, cos)
+                d = CARD_DIST
+                x = bx + u
+                y = -CAM_DIST * ct + d * ct + v * st
+                z = by + lift - d * st + v * ct
+                keys.add(float(t), [x, y, z, k])
+        if not keys.f:
+            return
+        if keys.f[0] > 1.0:
+            keys.f.insert(0, 1.0)
+            keys.v.insert(0, keys.v[0])
+            keys.spec.insert(0, ("CONSTANT", "AUTO"))
+        apply_keys(self.bpy, root, "location",
+                   [(0, 0, lambda v: v), (1, 1, lambda v: v),
+                    (2, 2, lambda v: v)], keys)
+        apply_keys(self.bpy, root, "scale",
+                   [(i, 3, lambda v: v) for i in range(3)], keys)
+
+
 def hold_wide_camera(T):
     """Replace the camera track with the widest framing it uses (the
     earliest one on a tie), held for the whole film."""
@@ -2739,6 +3142,9 @@ def hold_wide_camera(T):
     states = [c for c in states if c]
     if not states:
         return
+    # keep PAM's camera: cards are placed by where they sit in its frame
+    T["camera_manim_initial"] = T.get("camera_initial")
+    T["camera_manim"] = list(T.get("camera", []))
     wide = max(states, key=lambda c: c["width"] + 1e-6 * (c is states[0]))
     T["camera_initial"] = {"center": list(wide["center"]),
                            "width": wide["width"]}
@@ -2820,6 +3226,19 @@ def build(trace_path, out_path, opt=None):
     ball_me = unit_ball_mesh(bpy)
     stats = {}
     all_empties = {}
+    ob_builder = OverlayBuilder(bpy, sc, T, rates, opt, tilt, all_empties) \
+        if (opt.overlays or opt.labels) and opt.look != "flat" else None
+    if ob_builder is not None:
+        sids = []
+        if opt.overlays:
+            sids += [o["shape"] for o in T.get("overlays") or []
+                     if o.get("shape")]
+        if opt.labels:
+            for rows in (T.get("looks") or {}).values():
+                lb = rows[0][1].get("label") if rows else None
+                if lb and lb.get("shape"):
+                    sids.append(lb["shape"])
+        ob_builder.prebuild(list(dict.fromkeys(sids)))
     for name, info in T["cast"].items():
         joints = info["joints"]
         if name not in T["initial"] or not T["initial"][name]:
@@ -2843,13 +3262,45 @@ def build(trace_path, out_path, opt=None):
         if skin_hex and opt.look != "flat":
             skin = material(bpy, f"{name}_skin", hex_rgba(skin_hex))
             stats[name]["skin"] = skin_hex
+        # the figure's own Manim colors (trace version 4): limb lines,
+        # clothed-limb bands (sleeves, trouser legs), the torso
+        looks = (T.get("looks") or {}).get(name) or []
+        look = looks[0][1] if looks and opt.look != "flat" else {}
+        lmats = {}
+
+        def lmat(hx, kind="look"):
+            if not hx:
+                return mat
+            if (kind, hx) not in lmats:
+                lmats[kind, hx] = material(bpy, f"{name} {kind} {hx}",
+                                           hex_rgba(hx))
+            return lmats[kind, hx]
+        ecol = {tuple(k.split("-", 1)): v
+                for k, v in (look.get("edges") or {}).items()}
+        bands = {k: v for k, v in ecol.items() if v.get("band")}
+        for (a, b) in ("lshoulder", "torso_left"), ("torso_left", "torso_right"), \
+                ("lshoulder", "rshoulder"), ("neck", "lshoulder"), ("lhip", "rhip"):
+            if (a, b) in ecol and ecol[a, b].get("color"):
+                if ecol[a, b]["color"].lower() != (info["color"] or "").lower():
+                    mat = lmat(ecol[a, b]["color"], "torso")
+                break
+        if not skin_hex:
+            skin = mat
         # joint ball radius = thickest bone meeting it (rounded joints)
         jr = {}
+        jband = {}
         for a, b in info["edges"]:
             r = edge_radius(a, b, sf, opt.look)
-            jr[a] = max(jr.get(a, 0), r)
-            jr[b] = max(jr.get(b, 0), r)
+            bd = bands.get((a, b))
+            ra = rb = r
+            if bd:
+                ra, rb = (w / 2 * BAND_SCALE for w in bd["band"])
+                jband.setdefault(a, bd["color"])
+                jband.setdefault(b, bd["color"])
+            jr[a] = max(jr.get(a, 0), ra)
+            jr[b] = max(jr.get(b, 0), rb)
         empties, meshes = {}, []
+        head_ball, head_r = None, HEAD_R * sf
         for ji, j in enumerate(joints):
             e = bpy.data.objects.new(f"{name}.{j}", None)
             e.empty_display_size = 0.08
@@ -2872,13 +3323,19 @@ def build(trace_path, out_path, opt=None):
             ball = bpy.data.objects.new(f"{name}.{j}.ball", ball_me)
             col.objects.link(ball)
             ball.material_slots[0].link = "OBJECT"
-            ball.material_slots[0].material = mat if (
-                j in CLOTHED_JOINTS or (not chest and j in INNER_JOINTS)) \
-                else skin
+            if j in CLOTHED_JOINTS or (not chest and j in INNER_JOINTS):
+                ball.material_slots[0].material = mat
+            elif j in jband:
+                ball.material_slots[0].material = lmat(jband[j], "band")
+            else:
+                ball.material_slots[0].material = skin
             ball.parent = e
             ball.location = (0, 0, 0)
             ball.scale = (r, r, r)
-            meshes.append(ball)
+            if j == "head":
+                head_ball, head_r = ball, r
+            else:
+                meshes.append(ball)
         if chest and keys.f:
             CV = chest_corner_values(np.array(keys.v), joints, female, sf)
             ck = KeyList(opt.fps)
@@ -2921,14 +3378,32 @@ def build(trace_path, out_path, opt=None):
                 continue
             if chest and is_torso_edge(a, b):
                 continue
-            ob = bpy.data.objects.new(f"{name}.{a}-{b}", bone_me)
-            col.objects.link(ob)
-            ob.material_slots[0].link = "OBJECT"
-            clothed = {a, b} & (TORSO_JOINTS - {"neck"}) or \
-                {a, b} in ({"neck", "lshoulder"}, {"neck", "rshoulder"},
-                           {"lhip", "rhip"}, {"lshoulder", "rshoulder"})
-            ob.material_slots[0].material = mat if clothed else skin
-            r = edge_radius(a, b, sf, opt.look)
+            bd = bands.get((a, b))
+            if bd:
+                # clothed limb: a tapered sleeve / trouser leg in the
+                # band's color
+                ra, rb = (w / 2 * BAND_SCALE for w in bd["band"])
+                ob = bpy.data.objects.new(f"{name}.{a}-{b}",
+                                          unit_cone_mesh(bpy, rb / max(ra, 1e-4)))
+                col.objects.link(ob)
+                ob.material_slots[0].link = "OBJECT"
+                ob.material_slots[0].material = lmat(bd["color"], "band")
+                r = ra
+            else:
+                ob = bpy.data.objects.new(f"{name}.{a}-{b}", bone_me)
+                col.objects.link(ob)
+                ob.material_slots[0].link = "OBJECT"
+                clothed = {a, b} & (TORSO_JOINTS - {"neck"}) or \
+                    {a, b} in ({"neck", "lshoulder"}, {"neck", "rshoulder"},
+                               {"lhip", "rhip"}, {"lshoulder", "rshoulder"})
+                if clothed:
+                    ob.material_slots[0].material = mat
+                elif skin_hex:
+                    ob.material_slots[0].material = skin
+                else:
+                    ob.material_slots[0].material = lmat(
+                        (ecol.get((a, b)) or {}).get("color") or info["color"])
+                r = edge_radius(a, b, sf, opt.look)
             ob.scale = (r, 1.0, r)
             c1 = ob.constraints.new("COPY_LOCATION")
             c1.target = empties[a]
@@ -2937,11 +3412,16 @@ def build(trace_path, out_path, opt=None):
             c2.rest_length = 1.0
             c2.volume = "NO_VOLUME"
             meshes.append(ob)
-        if opt.shoes and opt.look != "flat" and not is_dog:
-            meshes += build_shoes(bpy, col, name, empties, sf,
-                                  material(bpy, f"{name}_shoes",
-                                           hex_rgba(opt.shoes), roughness=0.3),
-                                  ball_me, T, opt.fps)
+        pam_shoes = [o for o in (T.get("overlays") or [])
+                     if o["kind"] == "shoe" and o["char"] == name] \
+            if opt.overlays else []
+        shoes_default, shoes_pam = {}, []
+        if opt.look != "flat" and not is_dog and (opt.shoes or pam_shoes):
+            shoes_default, shoes_pam = build_shoes(
+                bpy, col, name, empties, sf,
+                material(bpy, f"{name}_shoes", hex_rgba(opt.shoes),
+                         roughness=0.3) if opt.shoes else None,
+                ball_me, T, opt.fps, pam_shoes)
         # visibility: sparse keys, only where it changes
         rows = T["visibility"].get(name, [])
         changes, cur = [], False
@@ -2954,9 +3434,40 @@ def build(trace_path, out_path, opt=None):
         seq += changes
         key_visibility(meshes, seq, opt.fps)
         stats[name]["vis_keys"] = len(seq)
+        # the head: hidden while a face replaces it (as in Manim)
+        hidden = (T.get("head_hidden") or {}).get(name) if opt.overlays else None
+        head_seq = combine_vis(seq, hidden) if hidden else seq
+        if head_ball is not None:
+            key_visibility([head_ball], head_seq, opt.fps)
+            label = look.get("label") if opt.labels else None
+            if label and ob_builder is not None and label.get("shape"):
+                k = head_r / max(float(label.get("head_radius") or 0.28), 1e-3)
+                inst = ob_builder.instance(f"{name}.label", label["shape"],
+                                           empties["head"])
+                if inst is not None:
+                    off = label.get("offset") or [0, 0]
+                    inst.location = (off[0] * k, -head_r - 0.006, off[1] * k)
+                    inst.scale = (k, k, k)
+                    key_visibility([inst], head_seq, opt.fps)
+                    stats[name]["label"] = label.get("text")
+        # shoes: the default pair, except while PAM's own shoes are on
+        for side, shoe in shoes_default.items():
+            spans = []
+            for o in pam_shoes:
+                if o.get("slot") == f"shoe_{side}":
+                    rows = o.get("visibility") or []
+                    spans += [(t, rows[i + 1][0] if i + 1 < len(rows)
+                               else T["duration"])
+                              for i, (t, on, *_) in enumerate(rows) if on]
+            key_visibility([shoe], subtract_spans(seq, spans), opt.fps)
+        for shoe, rows in shoes_pam:
+            key_visibility([shoe], combine_vis(
+                seq, [[t, not on] for t, on, *_ in rows] or None), opt.fps)
 
     pstats = build_props(bpy, sc, T, rates, opt, native, all_empties) \
         if opt.props else {}
+    ostats = ob_builder.build() if ob_builder is not None and opt.overlays \
+        else {}
     nb = build_bubbles(bpy, sc, T, rates, opt, native, tilt) if opt.bubbles else 0
 
     bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(out_path))
@@ -2969,6 +3480,8 @@ def build(trace_path, out_path, opt=None):
     print("keys:", stats)
     if pstats:
         print("props:", pstats)
+    if ostats:
+        print("overlays:", ostats)
     return stats
 
 
