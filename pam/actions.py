@@ -1118,13 +1118,15 @@ def act_carry(fig, step, scene, name="I.G. NoreMe", *,
     if named_prop is not None:
         fig._snap_obj_to_wrists(named_prop)
         if _hooks.active():
-            _hooks.prop_event("attach", fig, scene, named_prop, prop_name)
+            _hooks.prop_event("attach", fig, scene, named_prop, prop_name,
+                              mode="carry")
         fig.carry(named_prop, step["x"], scene,
                   companions=companion_mobs if companion_mobs else None,
                   torso_companions=torso_companion_mobs if torso_companion_mobs else None)
         fig._snap_obj_to_wrists(named_prop)
         if _hooks.active():
-            _hooks.prop_event("release", fig, scene, named_prop, prop_name)
+            _hooks.prop_event("release", fig, scene, named_prop, prop_name,
+                              mode="carry_end")
     else:
         color  = step.get("color", "#e8c547")
         size   = step.get("size", 0.3)
@@ -1134,11 +1136,13 @@ def act_carry(fig, step, scene, name="I.G. NoreMe", *,
         ).move_to(fig.offset + np.array([0.5, 0.5, 0]))
         scene.play(FadeIn(parcel), run_time=0.3)
         if _hooks.active():
-            _hooks.prop_event("attach", fig, scene, parcel, "_parcel")
+            _hooks.prop_event("attach", fig, scene, parcel, "_parcel",
+                              mode="carry")
         fig.carry(parcel, step["x"], scene,
                   companions=companion_mobs if companion_mobs else None)
         if _hooks.active():
-            _hooks.prop_event("release", fig, scene, parcel, "_parcel")
+            _hooks.prop_event("release", fig, scene, parcel, "_parcel",
+                              mode="carry_end")
         scene.play(FadeOut(parcel), run_time=0.3)
     return None
 
@@ -1233,7 +1237,8 @@ def act_pick_up(fig, step, scene, name="I.G. NoreMe", *,
     fig.morph_to(reach, scene, rt=0.4, rate=smooth)
     fig._snap_obj_to_wrists(prop)
     if _hooks.active():
-        _hooks.prop_event("attach", fig, scene, prop, step.get("prop"))
+        _hooks.prop_event("attach", fig, scene, prop, step.get("prop"),
+                          mode="pick_up")
     fig.morph_to(
         fig._bp.get("carry_hold", fig._bp["standing_front"]),
         scene, rt=0.3, rate=smooth)
@@ -1269,7 +1274,8 @@ def act_put_down(fig, step, scene, name="I.G. NoreMe", *,
     reach["lwrist"] = _v(-0.40, py + 0.1)
     fig.morph_to(reach, scene, rt=0.55, rate=smooth)
     if _hooks.active():
-        _hooks.prop_event("release", fig, scene, prop, prop_name or None)
+        _hooks.prop_event("release", fig, scene, prop, prop_name or None,
+                          mode="put_down")
     scene.play(prop.animate.move_to(np.array([dest_x, dest_y, 0])),
                run_time=0.45, rate_func=smooth)
     fig.morph_to(fig._bp["standing_front"], scene, rt=0.45, rate=smooth)
@@ -1390,7 +1396,7 @@ def act_grab(fig, step, scene, name="I.G. NoreMe", *,
         fig._held_prop = prop
         if _hooks.active():
             _hooks.prop_event("attach", fig, scene, prop, target_name,
-                              hand=f"{arm}wrist")
+                              hand=f"{arm}wrist", mode="grab")
     fig.morph_to(
         fig._bp.get("carry_hold", fig._bp["standing_front"]),
         scene, rt=rt, rate=smooth)
@@ -1572,7 +1578,7 @@ def act_place_on(fig, step, scene, name="I.G. NoreMe", *,
     reach["lwrist"] = _v(-0.40, py + 0.1)
     fig.morph_to(reach, scene, rt=0.4, rate=smooth)
     if _hooks.active():
-        _hooks.prop_event("release", fig, scene, prop, prop_name)
+        _hooks.prop_event("release", fig, scene, prop, prop_name, mode="place")
     scene.play(prop.animate.move_to(np.array([dest_x, dest_y, 0])),
                run_time=rt, rate_func=smooth)
     fig.morph_to(fig._bp["standing_front"], scene, rt=0.35, rate=smooth)
@@ -1662,7 +1668,7 @@ def act_stick_to(fig, step, scene, name="I.G. NoreMe", *,
     fig.morph_to(reach, scene, rt=0.3, rate=smooth)
     if _hooks.active():
         _hooks.prop_event("release", fig, scene, prop, step.get("prop"),
-                          hand="rwrist")
+                          hand="rwrist", mode="stick")
     scene.play(prop.animate.move_to(np.array([dest_x, dest_y, 0])),
                run_time=rt, rate_func=smooth)
     fig.morph_to(fig.pose, scene, rt=0.25, rate=smooth)
@@ -2020,7 +2026,7 @@ def act_pick_up_phone(fig, step, scene, name="I.G. NoreMe", *,
         fig._snap_obj_to_wrists(prop)
         if _hooks.active():
             _hooks.prop_event("attach", fig, scene, prop, step.get("prop"),
-                              hand=f"{arm}wrist")
+                              hand=f"{arm}wrist", mode="pick_up_phone")
     fig.morph_to(phone_pose, scene, rt=rt, rate=smooth)
     if prop is not None:
         fig._snap_obj_to_wrists(prop)
@@ -2059,7 +2065,7 @@ def act_hang_up(fig, step, scene, name="I.G. NoreMe", *,
     fig.morph_to(reach, scene, rt=rt, rate=smooth)
     if _hooks.active():
         _hooks.prop_event("release", fig, scene, prop, prop_name or None,
-                          hand="rwrist")
+                          hand="rwrist", mode="hang_up")
     scene.play(prop.animate.move_to(np.array([dest_x, dest_y, 0])),
                run_time=0.3, rate_func=smooth)
     fig.morph_to(fig._bp["standing_front"], scene, rt=rt * 0.8, rate=smooth)
@@ -2192,7 +2198,8 @@ def act_peel_from_hand(fig, step, scene, name="I.G. NoreMe", *,
     fig._held_prop = prop
     if _hooks.active():
         _hooks.prop_event("attach", fig, scene, prop, step.get("prop"),
-                          joints=(f"{arm}wrist",), hand=f"{arm}wrist")
+                          joints=(f"{arm}wrist",), hand=f"{arm}wrist",
+                          mode="peel")
     # Leave hand extended — caller follows with stick_to which retracts
     return None
 

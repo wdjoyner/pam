@@ -442,8 +442,10 @@ def act_hand_to(fig, step, scene, name="I.G. NoreMe", *,
     fig._held_prop = None
     target_fig._held_prop = prop
     if _hooks.active():
-        _hooks.prop_event("release", fig, scene, prop, prop_name)
-        _hooks.prop_event("attach", target_fig, scene, prop, prop_name)
+        _hooks.prop_event("release", fig, scene, prop, prop_name,
+                          mode="handoff")
+        _hooks.prop_event("attach", target_fig, scene, prop, prop_name,
+                          mode="handoff")
 
     return None
 

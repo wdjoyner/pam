@@ -42,11 +42,33 @@ Events
 ``"fade"``          — fig, scene, direction ("in" | "out"), rt.
 ``"action_begin"`` / ``"action_end"`` — name, action, step, scene,
                       action_id (shared by the begin/end pair).
-``"prop_attach"`` / ``"prop_release"`` — fig, scene, prop (mobject),
-                      prop_name, joints (attachment joints), hand.
+``"prop_attach"`` / ``"prop_release"`` — fig, scene, t, prop (mobject),
+                      prop_name, joints (attachment joints), hand, mode.
+                      ``mode`` says what kind of hand-off it is (see
+                      "Prop hand-off semantics" below).
 ``"bubble"``        — scene, bubble (the VGroup: box, tail, text), owner,
                       text (as displayed), style.  Emitted before the
                       bubble fades in; listeners follow the mobject.
+
+Prop hand-off semantics (hooks version 2)
+----------------------------------------
+An attach starts a hold: the prop rides on the figure's hand(s) (*hand*
+names the active wrist for one-handed grabs; otherwise the prop sits at
+the midpoint of *joints*).  A release ends it.  ``mode`` qualifies the
+event:
+
+* attach: ``"carry"``, ``"pick_up"``, ``"grab"``, ``"handoff"``, ...
+* release: ``"place"`` (place_on), ``"put_down"``, ``"stick"``,
+  ``"handoff"`` (hand_to: followed at once by an attach to the other
+  figure), and ``"carry_end"``.
+
+``"carry_end"`` is a *soft* release.  ``carry`` ends with the figure
+still holding the prop (arms down, prop at the wrists), and usually a
+``place_on`` / ``put_down`` follows and does the real release.  A
+consumer should treat the hold as continuing through a soft release
+when the next event for that prop is a release by the same figure and
+the figure does not walk in between; otherwise the prop stays where
+the carry left it (which is what the Manim render shows).
 
 Foot-contact metadata
 ---------------------
@@ -62,7 +84,7 @@ from __future__ import annotations
 import sys
 import itertools
 
-HOOKS_VERSION = 1
+HOOKS_VERSION = 2
 
 _listeners: list = []
 _action_ids = itertools.count(1)
@@ -309,11 +331,12 @@ def bubble(scene, bubble_mob, owner=None, text=None, style=None) -> None:
 
 
 def prop_event(kind, fig, scene, prop=None, prop_name=None,
-               joints=("lwrist", "rwrist"), hand=None) -> None:
+               joints=("lwrist", "rwrist"), hand=None, mode=None) -> None:
     """Emit "prop_attach" or "prop_release" (kind = "attach"/"release").
     *joints* are the joints the prop is snapped to (PAM snaps held props
     to the midpoint of both wrists); *hand* names the active wrist when
-    one arm does the work."""
+    one arm does the work; *mode* qualifies the hand-off (see the module
+    docstring, "Prop hand-off semantics")."""
     if not _listeners:
         return
     try:
@@ -322,4 +345,4 @@ def prop_event(kind, fig, scene, prop=None, prop_name=None,
         t = None
     emit("prop_" + kind, fig=fig, scene=scene, t=t, prop=prop,
          prop_name=prop_name or getattr(prop, "pam_name", None),
-         joints=list(joints) if joints else [], hand=hand)
+         joints=list(joints) if joints else [], hand=hand, mode=mode)

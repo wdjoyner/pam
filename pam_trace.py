@@ -25,7 +25,7 @@ How it works
   hook (rotations, prop-relative nudges, ...) are still captured, with
   the play's own rate function.
 
-Trace format (trace_version 2)
+Trace format (trace_version 3)
 ------------------------------
 {
   "trace_version": 2,
@@ -45,9 +45,42 @@ Trace format (trace_version 2)
                "initial": [x, y], "moves": [camera-style moves],
                "visibility": [[t, visible], ...]}, ...],
   "actions": [{"id", "name", "action", "params", "t0", "t1"}, ...],
-  "props":   [{"t", "kind", "char", "prop", "joints", "hand"}, ...],
+  "props":   [{"t", "kind", "char", "prop", "pid", "joints", "hand",
+               "mode"}, ...],             # raw attach/release events
+  "prop_objects": [prop record, ...],     # (version 3) see below
   "stats":   {...}
 }
+
+A prop record describes one prop instance (a prop removed and spawned
+again under the same name is a new record):
+  {"id", "name", "type", "registry" ("props" | "scene_objects" |
+   "adhoc"), "class", "spec" (the screenplay item / spawn_prop step that
+   created it, when known), "meta" (pam_* attributes: x, y, surface_y,
+   phone_style, animate, depth, label, ...),
+   "colors": {"fill", "stroke"},          # dominant colors
+   "initial": [x, y, w, h],               # bounding-box center and size
+   "moves": [{"t0", "t1", "rate", "from": [x, y, w, h], "to": [...]}],
+   "visibility": [[t, visible, opacity], ...],
+   "parents": [[t, parent prop name or null], ...],
+   "holds": [{"char", "joints", "hand", "t0", "t1", "start", "end",
+              "offset"?}, ...],           # who holds it, when
+   "geometry": {"box": [x, y, w, h], "parts": [{"fill", "fill_opacity",
+                "stroke", "stroke_opacity", "stroke_width",
+                "paths": [[x0, y0, x1, y1, ...], ...]}]},
+   "governor"?: {"radius", "gold", "amber", "accent", "style",
+                 "initial": [opacity, color], "moves": [...],
+                 "states": [[t, state], ...], "spin": [[t, rad/s], ...]}}
+"geometry" holds the prop's 2D outline (cubic Bezier control points
+relative to the box center, four per segment), captured when the prop
+is first fully visible; the Blender builder extrudes it for prop types
+it has no 3D model for.
+
+Holds come from the prop_attach / prop_release hook events.  A
+"carry_end" release (the end of a carry) is soft: when the next event
+for that prop is a release by the same figure with no walking in
+between (carry, then place_on), the hold runs through to that release.
+A prop with "pam_follows" (hats, name tags, backpacks) is held by the
+followed figure's head (or torso), with the offset seen in Manim.
 
 A piece is one timed move of one figure:
   {"t0", "t1", "kind", "rate", "from": {joint: [x, y]}, "to": {...},
@@ -72,7 +105,7 @@ from manim.scene.scene import Scene
 
 from pam import hooks
 
-TRACE_VERSION = 2
+TRACE_VERSION = 3
 RATE_SAMPLES = 64
 EPS = 1e-4
 
@@ -104,6 +137,430 @@ def _json_safe(obj, depth=0):
     return repr(obj)
 
 
+# ── props ────────────────────────────────────────────────────────────────
+
+PROP_MOVE_EPS = 2e-3        # center moves smaller than this are noise
+PROP_SIZE_EPS = 0.02        # relative size change treated as a rescale
+GEOM_DIGITS = 3
+GEOM_MAX_PARTS = 400        # keep the trace bounded for huge props
+
+
+def _hex_of(fn, default=None):
+    try:
+        return fn().to_hex()
+    except Exception:
+        return default
+
+
+def _num(v):
+    try:
+        f = float(v)
+    except Exception:
+        return None
+    return f if math.isfinite(f) else None
+
+
+def _members(mob):
+    """Submobjects that carry points (family order = draw order)."""
+    try:
+        return mob.family_members_with_points()
+    except Exception:
+        return [mob]
+
+
+def _opacity(mob, limit=16):
+    """Largest fill or stroke opacity among the first few drawn parts."""
+    best = 0.0
+    for m in _members(mob)[:limit]:
+        for fn in ("get_fill_opacity", "get_stroke_opacity"):
+            try:
+                best = max(best, float(getattr(m, fn)()))
+            except Exception:
+                pass
+    return best
+
+
+class PropTracker:
+    """Follows every prop / scene object (and ad-hoc mobjects named in
+    prop events) across play boundaries.  Read-only: it never changes a
+    mobject."""
+
+    META_KEYS = ("pam_x", "pam_y", "pam_surface_y", "pam_phone_style",
+                 "pam_animate", "pam_depth", "pam_depth_scale", "pam_height",
+                 "pam_attach_type", "pam_follows")
+
+    def __init__(self, tracer):
+        self.tr = tracer
+        self.recs = []              # all prop records, in creation order
+        self.by_id = {}             # id(mob) -> rec (mob kept alive in rec)
+        self.active = {}            # id(mob) -> rec, being followed
+        self.adhoc = {}             # id(mob) -> (name, mob)
+        self.events = []            # raw attach/release events
+
+    # ── discovery ───────────────────────────────────────────────────────
+    def _registries(self):
+        tr = self.tr
+        out = []
+        reg = tr.props_ref
+        store = getattr(reg, "_store", None) if reg is not None else None
+        if isinstance(store, dict):
+            for name, mob in list(store.items()):
+                out.append((name, mob, "props"))
+        so = tr.scene_objects_ref
+        if isinstance(so, dict):
+            for name, entry in list(so.items()):
+                mob = entry.get("mob") if isinstance(entry, dict) else None
+                if mob is not None:
+                    out.append((name, mob, "scene_objects"))
+        for name, mob in list(self.adhoc.values()):
+            out.append((name, mob, "adhoc"))
+        return out
+
+    @staticmethod
+    def _skip(mob):
+        # dogs live in the prop registry too, but they are traced as
+        # characters
+        return getattr(mob, "pam_dog", None) is not None \
+            or not hasattr(mob, "get_center")
+
+    def _spec_for(self, name):
+        """The screenplay item that created prop *name*: the current step
+        of PAMPlayer.construct (props / scene_props / scene_objects items,
+        or a spawn_prop step)."""
+        fr = self.tr.construct_frame
+        if fr is None:
+            return None
+        try:
+            step = fr.f_locals.get("step")
+        except Exception:
+            return None
+        if not isinstance(step, dict):
+            return None
+        items = step.get("items")
+        if isinstance(items, dict) and isinstance(items.get(name), dict):
+            spec = dict(items[name])
+            spec.setdefault("_action", step.get("action"))
+            return _json_safe(spec)
+        if step.get("prop") == name:
+            return _json_safe(step)
+        return None
+
+    def ensure(self, name, mob, registry):
+        rec = self.by_id.get(id(mob))
+        if rec is not None:
+            return rec
+        meta = {}
+        for k in self.META_KEYS:
+            v = getattr(mob, k, None)
+            if v is None:
+                continue
+            if isinstance(v, (str, bool)):
+                meta[k[4:]] = v
+            else:
+                f = _num(v)
+                if f is not None:
+                    meta[k[4:]] = _r4(f)
+        node = getattr(mob, "pam_node", None)
+        if isinstance(node, dict) and node.get("attrs"):
+            meta["attrs"] = _json_safe(node.get("attrs"))
+        rec = {
+            "id": len(self.recs) + 1,
+            "name": name,
+            "type": getattr(mob, "pam_type", None)
+            or (None if registry != "adhoc" else "parcel"),
+            "registry": registry,
+            "class": type(mob).__name__,
+            "spec": self._spec_for(name),
+            "meta": meta,
+            "colors": {},
+            "initial": None,
+            "moves": [],
+            "visibility": [],
+            "parents": [],
+            "holds": [],
+            "geometry": None,
+            "_mob": mob, "_box": None, "_vis": None, "_parent": None,
+            "_follows": None, "_follow_rows": [],
+        }
+        gov = getattr(mob, "pam_governor", None)
+        if gov is not None:
+            rec["governor"] = {
+                "radius": _r4(getattr(gov, "_radius", 0.42)),
+                "gold": getattr(gov, "_color_gold", "#e8c547"),
+                "amber": getattr(gov, "_color_amber", "#d47b00"),
+                "accent": getattr(gov, "_accent", "#cc3333"),
+                "style": getattr(gov, "_style", "spin"),
+                "label": getattr(gov, "_label_text", None),
+                "initial": None, "moves": [], "states": [], "spin": [],
+                "_gstate": None, "_state": None, "_spin": None,
+            }
+        self.recs.append(rec)
+        self.by_id[id(mob)] = rec
+        return rec
+
+    # ── per-prop state ──────────────────────────────────────────────────
+    @staticmethod
+    def _box(mob):
+        c = mob.get_center()
+        return [_r4(c[0]), _r4(c[1]), _r4(mob.width), _r4(mob.height)]
+
+    @staticmethod
+    def _gov_state(gov):
+        """[fill opacity, fill color] of the Governor's main face (the
+        first node in the schlegel style).  Its size (the speaking pulse)
+        is in the prop's own moves, as the bounding-box size."""
+        poly = getattr(gov, "_poly", None)
+        try:
+            op = float(poly.get_fill_opacity())
+        except Exception:
+            op = 0.88
+        col = _hex_of(poly.get_fill_color, "#e8c547") if poly is not None \
+            else "#e8c547"
+        return [_r4(op), col]
+
+    def _capture_geometry(self, rec, mob, box):
+        parts = []
+        best = (0.0, None)
+        for m in _members(mob):
+            try:
+                fo = float(m.get_fill_opacity())
+                so = float(m.get_stroke_opacity())
+                sw = float(m.get_stroke_width())
+            except Exception:
+                continue
+            if fo < 0.02 and (sw <= 0.0 or so < 0.02):
+                continue
+            paths = []
+            try:
+                subs = m.get_subpaths()
+            except Exception:
+                subs = [m.points]
+            for sp in subs:
+                if len(sp) < 4:
+                    continue
+                flat = []
+                for pt in sp:
+                    flat.append(round(float(pt[0]) - box[0], GEOM_DIGITS))
+                    flat.append(round(float(pt[1]) - box[1], GEOM_DIGITS))
+                paths.append(flat)
+            if not paths:
+                continue
+            fill = _hex_of(m.get_fill_color, "#ffffff")
+            stroke = _hex_of(m.get_stroke_color, "#ffffff")
+            parts.append({"fill": fill, "fill_opacity": _r4(fo),
+                          "stroke": stroke, "stroke_opacity": _r4(so),
+                          "stroke_width": _r4(sw), "paths": paths})
+            area = float(m.width) * float(m.height)
+            if fo > 0.3 and area > best[0]:
+                best = (area, (fill, stroke))
+            if len(parts) >= GEOM_MAX_PARTS:
+                break
+        rec["geometry"] = {"box": list(box), "parts": parts}
+        if best[1] is not None:
+            rec["colors"] = {"fill": best[1][0], "stroke": best[1][1]}
+        elif parts:
+            rec["colors"] = {"fill": parts[0]["stroke"],
+                             "stroke": parts[0]["stroke"]}
+
+    def step(self, t0, t1, rate, on_stage):
+        """Record prop changes over one play [t0, t1] (t0 == t1 for the
+        instantaneous changes made between plays)."""
+        seen = set()
+        for name, mob, reg in self._registries():
+            if self._skip(mob):
+                continue
+            rec = self.ensure(name, mob, reg)
+            seen.add(id(mob))
+            self.active[id(mob)] = rec
+        for key, rec in list(self.active.items()):
+            mob = rec["_mob"]
+            vis_on = key in on_stage
+            op = _opacity(mob) if vis_on else 0.0
+            visible = vis_on and op > 0.01
+            box = self._box(mob) if (visible or rec["_vis"]) else rec["_box"]
+            if box is None:
+                box = self._box(mob)
+            # first sighting
+            if rec["initial"] is None:
+                rec["initial"] = box
+                rec["_box"] = box
+            elif box != rec["_box"]:
+                a, b = rec["_box"], box
+                moved = math.hypot(b[0] - a[0], b[1] - a[1]) > PROP_MOVE_EPS
+                sized = any(abs(b[i] - a[i]) > PROP_SIZE_EPS * max(a[i], 0.05)
+                            for i in (2, 3))
+                if moved or sized:
+                    rec["moves"].append({"t0": _r4(t0), "t1": _r4(t1),
+                                         "rate": rate if t1 > t0 else "linear",
+                                         "from": a, "to": b})
+                    rec["_box"] = box
+            if visible and rec["geometry"] is None and op > 0.5:
+                self._capture_geometry(rec, mob, box)
+            # visibility (appears from the play's start, leaves at its end)
+            if rec["_vis"] != visible:
+                tv = t0 if visible else t1
+                rows = rec["visibility"]
+                if rows and abs(rows[-1][0] - tv) < 1e-6:
+                    rows[-1] = [_r4(tv), visible, _r4(op)]
+                else:
+                    rows.append([_r4(tv), visible, _r4(op)])
+                rec["_vis"] = visible
+            # scene-graph parent (place_on, reparent_prop)
+            node = getattr(mob, "pam_node", None)
+            parent = node.get("parent") if isinstance(node, dict) else None
+            if parent != rec["_parent"]:
+                rec["parents"].append([_r4(t1), parent])
+                rec["_parent"] = parent
+            # pam_follows (hats, tags, backpacks ride on a figure)
+            fol = getattr(mob, "pam_follows", None)
+            if fol != rec["_follows"]:
+                rec["_follow_rows"].append(
+                    (t1, fol, getattr(mob, "pam_attach_type", "head"), box,
+                     self.tr.state.get(fol) if fol else None))
+                rec["_follows"] = fol
+            gov = rec.get("governor")
+            if gov is not None:
+                self._step_governor(gov, getattr(mob, "pam_governor", None),
+                                    t0, t1, rate)
+            if not visible and key not in seen:
+                self.active.pop(key, None)       # removed and gone
+
+    @staticmethod
+    def _step_governor(g, gov, t0, t1, rate):
+        if gov is None:
+            return
+        st = PropTracker._gov_state(gov)
+        if g["initial"] is None:
+            g["initial"] = st
+        elif st != g["_gstate"]:
+            g["moves"].append({"t0": _r4(t0), "t1": _r4(t1),
+                               "rate": rate if t1 > t0 else "linear",
+                               "from": g["_gstate"], "to": st})
+        g["_gstate"] = st
+        state = getattr(gov, "_state", None)
+        if state != g["_state"]:
+            g["states"].append([_r4(t0), state])
+            g["_state"] = state
+        spin = float(getattr(gov, "_spin_rate", 0.0) or 0.0) \
+            if getattr(gov, "_spin_updater", None) is not None else 0.0
+        if spin != g["_spin"]:
+            # the updater starts after the fade-in play and stops before
+            # the fade-out play
+            g["spin"].append([_r4(t1 if spin else t0), _r4(spin)])
+            g["_spin"] = spin
+
+    # ── hand-off events ─────────────────────────────────────────────────
+    def on_prop_event(self, event, data, t, char):
+        mob = data.get("prop")
+        name = data.get("prop_name") or getattr(mob, "pam_name", None)
+        pid = None
+        if mob is not None and not self._skip(mob):
+            rec = self.by_id.get(id(mob))
+            if rec is None:
+                reg = "adhoc"
+                store = getattr(self.tr.props_ref, "_store", None) or {}
+                if store.get(name) is mob:
+                    reg = "props"
+                else:
+                    self.adhoc[id(mob)] = (name or "_prop", mob)
+                rec = self.ensure(name or "_prop", mob, reg)
+                self.active[id(mob)] = rec
+            pid = rec["id"]
+        ev = {"t": _r4(t), "kind": event[5:], "char": char, "prop": name,
+              "pid": pid, "joints": data.get("joints") or [],
+              "hand": data.get("hand"), "mode": data.get("mode")}
+        self.events.append(ev)
+        return ev
+
+    # ── finishing ───────────────────────────────────────────────────────
+    def _walks(self, char, ta, tb):
+        """Did *char* move its root (walk, run, ...) between ta and tb?"""
+        for p in self.tr.tracks.get(char, []):
+            if p["t1"] <= ta + 1e-6 or p["t0"] >= tb - 1e-6:
+                continue
+            if p.get("gait"):
+                return True
+            o0, o1 = p.get("offset0"), p.get("offset")
+            if o0 and o1 and math.hypot(o1[0] - o0[0], o1[1] - o0[1]) > 0.05:
+                return True
+        return False
+
+    def _end_of(self, rec, t):
+        """When does the prop leave the stage after time t?"""
+        for tv, vis, _ in rec["visibility"]:
+            if tv >= t - 1e-6 and not vis:
+                return tv
+        return self.tr.now()
+
+    def resolve_holds(self):
+        by = {}
+        for ev in self.events:
+            if ev["pid"] is not None:
+                by.setdefault(ev["pid"], []).append(ev)
+        recs = {r["id"]: r for r in self.recs}
+        for pid, evs in by.items():
+            rec = recs[pid]
+            holds, cur = [], None
+            for i, ev in enumerate(evs):
+                if ev["kind"] == "attach":
+                    if cur is not None:
+                        cur.update(t1=ev["t"], end="handoff")
+                        holds.append(cur)
+                    joints = [ev["hand"]] if ev.get("hand") else ev["joints"]
+                    cur = {"char": ev["char"], "joints": joints or
+                           ["lwrist", "rwrist"], "hand": ev.get("hand"),
+                           "t0": ev["t"], "t1": None, "start": ev.get("mode")}
+                    continue
+                if cur is None:
+                    continue
+                if ev.get("mode") == "carry_end":
+                    nxt = evs[i + 1] if i + 1 < len(evs) else None
+                    if nxt is not None and nxt["kind"] == "release" \
+                            and nxt["char"] == cur["char"] \
+                            and nxt.get("mode") != "carry_end" \
+                            and not self._walks(cur["char"], ev["t"], nxt["t"]):
+                        continue            # soft release: still holding
+                cur.update(t1=ev["t"], end=ev.get("mode") or "release")
+                holds.append(cur)
+                cur = None
+            if cur is not None:
+                cur.update(t1=_r4(self._end_of(rec, cur["t0"])), end="exit")
+                holds.append(cur)
+            rec["holds"] += holds
+        # pam_follows: the prop rides on a figure's head or torso
+        for rec in self.recs:
+            rows = rec.pop("_follow_rows", [])
+            for k, (t, fol, kind, box, w) in enumerate(rows):
+                if not fol:
+                    continue
+                t_end = rows[k + 1][0] if k + 1 < len(rows) \
+                    else self._end_of(rec, t)
+                joints = ["head"] if kind != "torso" else ["lshoulder", "lhip"]
+                hold = {"char": fol, "joints": joints, "hand": None,
+                        "t0": _r4(t), "t1": _r4(t_end), "start": "follows",
+                        "end": "follows"}
+                if w and all(j in w for j in joints):
+                    jx = sum(w[j][0] for j in joints) / len(joints)
+                    jy = sum(w[j][1] for j in joints) / len(joints)
+                    hold["offset"] = [_r4(box[0] - jx), _r4(box[1] - jy)]
+                rec["holds"].append(hold)
+            rec["holds"].sort(key=lambda h: h["t0"])
+
+    def result(self):
+        self.resolve_holds()
+        out = []
+        for rec in self.recs:
+            r = {k: v for k, v in rec.items() if not k.startswith("_")}
+            if r["initial"] is None:
+                continue                         # never reached the stage
+            g = r.get("governor")
+            if g is not None:
+                r["governor"] = {k: v for k, v in g.items()
+                                 if not k.startswith("_")}
+            out.append(r)
+        return out
+
+
 class Tracer:
     def __init__(self):
         self.scene = None
@@ -121,7 +578,11 @@ class Tracer:
         self.actions = []
         self._open_actions = {}
         self._action_stack = []
-        self.props = []
+        self.pt = PropTracker(self)
+        self.props_ref = None       # PAMPlayer.construct's PropRegistry
+        self.scene_objects_ref = None   # ... and its _scene_objects dict
+        self.construct_frame = None
+        self._on_stage = set()
         self.pending_seg = {}       # name -> segment payload
         self.pending_pt = {}        # name -> pose_target payload
         self.pending_set = {}       # name -> (time, payload) from set_pose
@@ -205,11 +666,16 @@ class Tracer:
             self.visibility[name] = []
 
     def _find_cast_ref(self):
-        """Locate PAMPlayer.construct's `cast` dict (once)."""
+        """Locate PAMPlayer.construct's `cast` dict, prop registry and
+        scene-object dict (once)."""
         if self.cast_ref is None:
             for fr in inspect.stack():
                 if fr.function == "construct" and "cast" in fr.frame.f_locals:
-                    self.cast_ref = fr.frame.f_locals["cast"]
+                    loc = fr.frame.f_locals
+                    self.cast_ref = loc["cast"]
+                    self.props_ref = loc.get("props")
+                    self.scene_objects_ref = loc.get("_scene_objects")
+                    self.construct_frame = fr.frame
                     break
 
     def _scan_cast(self):
@@ -334,15 +800,9 @@ class Tracer:
         elif event == "bubble":
             self._register_bubble(data)
         elif event in ("prop_attach", "prop_release"):
-            self.props.append({
-                "t": _r4(data.get("t") if data.get("t") is not None
-                         else self.now()),
-                "kind": event[5:],
-                "char": self.name_of(data["fig"]),
-                "prop": data.get("prop_name"),
-                "joints": data.get("joints") or [],
-                "hand": data.get("hand"),
-            })
+            self._find_cast_ref()
+            t = data.get("t") if data.get("t") is not None else self.now()
+            self.pt.on_prop_event(event, data, t, self.name_of(data["fig"]))
 
     # ── speech bubbles ───────────────────────────────────────────────────
     @staticmethod
@@ -364,8 +824,10 @@ class Tracer:
         if isinstance(owner, str):
             oname = owner
         elif owner is not None:
-            oname = self.name_of(owner) or getattr(owner, "name", None) \
-                or type(owner).__name__
+            grp = getattr(owner, "group", None)     # GovernorGraph
+            oname = self.name_of(owner) or getattr(grp, "pam_name", None) \
+                or getattr(owner, "pam_name", None) \
+                or getattr(owner, "name", None) or type(owner).__name__
         else:
             oname = None
         try:
@@ -456,6 +918,7 @@ class Tracer:
             self.state[name] = w
             self._set_vis(name, t, v)
         self.pending_set.clear()
+        self.pt.step(t, t, "linear", self._on_stage)
         self._bubble_update(self._on_stage, t, t, "linear")
         if self.cam_state is not None and self.cam_state != cam:
             self.camera.append({"t0": _r4(t), "t1": _r4(t), "rate": "linear",
@@ -530,6 +993,7 @@ class Tracer:
                 self._set_vis(name, t0, v1)
             else:
                 self._set_vis(name, t1, v1)
+        self.pt.step(t0, t1, play_rate, self._on_stage)
         self._bubble_update(self._on_stage, t0, t1, play_rate)
         if self.cam_state is not None and self.cam_state != cam:
             self.camera.append({"t0": _r4(t0), "t1": _r4(t1),
@@ -539,6 +1003,9 @@ class Tracer:
 
     def result(self):
         tracks = {n: tr for n, tr in self.tracks.items()}
+        prop_objects = self.pt.result()
+        self.stats["prop_objects"] = len(prop_objects)
+        self.stats["prop_holds"] = sum(len(p["holds"]) for p in prop_objects)
         return {
             "trace_version": TRACE_VERSION,
             "hooks_version": hooks.HOOKS_VERSION,
@@ -555,7 +1022,8 @@ class Tracer:
             "bubbles": [{k: v for k, v in b.items() if not k.startswith("_")}
                         for b in self.bubbles],
             "actions": self.actions,
-            "props": self.props,
+            "props": self.pt.events,
+            "prop_objects": prop_objects,
             "stats": self.stats,
         }
 

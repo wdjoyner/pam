@@ -1340,7 +1340,7 @@ PAM has two Blender paths:
 
 | Tool | What it exports |
 |---|---|
-| `pam_trace.py` + `trace2blender.py` | **The animation itself:** every character's motion, timing, camera moves, visibility, and speech bubbles, as an animated `.blend` with solid 3D stick figures, lights, a floor, and shadows. |
+| `pam_trace.py` + `trace2blender.py` | **The animation itself:** every character's motion, timing, camera moves, visibility, props, and speech bubbles, as an animated `.blend` with solid 3D stick figures, 3D props, lights, a floor, and shadows. |
 | `pam2blender.py` | **Layout only:** cameras, lights, props, and character placeholders from the screenplay JSON, as a Blender Python script. |
 
 ### Motion export in three commands
@@ -1372,6 +1372,9 @@ Tested with Blender 4.2, 4.4, and 5.2; written to also work with 3.x.
 - **A 3D look.** Thick rounded limbs with knee and elbow joints, a solid four-cornered chest that follows the shoulders and hips, lights, a floor and back wall with cast shadows, and a camera tilted slightly toward the floor.
 - **Gendered chests.** Male chests are wide at the shoulders and narrow at the hips; female chests the reverse. The cast's `"gender"` field is used automatically (a `"narrow"` build counts as female when no gender is given); `--female` / `--male` override it.
 - **Speech bubbles,** with PAM's colors, tails, phone/off-screen style, and timing, following walk-and-talk speakers.
+- **Props and scene objects.** Desks, tables, consoles (with their monitor), doors, chairs, cellphones, and the Governor dodecahedron become simple 3D models; every other prop type is extruded from its 2D Manim outline, so nothing disappears. Floor-standing props are set on the floor, doors sit in the back wall, and props appear, move, and disappear when they do in Manim (`props`, `spawn_prop`, `remove_prop`, `place_on`, `reparent_prop`, ...).
+- **Held props follow the hands.** Between a figure's attach and release (`carry`, `pick_up`, `grab`, `hand_to`, ...) the prop rides on the holding wrist(s), so it moves with the Blender figure's smoothed walk. A prop placed on a table slides from the hand to the tabletop and rests there, tilted toward the camera if it is a phone. Hats and other `pam_follows` accessories ride on the head or torso.
+- **The Governor** spins slowly (when its `spawn_prop` asks for `"animate": "spin"`, the default), glows gold, flares word by word while it speaks, and dims to amber and slows down in its low-power state (`prop_color` with `#d47b00`).
 - **Fade-ins and fade-outs, camera moves, and background colors** from the Manim scene.
 
 ### `trace2blender.py` options
@@ -1387,6 +1390,7 @@ Options go after the `.blend` name.
 | `--bust` | Add a bust to female chests (off by default). |
 | `--tilt DEG` | Camera tilt toward the floor (default 8; 0 for a straight-on view). |
 | `--no-bubbles` | Leave out speech bubbles. |
+| `--no-props` | Leave out props and scene objects. |
 | `--res WxH`, `--fps N` | Render size (default 1280x720) and frame rate (default 30). |
 | `--no-footlock`, `--bob S` | Turn off foot locking; scale or (with 0) remove the hip bob. |
 | `--locomotion exact` | Walks use PAM's per-keyframe easing instead of the spline. |
@@ -1407,11 +1411,15 @@ def listener(event, data):
 hooks.subscribe(listener)
 ```
 
-The hooks are a no-op unless something subscribes: every emit site is guarded by `if hooks.active():`, and a normal `pam-render` produces exactly the same video with or without them. The trace format is documented at the top of `pam_trace.py`; old version-1 traces still build.
+The hooks are a no-op unless something subscribes: every emit site is guarded by `if hooks.active():`, and a normal `pam-render` produces exactly the same video with or without them. The trace format is documented at the top of `pam_trace.py`; old version-1 and version-2 traces still build (without props).
+
+Prop events carry a `mode` (hooks version 2) that says what kind of hand-off each one is: `"carry"`, `"grab"`, `"place"`, `"put_down"`, `"handoff"`, and so on. `carry` ends with `"carry_end"`, a *soft* release: the figure still has the prop at its wrists, and usually a `place_on` or `put_down` follows and does the real release. The tracer keeps the hold going through a soft release when the next event for that prop is a release by the same figure with no walking in between; otherwise the prop stays where the carry left it, as in the Manim render.
 
 ### Current limitations
 
-- Props, faces, wardrobe overlays, head labels, and captions are not exported yet.
+- Faces, wardrobe overlays, head labels, captions, and `on_screen_text` are not exported yet.
+- Props without a 3D model (TV monitors, letter graphs, backdrops, ...) are flat extrusions of their Manim outline, and a prop that changes shape inside itself (a laptop opening, a pod lid) keeps the shape it first appeared with.
+- In Manim, desks and doors are drawn from y = −2.6, about half a unit below the characters' feet; Blender lifts them onto the floor, together with anything resting on them.
 - Dogs get smooth motion but no foot locking.
 - Characters standing at different screen heights in the same shot share one floor, so some may hover slightly (in Manim, lower on screen reads as nearer the camera).
 - Scaled characters (for example `"scale": {"sy": 0.7}`) take overlong strides for their size, so their first and last steps lift the foot early.

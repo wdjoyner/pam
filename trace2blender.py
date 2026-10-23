@@ -30,6 +30,7 @@ Options:
     --tilt DEG         camera tilt down toward the floor (default 8;
                        ignored by the flat look)
     --no-bubbles       leave out the speech bubbles
+    --no-props         leave out props and scene objects (trace version 3)
     --female A,B       draw these characters with a female chest (narrow
                        top, wide bottom); --male A,B the reverse.
     --bust             add a bust to female chests (off by default)
@@ -41,7 +42,16 @@ characters live on the y = 0 plane, the camera looks along +y.
 
 Works with Blender 3.x, 4.x and 5.x.  Trace version 1 (the original
 probe) is still accepted; version 2 adds the hook data used for easing,
-foot locking and visibility.
+foot locking and visibility; version 3 adds props and scene objects.
+
+Props: desks, tables and consoles (with their monitor), doors, chairs,
+cellphones and the Governor dodecahedron get simple 3D models; any other
+prop type is extruded from its 2D Manim outline.  Held props follow the
+holding figure's hand(s) (or head/torso for pam_follows accessories),
+floor-standing props are set on the floor, and a prop placed on a table
+lies on its top.  The Governor spins (when its step asks for "spin"),
+glows gold, flares word by word while it speaks, and dims to amber and
+slows down in its low-power state.
 """
 import json
 import math
@@ -53,7 +63,8 @@ import numpy as np
 FPS = 30
 BONE_R = 0.045       # bone tube radius, Manim units
 JOINT_R = 0.07
-CUT_NUDGE = 0.001    # frames between the two keys of a hard cut
+CUT_NUDGE = 0.02     # frames between the two keys of a hard cut (Blender
+                     # 5.x merges keys closer than 0.01 frame)
 
 LEGS = (("lhip", "lknee", "lankle"), ("rhip", "rknee", "rankle"))
 STRAIGHT = 0.985     # planted legs reach at most this fraction of full length
@@ -80,6 +91,7 @@ class Options:
     bust = False
     tilt = 8.0
     bubbles = True
+    props = True
 
 
 def parse_args(argv):
@@ -109,6 +121,8 @@ def parse_args(argv):
             opt.tilt = float(a[i + 1]); i += 1
         elif k == "--no-bubbles":
             opt.bubbles = False
+        elif k == "--no-props":
+            opt.props = False
         elif k == "--bust":
             opt.bust = True
         elif k == "--female":
@@ -252,6 +266,7 @@ def best_native(rate, tol):
 def load_trace(path):
     T = json.load(open(path))
     if T.get("trace_version", 1) >= 2:
+        T.setdefault("prop_objects", [])       # added in trace version 3
         return T
     # ── version 1: snapshots at play/wait boundaries -> linear pieces ──
     S = T["samples"]
@@ -294,7 +309,7 @@ def load_trace(path):
             "rate_funcs": {}, "cast": cast, "tracks": tracks,
             "visibility": vis, "initial": initial,
             "camera_initial": S[0]["cam"], "camera": camera,
-            "actions": [], "props": []}
+            "actions": [], "props": [], "prop_objects": []}
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -977,7 +992,12 @@ def _fcurve(idblock, path, index):
         idblock.keyframe_insert(path, frame=0.0)        # scalar property
         index = 0
     else:
-        idblock.keyframe_insert(path, index=index, frame=0.0)
+        try:
+            idblock.keyframe_insert(path, index=index, frame=0.0)
+        except TypeError:
+            # nested scalar, e.g. 'constraints["hold"].influence'
+            idblock.keyframe_insert(path, frame=0.0)
+            index = 0
     for fc in _id_fcurves(idblock):
         if fc.data_path == path and fc.array_index == index:
             fc.keyframe_points.clear() if hasattr(fc.keyframe_points, "clear") \
@@ -1133,6 +1153,26 @@ def material(bpy, name, color, roughness=0.35, emission=False):
 def _shade_smooth(ob):
     for p in ob.data.polygons:
         p.use_smooth = True
+
+
+def key_visibility(objs, seq, fps):
+    """Key hide_render / hide_viewport on *objs* at the (t, visible)
+    changes in *seq*, with CONSTANT interpolation.  (Boolean fcurves
+    default to Bezier; Blender 5.x evaluates them as discrete steps,
+    but 4.x truncates the interpolated value, so a prop or bubble keyed
+    hidden ... visible shows up early.)"""
+    for o in objs:
+        for t, on in seq:
+            f = 1 + t * fps
+            o.hide_render = not on
+            o.hide_viewport = not on
+            o.keyframe_insert("hide_render", frame=f)
+            o.keyframe_insert("hide_viewport", frame=f)
+        if o.animation_data and o.animation_data.action:
+            for fc in _id_fcurves(o):
+                if fc.data_path in ("hide_render", "hide_viewport"):
+                    for kp in fc.keyframe_points:
+                        kp.interpolation = "CONSTANT"
 
 
 def unit_bone_mesh(bpy):
@@ -1588,14 +1628,858 @@ def build_bubbles(bpy, sc, T, rates, opt, native, tilt):
                        [(0, 0, lambda v: v), (2, 1, lambda v: v)], keys)
         # visibility, keyed only at changes
         seq = [(0.0, False)] + [(t, bool(on)) for t, on in b["visibility"]]
-        for ob in parts:
-            for t, on in seq:
-                f = 1 + t * opt.fps
-                ob.hide_render = not on
-                ob.hide_viewport = not on
-                ob.keyframe_insert("hide_render", frame=f)
-                ob.keyframe_insert("hide_viewport", frame=f)
+        key_visibility(parts, seq, opt.fps)
     return len(bubbles)
+
+
+# ═════════════════════════════════════════════════════════════════════════
+#  Props and scene objects (trace version 3)
+# ═════════════════════════════════════════════════════════════════════════
+#
+# Each prop gets a root empty whose keyed location follows the prop's free
+# path (Manim x -> Blender x, Manim y -> Blender z, plus a depth y chosen
+# by prop kind).  While a figure holds the prop, Copy Location constraints
+# (with "offset", Y left alone) add the holding joint(s) to the root's own
+# location, which is then keyed to the small hold offset; their influence
+# switches on at the attach and ramps off during the release move (the
+# place_on slide), so the prop travels from the Blender hand to its rest.
+
+WALL_Y = 4.0                 # back wall plane (see setup_look)
+FURN_Y, FURN_D = 0.75, 0.90  # desks / tables: center depth and depth size
+CHAIR_Y, CHAIR_D = 0.35, 0.50
+LOOSE_Y = 0.30               # free-standing small props, just behind the cast
+HOLD_Y = -0.20               # held props, just in front of the hands
+GOV_Y = 0.50
+REST_TILT = math.radians(25)  # a phone left on a table leans back this far
+                              # from flat, so the camera still sees its face
+SPIN_DEFAULT = 0.35          # rad/s, GovernorGraph's spin rate
+AMBER_SPIN = 0.3             # low-power spin, as a fraction of normal
+RELEASE_WINDOW = (-0.05, 0.35)   # a move starting this soon after a
+                                 # release is the release's own motion
+
+DESK_TYPES = {"desk", "table", "console", "computer", "workstation",
+              "terminal"}
+FLOOR_TYPES = DESK_TYPES | {"chair", "door", "pocket_door", "elevator",
+                            "avatar_pod", "pod", "potted_plant", "plant",
+                            "building"}
+BACK_TYPES = {"door": WALL_Y - 0.06, "pocket_door": WALL_Y - 0.06,
+              "elevator": WALL_Y - 0.10, "backdrop": WALL_Y - 0.10,
+              "tv_monitor": WALL_Y - 0.10, "monitor": WALL_Y - 0.10,
+              "building": WALL_Y - 0.60, "sun": WALL_Y - 0.15,
+              "moon": WALL_Y - 0.15}
+
+
+def prop_type(rec):
+    spec = rec.get("spec") or {}
+    t = spec.get("type") if spec.get("action") != "spawn_prop" or \
+        spec.get("type") else None
+    return str(t or rec.get("type") or "").lower()
+
+
+def prop_kind(rec):
+    """Which builder makes this prop: "governor", "dodecahedron", "desk",
+    "table", "door", "chair", "phone" or the generic "cutout"."""
+    t = prop_type(rec)
+    if rec.get("governor"):
+        return "governor"
+    if t == "dodecahedron":
+        return "dodecahedron"
+    if t == "table":
+        return "table"
+    if t in DESK_TYPES or rec.get("type") == "desk":
+        return "desk"
+    if t == "door":
+        return "door"
+    if t == "chair":
+        return "chair"
+    if rec.get("type") == "phone" and \
+            (rec.get("meta") or {}).get("phone_style", "cellphone") == "cellphone":
+        return "phone"
+    return "cutout"
+
+
+def _visible_from(rec):
+    for t, on, _ in rec.get("visibility", []):
+        if on:
+            return t
+    return None
+
+
+def _floor_at(sched, t):
+    """Floor z (as built by setup_look) in effect at time t."""
+    if not sched:
+        return None
+    g = sched[0][1]
+    for ts, gy in sched:
+        if ts <= t + 1e-6:
+            g = gy
+        else:
+            break
+    return g - LIMB_R * 0.6
+
+
+class PropPlan:
+    """Layout decisions for one prop record (pure Python; no bpy)."""
+
+    def __init__(self, rec, sched):
+        self.rec = rec
+        self.kind = prop_kind(rec)
+        self.type = prop_type(rec)
+        self.meta = rec.get("meta") or {}
+        self.spec = rec.get("spec") or {}
+        box = (rec.get("geometry") or {}).get("box") or rec["initial"]
+        self.box = box                       # geometry reference box
+        self.cx, self.cy, self.w, self.h = box
+        self.t_vis = _visible_from(rec)
+        k = self.kind
+        # depth (Blender y) of the prop's center when free
+        if k in ("desk", "table"):
+            self.depth, self.dsize = FURN_Y, FURN_D
+        elif k == "chair":
+            self.depth, self.dsize = CHAIR_Y, CHAIR_D
+        elif k in ("governor", "dodecahedron"):
+            self.depth, self.dsize = GOV_Y, self.w
+        elif self.type in BACK_TYPES:
+            self.depth, self.dsize = BACK_TYPES[self.type], 0.1
+        else:
+            self.depth, self.dsize = LOOSE_Y, 0.06
+        # thickness when lying flat on a surface
+        self.thick = 0.035 * max(self.w / 0.22, 0.5) if k == "phone" else 0.04
+        # floor snap: floor-standing props sit on the stage floor
+        self.dz = 0.0
+        bottom = self.meta.get("y") if k in ("desk", "table", "door",
+                                             "chair") else None
+        if bottom is None:
+            bottom = rec["initial"][1] - rec["initial"][3] / 2
+        self.bottom = bottom
+        fz = _floor_at(sched, self.t_vis if self.t_vis is not None else 0.0)
+        if fz is not None:
+            gap = fz - bottom
+            if self.type in FLOOR_TYPES or k in ("desk", "table", "door",
+                                                 "chair"):
+                if abs(gap) < 1.5:
+                    self.dz = gap
+            elif 0.0 < gap < 1.0 and not rec.get("holds"):
+                self.dz = gap                # never leave a prop buried
+        # top surface (for props placed on this one), in Manim units
+        st = self.meta.get("surface_y")
+        self.top_manim = st if (st is not None and k in ("desk", "table",
+                                                         "chair")) \
+            else rec["initial"][1] + rec["initial"][3] / 2
+
+    @property
+    def top_z(self):
+        return self.top_manim + self.dz
+
+    def rest_y(self):
+        """Depth where a prop placed on this one rests: near its front."""
+        return self.depth - self.dsize / 2 + min(0.3, self.dsize / 2)
+
+
+def _parent_changes(rec):
+    """[(t_effective, parent)]: a parent set at the end of place_on applies
+    from the end of the move that carried the prop there."""
+    out = []
+    moves = rec.get("moves", [])
+    prev = -1.0
+    for t, parent in rec.get("parents", []):
+        eff = t
+        for m in moves:
+            if prev < m["t1"] <= t + 1e-6 and m["t1"] > m["t0"]:
+                eff = m["t1"]
+        out.append((eff, parent))
+        prev = eff
+    return out
+
+
+def _find_plan(plans, name, t):
+    best = None
+    for p in plans:
+        if p.rec["name"] == name and (p.t_vis is None or p.t_vis <= t + 1e-6):
+            best = p
+    return best
+
+
+def prop_placement(plan, plans, pchanges, t):
+    """(depth y, z of the box center for Manim center y=None, lying) at
+    time t.  Returns (y, z_override, dz, lying)."""
+    parent = None
+    for te, pn in pchanges:
+        if te <= t + 1e-6:
+            parent = pn
+    if parent:
+        P = _find_plan(plans, parent, t)
+        if P is not None and P is not plan:
+            lying = plan.kind == "phone"
+            half = (plan.h / 2 * math.sin(REST_TILT)
+                    + plan.thick / 2 * math.cos(REST_TILT)) if lying \
+                else plan.h / 2
+            return P.rest_y(), P.top_z + half, P.dz, lying
+    return plan.depth, None, plan.dz, False
+
+
+def prop_keys(plan, plans, T, rates, opt, native, joints_of):
+    """Keys for one prop's root: columns x, y, z, rot_x, scale, then one
+    influence column per (char, joint) hold constraint.  Returns
+    (KeyList, constraint list [(char, joint)])."""
+    rec = plan.rec
+    pch = _parent_changes(rec)
+    cons = []
+    holds = []
+    for h in rec.get("holds", []):
+        js = [j for j in h["joints"] if j in joints_of.get(h["char"], ())]
+        if not js or h.get("t1") is None or h["t1"] <= h["t0"]:
+            continue
+        for j in js:
+            if (h["char"], j) not in cons:
+                cons.append((h["char"], j))
+        holds.append((h, js))
+    nc = len(cons)
+    w0 = plan.w if plan.w > 1e-6 else 1.0
+
+    def free_vec(box, t):
+        y, zo, dz, lying = prop_placement(plan, plans, pch, t)
+        z = zo if zo is not None else box[1] + dz
+        s = box[2] / w0 if plan.kind in ("governor", "dodecahedron",
+                                         "cutout") else 1.0
+        rot = -(math.pi / 2 - REST_TILT) if lying else 0.0
+        return [box[0], y, z, rot, s] + [0.0] * nc
+
+    # free path: (t, vec, spec)
+    free = []
+    cur = rec["initial"]
+    free.append((0.0, free_vec(cur, 0.0), ("LINEAR", "AUTO")))
+    for m in rec.get("moves", []):
+        nat = native.get(m["rate"]) if m["t1"] > m["t0"] else None
+        free.append((m["t0"], free_vec(m["from"], m["t0"]),
+                     (nat[0], nat[1]) if nat else ("LINEAR", "AUTO")))
+        if nat is None and m["t1"] > m["t0"] and m["rate"] in rates:
+            r = rates[m["rate"]]
+            ts = _inner_times(m["t0"], m["t1"], opt.fps)
+            a, b = np.array(m["from"], float), np.array(m["to"], float)
+            for t in ts:
+                al = r((t - m["t0"]) / (m["t1"] - m["t0"]))
+                free.append((t, free_vec(list(a + al * (b - a)), t),
+                             ("LINEAR", "AUTO")))
+        free.append((m["t1"], free_vec(m["to"], m["t1"]), ("LINEAR", "AUTO")))
+        cur = m["to"]
+    # parent changes without a move (e.g. a prop declared on a desk)
+    for te, _ in pch:
+        box = rec["initial"]
+        for m in rec.get("moves", []):
+            if m["t1"] <= te + 1e-6:
+                box = m["to"]
+        free.append((te, free_vec(box, te + 1e-6), ("LINEAR", "AUTO")))
+    free.sort(key=lambda k: k[0])
+
+    def free_at(t):
+        v = free[0][1]
+        for tk, vk, _ in free:
+            if tk <= t + 1e-6:
+                v = vk
+            else:
+                break
+        return list(v)
+
+    # hold spans
+    spans = []
+    for h, js in holds:
+        vec_h = None
+        off = h.get("offset") or [0.0, 0.0]
+        hy = HOLD_Y if h.get("start") != "follows" else 0.0
+        t_rel = h["t1"]
+        ramp = None
+        if h.get("end") not in ("exit", "handoff", "follows"):
+            for m in rec.get("moves", []):
+                if RELEASE_WINDOW[0] <= m["t0"] - t_rel <= RELEASE_WINDOW[1] \
+                        and m["t1"] > m["t0"]:
+                    ramp = m
+                    break
+        infl = [0.0] * nc
+        for j in js:
+            infl[cons.index((h["char"], j))] = 1.0 / len(js)
+        vec_h = [off[0], hy, off[1], 0.0, 1.0] + infl
+        spans.append((h, vec_h, ramp))
+
+    def in_span(t):
+        for h, _, ramp in spans:
+            end = ramp["t1"] if ramp else h["t1"]
+            if h["t0"] - 1e-6 <= t < end - 1e-6:
+                return True
+        return False
+
+    events = [(tk, 0, vk, sp) for tk, vk, sp in free if not in_span(tk)]
+    for h, vec_h, ramp in spans:
+        events.append((h["t0"], 1, free_at(h["t0"] - 1e-4), ("CONSTANT", "AUTO")))
+        events.append((h["t0"], 2, vec_h, ("LINEAR", "AUTO")))
+        if ramp is not None:
+            nat = native.get(ramp["rate"])
+            spec = (nat[0], nat[1]) if nat else ("SINE", "EASE_IN_OUT")
+            events.append((ramp["t0"], 3, vec_h, spec))
+            events.append((ramp["t1"], 4, free_at(ramp["t1"]), ("LINEAR", "AUTO")))
+        else:
+            events.append((h["t1"], 3, vec_h, ("CONSTANT", "AUTO")))
+            events.append((h["t1"], 4, free_at(h["t1"]), ("LINEAR", "AUTO")))
+    events.sort(key=lambda e: (e[0], e[1]))
+    keys = KeyList(opt.fps)
+    for t, _, v, sp in events:
+        keys.add(max(t, 0.0), v, sp)
+    return keys, cons
+
+
+def _box_mesh(bpy, name, sx, sy, sz, loc=(0, 0, 0), bevel=0.0):
+    import bmesh
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=1.0)
+    for v in bm.verts:
+        v.co.x = v.co.x * sx + loc[0]
+        v.co.y = v.co.y * sy + loc[1]
+        v.co.z = v.co.z * sz + loc[2]
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    return me
+
+
+def _cyl_mesh(bpy, name, r, z0, z1, x, y, verts=12):
+    import bmesh
+    bm = bmesh.new()
+    bmesh.ops.create_cone(bm, cap_ends=True, segments=verts, radius1=r,
+                          radius2=r, depth=z1 - z0)
+    for v in bm.verts:
+        v.co.x += x
+        v.co.y += y
+        v.co.z += (z0 + z1) / 2
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    for p in me.polygons:
+        p.use_smooth = True
+    return me
+
+
+def _dodeca_mesh(bpy, name, radius):
+    """A regular dodecahedron (pentagon faces) with the given
+    circumradius."""
+    import bmesh
+    phi = (1 + 5 ** 0.5) / 2
+    pts = [(x, y, z) for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)]
+    for a in (-1, 1):
+        for b in (-1, 1):
+            pts += [(0, a / phi, b * phi), (a / phi, b * phi, 0),
+                    (b * phi, 0, a / phi)]
+    k = radius / 3 ** 0.5
+    bm = bmesh.new()
+    vs = [bm.verts.new((x * k, y * k, z * k)) for x, y, z in pts]
+    bmesh.ops.convex_hull(bm, input=vs)
+    bmesh.ops.dissolve_limit(bm, angle_limit=math.radians(1.0),
+                             verts=bm.verts, edges=bm.edges)
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    return me
+
+
+def _mix(h1, h2, a):
+    c1, c2 = hex_rgba(h1), hex_rgba(h2)
+    return tuple(c1[i] * (1 - a) + c2[i] * a for i in range(3)) + (1.0,)
+
+
+class PropBuilder:
+    def __init__(self, bpy, sc, T, rates, opt, native):
+        self.bpy, self.sc, self.T = bpy, sc, T
+        self.rates, self.opt, self.native = rates, opt, native
+        self.mats = {}
+        self.col = bpy.data.collections.new("props")
+        sc.collection.children.link(self.col)
+        self.font = None
+
+    def mat(self, key, color, roughness=0.5, metallic=0.0, emission=None,
+            strength=0.0):
+        if key in self.mats:
+            return self.mats[key]
+        m = material(self.bpy, "prop " + key, color, roughness=roughness)
+        nt = getattr(m, "node_tree", None)
+        try:
+            b = nt.nodes["Principled BSDF"]
+            b.inputs["Metallic"].default_value = metallic
+            if emission is not None:
+                ec = _socket(b, "Emission Color", "Emission")
+                es = _socket(b, "Emission Strength")
+                if ec is not None:
+                    ec.default_value = emission
+                if es is not None:
+                    es.default_value = strength
+        except Exception as exc:
+            print("prop material:", exc)
+        self.mats[key] = m
+        return m
+
+    def obj(self, name, data, parent, mat=None, loc=(0, 0, 0)):
+        ob = self.bpy.data.objects.new(name, data)
+        self.col.objects.link(ob)
+        ob.parent = parent
+        ob.location = loc
+        if mat is not None and data is not None:
+            data.materials.append(mat)
+        return ob
+
+    # ── models (local coordinates: origin = Manim box center) ──────────
+    def build_desk(self, plan, root, tag):
+        rec, m = plan.rec, plan.meta
+        fill = rec["colors"].get("fill") or "#1a2a3a"
+        stroke = rec["colors"].get("stroke") or "#5588aa"
+        if plan.spec.get("monitor"):
+            fill = "#1a2a3a"                 # the box color is the screen's
+            for p in (rec.get("geometry") or {}).get("parts", []):
+                if p["fill"].lower() != "#1af0c4" and p["fill_opacity"] > 0.5:
+                    fill = p["fill"]
+                    break
+        top_m = self.mat("desk top " + fill + stroke, _mix(fill, stroke, 0.45),
+                         roughness=0.45)
+        leg_m = self.mat("desk leg " + stroke, hex_rgba(stroke), roughness=0.4,
+                         metallic=0.3)
+        W = float(plan.spec.get("length") or plan.spec.get("width") or plan.w)
+        x0 = (m.get("x", plan.cx)) - plan.cx
+        top = m.get("surface_y", plan.cy + plan.h / 2) - plan.cy
+        bot = m.get("y", plan.cy - plan.h / 2) - plan.cy
+        D = plan.dsize
+        out = []
+        out.append(self.obj(tag + ".top", _box_mesh(self.bpy, tag + ".top",
+                   W, D, 0.08, (x0, 0, top - 0.04)), root, top_m))
+        for sx in (-1, 1):
+            for sy in (-1, 1):
+                out.append(self.obj(tag + ".leg", _cyl_mesh(
+                    self.bpy, tag + ".leg", 0.035, bot, top - 0.08,
+                    x0 + sx * (W / 2 - 0.1), sy * (D / 2 - 0.1)), root, leg_m))
+        if plan.kind == "desk":              # modesty panel at the back
+            out.append(self.obj(tag + ".panel", _box_mesh(
+                self.bpy, tag + ".panel", W - 0.2, 0.03, (top - bot) * 0.45,
+                (x0, D / 2 - 0.1, top - 0.08 - (top - bot) * 0.225)),
+                root, top_m))
+        if plan.spec.get("monitor"):
+            mc = plan.spec.get("monitor_color") or "#1af0c4"
+            scr_m = self.mat("screen " + mc, hex_rgba(mc), roughness=0.3,
+                             emission=hex_rgba(mc), strength=1.2)
+            mw, mh = 0.45, 0.35
+            mz = top + 0.06 + mh / 2
+            out.append(self.obj(tag + ".bezel", _box_mesh(
+                self.bpy, tag + ".bezel", mw + 0.05, 0.05, mh + 0.05,
+                (x0, -0.05, mz)), root, leg_m))
+            out.append(self.obj(tag + ".screen", _box_mesh(
+                self.bpy, tag + ".screen", mw, 0.01, mh, (x0, -0.08, mz)),
+                root, scr_m))
+            out.append(self.obj(tag + ".stand", _box_mesh(
+                self.bpy, tag + ".stand", 0.08, 0.08, 0.08,
+                (x0, -0.05, top + 0.03)), root, leg_m))
+        return out
+
+    def build_door(self, plan, root, tag):
+        rec = plan.rec
+        fill = rec["colors"].get("fill") or "#2a3a4a"
+        stroke = rec["colors"].get("stroke") or "#667788"
+        W, H = plan.w, plan.h
+        panel_m = self.mat("door " + fill, _mix(fill, stroke, 0.25),
+                           roughness=0.55)
+        frame_m = self.mat("door frame " + stroke, hex_rgba(stroke),
+                           roughness=0.4, metallic=0.2)
+        knob_m = self.mat("door handle", hex_rgba("#cccccc"), roughness=0.25,
+                          metallic=0.8)
+        f = 0.08
+        out = [self.obj(tag + ".panel", _box_mesh(self.bpy, tag + ".panel",
+                        W - 0.02, 0.06, H - 0.01, (0, 0, -0.005)), root,
+                        panel_m)]
+        # recessed lower and upper panels for some relief
+        for zc, hh in ((-H * 0.22, H * 0.38), (H * 0.24, H * 0.38)):
+            out.append(self.obj(tag + ".inset", _box_mesh(
+                self.bpy, tag + ".inset", W * 0.7, 0.02, hh, (0, -0.035, zc)),
+                root, frame_m))
+        for sx in (-1, 1):
+            out.append(self.obj(tag + ".jamb", _box_mesh(
+                self.bpy, tag + ".jamb", f, 0.16, H + f,
+                (sx * (W / 2 + f / 2), 0, f / 2)), root, frame_m))
+        out.append(self.obj(tag + ".header", _box_mesh(
+            self.bpy, tag + ".header", W + 2 * f, 0.16, f,
+            (0, 0, H / 2 + f / 2)), root, frame_m))
+        hx = W / 2 - 0.15
+        hz = -H / 2 + H * 0.45
+        out.append(self.obj(tag + ".handle", _cyl_mesh(
+            self.bpy, tag + ".handle", 0.025, hz - 0.12, hz + 0.12, hx, -0.07),
+            root, knob_m))
+        return out
+
+    def build_chair(self, plan, root, tag):
+        rec, m = plan.rec, plan.meta
+        stroke = rec["colors"].get("stroke") or "#5588aa"
+        fill = rec["colors"].get("fill") or "#1a2a3a"
+        seat_m = self.mat("chair " + fill + stroke, _mix(fill, stroke, 0.45),
+                          roughness=0.5)
+        leg_m = self.mat("desk leg " + stroke, hex_rgba(stroke), roughness=0.4,
+                         metallic=0.3)
+        x0 = m.get("x", plan.cx) - plan.cx
+        bot = m.get("y", plan.cy - plan.h / 2) - plan.cy
+        seat = bot + 0.55
+        D = plan.dsize
+        out = [self.obj(tag + ".seat", _box_mesh(self.bpy, tag + ".seat",
+                        0.7, D, 0.06, (x0, 0, seat)), root, seat_m),
+               self.obj(tag + ".back", _box_mesh(self.bpy, tag + ".back",
+                        0.06, D, 0.62, (x0 - 0.32, 0, seat + 0.34)), root,
+                        seat_m)]
+        for sx in (-1, 1):
+            for sy in (-1, 1):
+                out.append(self.obj(tag + ".leg", _cyl_mesh(
+                    self.bpy, tag + ".leg", 0.025, bot, seat,
+                    x0 + sx * 0.29, sy * (D / 2 - 0.05)), root, leg_m))
+        return out
+
+    def build_phone(self, plan, root, tag):
+        rec = plan.rec
+        body = (plan.spec.get("color") or rec["colors"].get("stroke")
+                or "#223344")
+        W, H, Tk = plan.w, plan.h, plan.thick
+        body_m = self.mat("phone " + body, hex_rgba(body), roughness=0.3,
+                          metallic=0.6)
+        scr_m = self.mat("phone screen", hex_rgba("#0a1a2a"), roughness=0.15,
+                         emission=hex_rgba("#1af0c4"), strength=0.25)
+        out = [self.obj(tag + ".body", _box_mesh(self.bpy, tag + ".body",
+                        W, Tk, H), root, body_m)]
+        bev = out[0].modifiers.new("round", "BEVEL")
+        bev.width = min(W, H) * 0.08
+        bev.segments = 3
+        out.append(self.obj(tag + ".screen", _box_mesh(
+            self.bpy, tag + ".screen", W * 0.82, 0.004, H * 0.80,
+            (0, -Tk / 2 - 0.002, H * 0.03)), root, scr_m))
+        cam_m = self.mat("phone camera", hex_rgba("#333333"), roughness=0.2)
+        out.append(self.obj(tag + ".cam", _cyl_mesh(
+            self.bpy, tag + ".cam", W * 0.06, -0.006, 0.006, 0, 0), root,
+            cam_m))
+        out[-1].rotation_euler = (math.pi / 2, 0, 0)
+        out[-1].location = (0, -Tk / 2 - 0.004, H / 2 - H * 0.07)
+        return out
+
+    def build_governor(self, plan, root, tag):
+        """Gold dodecahedron with accent edges; returns (parts, spin
+        empty, scale empty, face material)."""
+        g = plan.rec.get("governor") or {}
+        gold = g.get("gold") or plan.spec.get("color") or "#e8c547"
+        accent = g.get("accent") or plan.spec.get("accent") or "#cc3333"
+        r = float(g.get("radius") or 0.42) * 1.15
+        pulse = self.bpy.data.objects.new(tag + ".pulse", None)
+        self.col.objects.link(pulse)
+        pulse.parent = root
+        spin = self.bpy.data.objects.new(tag + ".spin", None)
+        self.col.objects.link(spin)
+        spin.parent = pulse
+        face_m = material(self.bpy, f"{tag} faces", hex_rgba(gold),
+                          roughness=0.25)
+        nt = getattr(face_m, "node_tree", None)
+        try:
+            b = nt.nodes["Principled BSDF"]
+            b.inputs["Metallic"].default_value = 0.7
+            ec = _socket(b, "Emission Color", "Emission")
+            if ec is not None:
+                ec.default_value = hex_rgba(gold)
+        except Exception as exc:
+            print("governor material:", exc)
+        edge_m = self.mat("gov edge " + accent, hex_rgba(accent),
+                          roughness=0.3, emission=hex_rgba(accent),
+                          strength=0.6)
+        me = _dodeca_mesh(self.bpy, tag + ".dodeca", r)
+        body = self.obj(tag + ".body", me, spin, face_m)
+        body.rotation_euler = (math.radians(31.7), 0, math.radians(12))
+        bev = body.modifiers.new("round", "BEVEL")
+        bev.width = r * 0.04
+        bev.segments = 2
+        wire_me = _dodeca_mesh(self.bpy, tag + ".edges", r * 1.01)
+        wire = self.obj(tag + ".edges", wire_me, spin, edge_m)
+        wire.rotation_euler = body.rotation_euler
+        wm = wire.modifiers.new("edges", "WIREFRAME")
+        wm.thickness = r * 0.045
+        wm.use_replace = True
+        return [body, wire], spin, pulse, face_m
+
+    def build_cutout(self, plan, root, tag):
+        """Extrude the Manim outline: filled shapes become thin solids,
+        strokes become round tubes; later parts sit closer to the camera
+        (Manim draws them on top)."""
+        bpy = self.bpy
+        geo = plan.rec.get("geometry") or {}
+        parts = geo.get("parts") or []
+        out = []
+        merge = len(parts) > 24
+        groups = {}
+        for i, p in enumerate(parts):
+            if p["fill_opacity"] >= 0.2:
+                groups.setdefault(("fill", p["fill"]) if merge else
+                                  ("fill", i), []).append((i, p))
+            if p["stroke_width"] > 0 and p["stroke_opacity"] >= 0.2:
+                groups.setdefault(("stroke", p["stroke"], p["stroke_width"])
+                                  if merge else ("stroke", i), []).append((i, p))
+        n = max(len(parts), 1)
+        for key, items in groups.items():
+            kind = key[0]
+            cu = bpy.data.curves.new(f"{tag}.{kind}", "CURVE")
+            cu.dimensions = "2D" if kind == "fill" else "3D"
+            if kind == "fill":
+                cu.fill_mode = "BOTH"
+                cu.extrude = 0.012
+                color = items[0][1]["fill"]
+            else:
+                cu.bevel_depth = max(items[0][1]["stroke_width"] * 0.005, 0.004)
+                cu.bevel_resolution = 2
+                if hasattr(cu, "use_fill_caps"):
+                    cu.use_fill_caps = True
+                color = items[0][1]["stroke"]
+            for _, p in items:
+                for flat in p["paths"]:
+                    self._add_spline(cu, flat, closed_only=(kind == "fill"))
+            if not cu.splines:
+                bpy.data.curves.remove(cu)
+                continue
+            order = min(i for i, _ in items)
+            ob = bpy.data.objects.new(f"{tag}.{kind}", cu)
+            self.col.objects.link(ob)
+            ob.parent = root
+            ob.rotation_euler = (math.pi / 2, 0, 0)
+            ob.location = (0, -0.03 * order / n - (0.004 if kind == "stroke"
+                                                   else 0.0), 0)
+            cu.materials.append(self.mat("cut " + color, hex_rgba(color),
+                                         roughness=0.55))
+            out.append(ob)
+        return out
+
+    @staticmethod
+    def _add_spline(cu, flat, closed_only=False):
+        pts = [(flat[k], flat[k + 1]) for k in range(0, len(flat) - 1, 2)]
+        nseg = len(pts) // 4
+        if nseg == 0:
+            return
+        segs = [pts[4 * s:4 * s + 4] for s in range(nseg)]
+        anchors = [segs[0][0]] + [s[3] for s in segs]
+        closed = math.hypot(anchors[0][0] - anchors[-1][0],
+                            anchors[0][1] - anchors[-1][1]) < 1e-3
+        if closed_only and not closed:
+            return
+        if closed:
+            anchors = anchors[:-1]
+        sp = cu.splines.new("BEZIER")
+        sp.bezier_points.add(len(anchors) - 1)
+        for k, bp in enumerate(sp.bezier_points):
+            bp.co = (anchors[k][0], anchors[k][1], 0.0)
+            right = segs[k][1] if k < nseg else anchors[k]
+            if k > 0:
+                left = segs[k - 1][2]
+            elif closed:
+                left = segs[-1][2]
+            else:
+                left = anchors[0]
+            bp.handle_left_type = bp.handle_right_type = "FREE"
+            bp.handle_left = (left[0], left[1], 0.0)
+            bp.handle_right = (right[0], right[1], 0.0)
+        sp.use_cyclic_u = closed
+
+    # ── animation ───────────────────────────────────────────────────────
+    def visibility(self, objs, rec):
+        changes, cur = [], False
+        for t, on, _ in rec.get("visibility", []):
+            if bool(on) != cur:
+                changes.append((t, bool(on)))
+                cur = bool(on)
+        if changes and changes[0][0] <= 1e-6:
+            seq = changes
+        else:
+            seq = [(0.0, False)] + changes
+        key_visibility(objs, seq, self.opt.fps)
+
+    def governor_anim(self, plan, spin, mat, bubbles):
+        """Spin (slower in low power), gold/amber color, and a glow that
+        flares word by word while the Governor speaks."""
+        bpy, opt = self.bpy, self.opt
+        rec = plan.rec
+        g = rec.get("governor") or {}
+        gold = hex_rgba(g.get("gold") or "#e8c547")
+        amber = hex_rgba(g.get("amber") or "#d47b00")
+        vis = [(t, on) for t, on, _ in rec.get("visibility", [])]
+        t_on = next((t for t, on in vis if on), 0.0)
+        t_off = next((t for t, on in vis if not on and t > t_on),
+                     self.T["duration"])
+        traced = [(t, r) for t, r in g.get("spin", []) if r > 0]
+        want = plan.spec.get("animate", "spin") == "spin"
+        base = traced[0][1] if traced else (SPIN_DEFAULT if want else 0.0)
+        states = [(t, s) for t, s in g.get("states", []) if s]
+        if not states:
+            states = [(t_on, "gold")]
+
+        def state_at(t):
+            s = "gold"
+            for ts, st in states:
+                if ts <= t + 1e-6:
+                    s = st
+            return s
+
+        def ramp_end(t):
+            for m in g.get("moves", []):
+                if abs(m["t0"] - t) < 1e-3 and m["t1"] > m["t0"]:
+                    return m["t1"]
+            return t + 0.4
+        # spin: constant rate within each state
+        rk = KeyList(opt.fps)
+        ang = 0.0
+        pts = sorted({t_on, t_off} | {t for t, _ in states if t_on < t < t_off})
+        rk.add(0.0, [0.0])
+        for a, b in zip(pts[:-1], pts[1:]):
+            rk.add(a, [ang])
+            st = state_at(a)
+            rate = base * (AMBER_SPIN if st == "amber" else
+                           0.0 if st == "dark" else 1.0)
+            ang += rate * (b - a)
+            rk.add(b, [ang])
+        apply_keys(bpy, spin, "rotation_euler", [(2, 0, lambda v: v)], rk)
+        # glow: strength and color, keyed on the face material
+        nt = getattr(mat, "node_tree", None)
+        if nt is None:
+            return
+        b = nt.nodes.get("Principled BSDF")
+        names = [i.name for i in b.inputs]
+        si = next((k for k, n in enumerate(names)
+                   if n == "Emission Strength"), None)
+        ci = next((k for k, n in enumerate(names)
+                   if n in ("Emission Color", "Emission")), None)
+        bi = names.index("Base Color")
+        if si is None or ci is None:
+            return
+        idle = {"gold": 0.7, "amber": 0.3, "dark": 0.0}
+        sl = []                       # (t, strength), sorted below
+        ck = KeyList(opt.fps)
+        sl.append((0.0, idle["gold"]))
+        ck.add(0.0, list(gold[:3]))
+        prev = "gold"
+        for t, st in states:
+            if st == prev:
+                continue
+            t1 = ramp_end(t)
+            sl.append((t, idle[prev]))
+            sl.append((t1, idle[st]))
+            ck.add(t, list((gold if prev != "amber" else amber)[:3]))
+            ck.add(t1, list((gold if st != "amber" else amber)[:3]))
+            prev = st
+        # speaking: one flare per word over the bubble's time on screen
+        name = rec["name"]
+        flares = []
+        for bb in bubbles:
+            if bb.get("owner") != name:
+                continue
+            rows = bb.get("visibility") or []
+            for k, (t, on) in enumerate(rows):
+                if on:
+                    t_end = rows[k + 1][0] if k + 1 < len(rows) else t + 1.5
+                    flares.append((t, t_end, max(1, len(bb["text"].split()))))
+        for ta, tb, nw in sorted(flares):
+            st = state_at(ta)
+            lo = idle[st]
+            hi = lo + (1.6 if st == "gold" else 0.8)
+            beat = max((tb - ta) / nw, 0.12)
+            t = ta
+            sl.append((ta, lo))
+            k = 0
+            while t + beat <= tb + 1e-6:
+                sl.append((t + beat * 0.35, hi if k % 2 == 0 else hi * 0.8))
+                sl.append((t + beat, lo + (hi - lo) * 0.35))
+                t += beat
+                k += 1
+            sl.append((tb, lo))
+        sk = KeyList(opt.fps)
+        for t, v in sorted(sl, key=lambda e: e[0]):
+            sk.add(t, [v], ("SINE", "EASE_IN_OUT"))
+        apply_keys(bpy, nt, f'nodes["{b.name}"].inputs[{si}].default_value',
+                   [(0, 0, lambda v: v)], sk)
+        for path_i in (ci, bi):
+            apply_keys(bpy, nt, f'nodes["{b.name}"].inputs[{path_i}].default_value',
+                       [(0, 0, lambda v: v), (1, 1, lambda v: v),
+                        (2, 2, lambda v: v)], ck)
+
+    def build(self, bubbles, empties):
+        T, opt = self.T, self.opt
+        sched = floor_schedule(T)
+        if not sched:
+            g = ground_level(T)
+            sched = [(0.0, g)] if g is not None else []
+        recs = [r for r in T.get("prop_objects", []) if _visible_from(r)
+                is not None]
+        plans = [PropPlan(r, sched) for r in recs]
+        # unparented props resting on a snapped table/desk share its lift
+        for p in plans:
+            if p.kind in ("desk", "table", "door", "chair") or p.rec.get("parents"):
+                continue
+            for q in plans:
+                if q.kind in ("desk", "table") and abs(q.dz) > 1e-6 and \
+                        abs(p.bottom - q.top_manim) < 0.25 and \
+                        abs(p.rec["initial"][0] - (q.meta.get("x", q.cx))) < q.w / 2:
+                    p.dz, p.depth = q.dz, q.rest_y()
+        joints_of = {n: set(i["joints"]) for n, i in T["cast"].items()}
+        stats = {}
+        for plan in plans:
+            rec = plan.rec
+            tag = f"prop.{rec['name']}.{rec['id']}"
+            root = self.bpy.data.objects.new(tag, None)
+            root.empty_display_size = 0.15
+            self.col.objects.link(root)
+            k = plan.kind
+            gov = None
+            if k in ("desk", "table"):
+                parts = self.build_desk(plan, root, tag)
+            elif k == "door":
+                parts = self.build_door(plan, root, tag)
+            elif k == "chair":
+                parts = self.build_chair(plan, root, tag)
+            elif k == "phone":
+                parts = self.build_phone(plan, root, tag)
+            elif k in ("governor", "dodecahedron"):
+                parts, spin, pulse, fmat = self.build_governor(plan, root, tag)
+                gov = (spin, pulse, fmat)
+            else:
+                parts = self.build_cutout(plan, root, tag)
+            keys, cons = prop_keys(plan, plans, T, self.rates, opt,
+                                   self.native, joints_of)
+            for ci, (char, joint) in enumerate(cons):
+                c = root.constraints.new("COPY_LOCATION")
+                c.name = f"hold {char}.{joint}"
+                c.target = empties[char][joint]
+                c.use_offset = True
+                c.use_y = False
+                apply_keys(self.bpy, root,
+                           f'constraints["{c.name}"].influence',
+                           [(0, 5 + ci, lambda v: v)], keys)
+            apply_keys(self.bpy, root, "location",
+                       [(0, 0, lambda v: v), (1, 1, lambda v: v),
+                        (2, 2, lambda v: v)], keys)
+            if any(abs(v[3]) > 1e-6 for v in keys.v):
+                apply_keys(self.bpy, root, "rotation_euler",
+                           [(0, 3, lambda v: v)], keys)
+            if gov is not None:
+                # the speaking pulse scales the shape, not the whole rig
+                apply_keys(self.bpy, gov[1], "scale",
+                           [(i, 4, lambda v: v) for i in range(3)], keys)
+                self.governor_anim(plan, gov[0], gov[2], bubbles)
+            elif k == "cutout" and any(abs(v[4] - 1) > 1e-3 for v in keys.v):
+                apply_keys(self.bpy, root, "scale",
+                           [(i, 4, lambda v: v) for i in range(3)], keys)
+            for o in parts:
+                if hasattr(o, "visible_shadow") and k == "cutout" and \
+                        plan.type in BACK_TYPES:
+                    o.visible_shadow = False
+            self.visibility(parts, rec)
+            stats[tag] = {"kind": k, "keys": len(keys.f),
+                          "holds": len(rec.get("holds", [])),
+                          "dz": round(plan.dz, 3)}
+        return stats
+
+
+def build_props(bpy, sc, T, rates, opt, native, empties):
+    if not T.get("prop_objects"):
+        return {}
+    return PropBuilder(bpy, sc, T, rates, opt, native).build(
+        T.get("bubbles") or [], empties)
 
 
 def build(trace_path, out_path, opt=None):
@@ -1670,6 +2554,7 @@ def build(trace_path, out_path, opt=None):
     bone_me = unit_bone_mesh(bpy)
     ball_me = unit_ball_mesh(bpy)
     stats = {}
+    all_empties = {}
     for name, info in T["cast"].items():
         joints = info["joints"]
         if name not in T["initial"] or not T["initial"][name]:
@@ -1695,6 +2580,7 @@ def build(trace_path, out_path, opt=None):
             e.parent = root
             col.objects.link(e)
             empties[j] = e
+            all_empties.setdefault(name, {})[j] = e
             apply_keys(bpy, e, "location",
                        [(0, 2 * ji, lambda v: v), (2, 2 * ji + 1, lambda v: v)],
                        keys)
@@ -1780,24 +2666,23 @@ def build(trace_path, out_path, opt=None):
         first_on = changes[0][0] if changes and changes[0][1] else None
         seq = [(0.0, False)] if first_on is None or first_on > 0 else []
         seq += changes
-        for o in meshes:
-            for t, on in seq:
-                f = 1 + t * opt.fps
-                o.hide_render = not on
-                o.hide_viewport = not on
-                o.keyframe_insert("hide_render", frame=f)
-                o.keyframe_insert("hide_viewport", frame=f)
+        key_visibility(meshes, seq, opt.fps)
         stats[name]["vis_keys"] = len(seq)
 
+    pstats = build_props(bpy, sc, T, rates, opt, native, all_empties) \
+        if opt.props else {}
     nb = build_bubbles(bpy, sc, T, rates, opt, native, tilt) if opt.bubbles else 0
 
     bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(out_path))
-    print(f"wrote {out_path}: {len(T['cast'])} characters, {nb} speech bubbles, "
+    print(f"wrote {out_path}: {len(T['cast'])} characters, {len(pstats)} props, "
+          f"{nb} speech bubbles, "
           f"{sc.frame_end} frames @ {opt.fps} fps, look={opt.look}, "
           f"engine={sc.render.engine} (trace v{T.get('trace_version', 1)})")
     print("native easings:", {k: (v[0], v[1], round(v[2], 4))
                               for k, v in native.items()})
     print("keys:", stats)
+    if pstats:
+        print("props:", pstats)
     return stats
 
 
