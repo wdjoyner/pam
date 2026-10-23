@@ -30,6 +30,12 @@ Options:
     --tilt DEG         camera tilt down toward the floor (default 8;
                        ignored by the flat look)
     --no-bubbles       leave out the speech bubbles
+    --camera wide      hold the widest framing the scene uses for the
+                       whole film, ignoring PAM's camera moves and cuts
+                       (default "manim": follow them)
+    --bubbles-world    keep PAM's world-space bubble size in close-ups
+                       (by default a bubble keeps its wide-shot screen size,
+                       down to half, and always stays inside the frame)
     --no-props         leave out props and scene objects (trace version 3)
     --hips F           male hip spread, as a fraction of PAM's (default
                        0.65; 1 keeps PAM's spread).  The tops of the legs
@@ -103,6 +109,8 @@ class Options:
     hips = 0.65
     skin = {}
     shoes = "#4a3020"
+    bubble_size = "screen"
+    camera = "manim"
 
 
 def parse_args(argv):
@@ -146,6 +154,10 @@ def parse_args(argv):
             opt.shoes = a[i + 1]; i += 1
         elif k == "--no-shoes":
             opt.shoes = None
+        elif k == "--bubbles-world":
+            opt.bubble_size = "world"
+        elif k == "--camera":
+            opt.camera = a[i + 1]; i += 1
         elif k == "--bust":
             opt.bust = True
         elif k == "--female":
@@ -852,7 +864,7 @@ class KeyList:
         self.f, self.v, self.spec = [], [], []
 
     def frame(self, t):
-        return 1.0 + t * self.fps
+        return frame_of(t, self.fps)
 
     def add(self, t, vals, spec=("LINEAR", "AUTO")):
         f = self.frame(t)
@@ -861,9 +873,16 @@ class KeyList:
             if np.allclose(self.v[-1], vals, atol=1e-6):
                 self.spec[-1] = spec
                 return
-            # hard cut: hold the old value, jump just after
+            # hard cut: the new value lands on the cut's own frame (as in
+            # Manim); the old one is held until just before it.  If the
+            # previous key is too close to move back, jump just after.
             self.spec[-1] = ("CONSTANT", "AUTO")
-            f = self.f[-1] + CUT_NUDGE
+            if abs(f - self.f[-1]) < 1e-6 and (
+                    len(self.f) < 2 or self.f[-2] < self.f[-1] - 2 * CUT_NUDGE):
+                self.f[-1] -= CUT_NUDGE
+                f = self.f[-1] + CUT_NUDGE
+            else:
+                f = self.f[-1] + CUT_NUDGE
         self.f.append(f)
         self.v.append(vals)
         self.spec.append(spec)
@@ -1183,6 +1202,15 @@ def _shade_smooth(ob):
         p.use_smooth = True
 
 
+def frame_of(t, fps):
+    """Frame number of time t.  Trace times are rounded to 0.1 ms, so a
+    time meant to fall on a frame can land a hair after it; snap those
+    back, or a cut or an exit slips one frame late."""
+    f = 1.0 + t * fps
+    r = round(f)
+    return float(r) if abs(f - r) < 0.01 else f
+
+
 def key_visibility(objs, seq, fps):
     """Key hide_render / hide_viewport on *objs* at the (t, visible)
     changes in *seq*, with CONSTANT interpolation.  (Boolean fcurves
@@ -1191,7 +1219,7 @@ def key_visibility(objs, seq, fps):
     hidden ... visible shows up early.)"""
     for o in objs:
         for t, on in seq:
-            f = 1 + t * fps
+            f = frame_of(t, fps)
             o.hide_render = not on
             o.hide_viewport = not on
             o.keyframe_insert("hide_render", frame=f)
@@ -1382,7 +1410,7 @@ def setup_look(bpy, sc, T, opt, bg_rgb):
         for k, (t, g) in enumerate(sched):
             fl.location.z = g - LIMB_R * 0.6
             fl.keyframe_insert("location", index=2,
-                               frame=1.0 if k == 0 else 1 + t * opt.fps)
+                               frame=1.0 if k == 0 else frame_of(t, opt.fps))
         for fc in _id_fcurves(fl):
             for kp in fc.keyframe_points:
                 kp.interpolation = "CONSTANT"
@@ -1588,12 +1616,19 @@ def narrow_hips(keys, joints, f):
 
 def _toe_angle(piece, prev):
     """Shoe heading (rotation about z) for a motion piece: 0 points the
-    toes at the camera (front view); side views point them toward the
-    figure's facing."""
+    toes at the camera (front view); side views point them the way the
+    figure is moving, or else keep the last heading (PAM's carry does
+    not update the figure's "facing", so a leftward carry still reports
+    "right"), or else follow "facing"."""
     view = piece.get("view")
     if view == "front":
         return 0.0
     if view == "side":
+        o0, o1 = piece.get("offset0"), piece.get("offset")
+        if o0 and o1 and abs(o1[0] - o0[0]) > 1e-3:
+            return math.pi / 2 if o1[0] > o0[0] else -math.pi / 2
+        if prev is not None and abs(prev) > 1e-6:
+            return prev
         f = (piece.get("facing") or "right").lower()
         return -math.pi / 2 if f in ("left", "lside") else math.pi / 2
     return prev
@@ -1649,6 +1684,7 @@ def build_shoes(bpy, col, name, empties, sf, shoe_mat, ball_me, T, fps):
 
 BUBBLE_Y = -1.5            # bubble panels' depth (in front of the cast)
 BUBBLE_MARGIN = 0.12       # keep bubbles this far inside the camera frame
+BUBBLE_MIN_SCALE = 0.5     # close-up bubbles shrink to at most this much
 
 
 def _move_eval(c0, moves, rates, t, key=None):
@@ -1681,10 +1717,15 @@ def camera_at(T, rates, t):
 
 
 def bubble_track(b, T, rates, opt, tilt):
-    """Keys (t, [x, z]) for a bubble: its Manim position, nudged so the
-    whole bubble stays inside the camera frame while it is shown.  PAM
-    places bubbles by the speaker in world space, so in close-ups part of
-    a bubble can fall outside the frame (in the Manim video too)."""
+    """Keys (t, [x, z, scale]) for a bubble while it is shown, and
+    whether they differ from the plain Manim position.
+
+    PAM sizes and places bubbles in world space by the speaker, so in a
+    close-up a bubble grows on screen and part of it can fall outside the
+    frame (in the Manim video too).  Here, unless --bubbles-world is
+    given, a bubble keeps the screen size it would have in the opening
+    wide shot (scaling toward its tail tip, so the tail still points at
+    the speaker), and it is then nudged to stay inside the frame."""
     rows = b.get("visibility") or []
     spans = []
     for k, (t, on) in enumerate(rows):
@@ -1692,28 +1733,40 @@ def bubble_track(b, T, rates, opt, tilt):
             spans.append((t, rows[k + 1][0] if k + 1 < len(rows) else T["duration"]))
     ct, st = math.cos(tilt), math.sin(tilt)
     aspect = opt.res[1] / opt.res[0]
+    w_ref = float((T.get("camera_initial") or {}).get("width")
+                  or T["frame"]["width"])
     border = 0.035
-    hw = b["w"] / 2 + border
-    top = b["h"] / 2 + border
-    tail = [p[1] for p in (b.get("tail") or [])]
-    bot = max(b["h"] / 2 + border, -min(tail) if tail else 0.0)
-    out, nudged = [], False
+    tail = b.get("tail") or []
+    tip = min(tail, key=lambda p: p[1]) if tail else [0.0, -b["h"] / 2]
+    out, changed = [], False
     for ta, tb in spans:
         ts = np.concatenate([[ta], _inner_times(ta, tb, opt.fps), [tb]])
         for t in ts:
             x, z = _move_eval(b["initial"], b.get("moves", []), rates, t)
-            cx, cy, W = camera_at(T, rates, t)
+            # a cut that coincides with the bubble's entrance has already
+            # happened on the entrance frame
+            cx, cy, W = camera_at(T, rates, t + 1e-4)
+            sc_ = 1.0 if opt.bubble_size == "world" else \
+                float(np.clip(W / w_ref, BUBBLE_MIN_SCALE, 1.0))
+            # scale about the tail tip: the tail keeps pointing at the
+            # speaker
+            x += (1 - sc_) * tip[0]
+            z += (1 - sc_) * tip[1]
+            hw = (b["w"] / 2 + border) * sc_
+            top = (b["h"] / 2 + border) * sc_
+            bot = max(b["h"] / 2 + border, -tip[1]) * sc_
             H = W * aspect
-            m = BUBBLE_MARGIN * W / 14.2
+            m = BUBBLE_MARGIN * W / w_ref
             lo, hi = cx - W / 2 + m + hw, cx + W / 2 - m - hw
             nx = cx if lo > hi else min(max(x, lo), hi)
             # screen height of a point at depth y: y*sin(tilt) + (z-cy)*cos
             zhi = cy + (H / 2 - m - BUBBLE_Y * st) / ct - top
             zlo = cy + (-H / 2 + m - BUBBLE_Y * st) / ct + bot
             nz = min(max(z, zlo), zhi) if zlo <= zhi else zhi
-            nudged |= abs(nx - x) > 1e-4 or abs(nz - z) > 1e-4
-            out.append((float(t), [nx, nz]))
-    return out, nudged
+            changed |= abs(sc_ - 1) > 1e-4 or abs(nx - x) > 1e-4 \
+                or abs(nz - z) > 1e-4
+            out.append((float(t), [nx, nz, sc_]))
+    return out, changed
 
 
 def build_bubbles(bpy, sc, T, rates, opt, native, tilt):
@@ -1792,13 +1845,19 @@ def build_bubbles(bpy, sc, T, rates, opt, native, tilt):
         keys = KeyList(opt.fps)
         track, nudged = bubble_track(b, T, rates, opt, tilt)
         if nudged:
+            sk = KeyList(opt.fps)
             # kept inside the camera frame: baked over its time on screen
             for t, v in track:
-                keys.add(t, v)
-            if track and track[0][0] > 0:
-                keys.f.insert(0, 1.0)
-                keys.v.insert(0, np.asarray(track[0][1], float))
-                keys.spec.insert(0, ("CONSTANT", "AUTO"))
+                keys.add(t, v[:2])
+                sk.add(t, v[2:])
+            for kl, first in ((keys, track[0][1][:2]), (sk, track[0][1][2:])):
+                if track and track[0][0] > 0:
+                    kl.f.insert(0, 1.0)
+                    kl.v.insert(0, np.asarray(first, float))
+                    kl.spec.insert(0, ("CONSTANT", "AUTO"))
+            if any(abs(v[0] - 1) > 1e-4 for v in sk.v):
+                apply_keys(bpy, root, "scale",
+                           [(i, 0, lambda v: v) for i in range(3)], sk)
             nbubble_nudged[0] += 1
         else:
             keys.add(0.0, b["initial"])
@@ -1817,8 +1876,8 @@ def build_bubbles(bpy, sc, T, rates, opt, native, tilt):
         # visibility, keyed only at changes
         seq = [(0.0, False)] + [(t, bool(on)) for t, on in b["visibility"]]
         key_visibility(parts, seq, opt.fps)
-    print(f"bubbles kept inside the camera frame: {nbubble_nudged[0]} "
-          f"of {len(bubbles)}")
+    print(f"bubbles resized or kept inside the camera frame: "
+          f"{nbubble_nudged[0]} of {len(bubbles)}")
     return len(bubbles)
 
 
@@ -2672,10 +2731,26 @@ def build_props(bpy, sc, T, rates, opt, native, empties):
         T.get("bubbles") or [], empties)
 
 
+def hold_wide_camera(T):
+    """Replace the camera track with the widest framing it uses (the
+    earliest one on a tie), held for the whole film."""
+    states = [T.get("camera_initial")] + [m[k] for m in T.get("camera", [])
+                                          for k in ("from", "to")]
+    states = [c for c in states if c]
+    if not states:
+        return
+    wide = max(states, key=lambda c: c["width"] + 1e-6 * (c is states[0]))
+    T["camera_initial"] = {"center": list(wide["center"]),
+                           "width": wide["width"]}
+    T["camera"] = []
+
+
 def build(trace_path, out_path, opt=None):
     import bpy
     opt = opt or Options()
     T = load_trace(trace_path)
+    if opt.camera == "wide":
+        hold_wide_camera(T)
     rates = load_rates(T)
     bpy.ops.wm.read_factory_settings(use_empty=True)
     sc = bpy.context.scene
@@ -2699,7 +2774,7 @@ def build(trace_path, out_path, opt=None):
         except Exception:
             pass
         if len(bgs) > 1:
-            world.keyframe_insert("color", frame=1.0 if k == 0 else 1 + t * opt.fps)
+            world.keyframe_insert("color", frame=1.0 if k == 0 else frame_of(t, opt.fps))
     if len(bgs) > 1 and world.animation_data:
         for fc in _fcurves(world.animation_data.action):
             for kp in fc.keyframe_points:

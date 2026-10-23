@@ -1373,7 +1373,7 @@ Tested with Blender 4.2, 4.4, and 5.2; written to also work with 3.x.
 - **Gendered chests.** Male chests are wide at the shoulders and narrow at the hips (male hips are pulled in to 0.65 of PAM's spread; `--hips` changes that); female chests the reverse. The cast's `"gender"` field is used automatically (a `"narrow"` build counts as female when no gender is given); `--female` / `--male` override it.
 - **Skin and clothing.** Give a cast entry a `"skin"` color (or `"skin_color"` in its `"style"`) and the head, neck, arms, and legs take that color while the chest, shoulders, and hips keep the figure's color as clothing. PAM ignores the key, so the Manim render is unchanged. `--skin nona=#7cc45a,sidel=#3f8f4a` does the same from the command line.
 - **Shoes:** a simple ellipsoid under each foot, pointing at the camera in front views and along the facing direction in side views (`--shoes HEX` for the color, `--no-shoes` to leave them off).
-- **Speech bubbles,** with PAM's colors, tails, phone/off-screen style, and timing, following walk-and-talk speakers. A bubble that would run past the edge of the camera frame (common in close-ups, in the Manim video too) is nudged inside it while it is shown.
+- **Speech bubbles,** with PAM's colors, tails, phone/off-screen style, and timing, following walk-and-talk speakers. In close-ups, PAM's bubbles grow on screen with the zoom and can run past the edge of the frame (in the Manim video too); in Blender each bubble keeps the screen size it has in the opening wide shot (down to half size, shrinking toward its tail so it still points at the speaker) and is kept inside the camera frame while it is shown. `--bubbles-world` keeps PAM's world-space size instead.
 - **Props and scene objects.** Desks, tables, consoles (with their monitor), doors, chairs, cellphones, and the Governor dodecahedron become simple 3D models; every other prop type is extruded from its 2D Manim outline, so nothing disappears. Floor-standing props are set on the floor, doors sit in the back wall, and props appear, move, and disappear when they do in Manim (`props`, `spawn_prop`, `remove_prop`, `place_on`, `reparent_prop`, ...).
 - **Held props follow the hands.** Between a figure's attach and release (`carry`, `pick_up`, `grab`, `hand_to`, ...) the prop rides on the holding wrist(s), so it moves with the Blender figure's smoothed walk. A prop placed on a table slides from the hand to the tabletop and rests there, tilted toward the camera if it is a phone. Hats and other `pam_follows` accessories ride on the head or torso.
 - **The Governor** spins slowly (when its `spawn_prop` asks for `"animate": "spin"`, the default), glows gold, flares word by word while it speaks, and dims to amber and slows down in its low-power state (`prop_color` with `#d47b00`).
@@ -1392,6 +1392,8 @@ Options go after the `.blend` name.
 | `--bust` | Add a bust to female chests (off by default). |
 | `--tilt DEG` | Camera tilt toward the floor (default 8; 0 for a straight-on view). |
 | `--no-bubbles` | Leave out speech bubbles. |
+| `--camera wide` | Hold the widest framing the scene uses for the whole film, instead of following PAM's camera moves and cuts. |
+| `--bubbles-world` | Keep PAM's bubble size in close-ups (bubbles are still kept inside the frame). |
 | `--no-props` | Leave out props and scene objects. |
 | `--skin A=#hex,...` | Skin color for these characters' head and limbs (overrides the cast's `"skin"`). |
 | `--hips F` | Male hip spread as a fraction of PAM's (default 0.65; 1 keeps PAM's). |
