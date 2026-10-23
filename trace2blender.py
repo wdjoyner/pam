@@ -31,6 +31,14 @@ Options:
                        ignored by the flat look)
     --no-bubbles       leave out the speech bubbles
     --no-props         leave out props and scene objects (trace version 3)
+    --hips F           male hip spread, as a fraction of PAM's (default
+                       0.65; 1 keeps PAM's spread).  The tops of the legs
+                       move in; the feet stay where they are.
+    --skin A=#hex,...  skin color for the head, neck, arms and legs (the
+                       chest, shoulders and hips keep the figure's color,
+                       as clothing).  A cast entry's "skin" (or
+                       style.skin_color) does the same from the screenplay.
+    --shoes HEX        shoe color (default #4a3020, brown); --no-shoes for none
     --female A,B       draw these characters with a female chest (narrow
                        top, wide bottom); --male A,B the reverse.
     --bust             add a bust to female chests (off by default)
@@ -92,6 +100,9 @@ class Options:
     tilt = 8.0
     bubbles = True
     props = True
+    hips = 0.65
+    skin = {}
+    shoes = "#4a3020"
 
 
 def parse_args(argv):
@@ -123,6 +134,18 @@ def parse_args(argv):
             opt.bubbles = False
         elif k == "--no-props":
             opt.props = False
+        elif k == "--hips":
+            opt.hips = float(a[i + 1]); i += 1
+        elif k == "--skin":
+            for item in a[i + 1].split(","):
+                if "=" in item:
+                    nm, hx = item.split("=", 1)
+                    opt.skin[nm.strip()] = hx.strip()
+            i += 1
+        elif k == "--shoes":
+            opt.shoes = a[i + 1]; i += 1
+        elif k == "--no-shoes":
+            opt.shoes = None
         elif k == "--bust":
             opt.bust = True
         elif k == "--female":
@@ -1093,6 +1116,11 @@ CAM_DIST = 20.0
 TORSO_JOINTS = {"neck", "torso", "torso_left", "torso_right"}
 REF_HEIGHT = 5.1          # head-to-ankle height of a default front-view figure
 LIMB_R, TORSO_R, NECK_R, HEAD_R = 0.20, 0.15, 0.09, 0.50
+SHOULDER_R = 2 * TORSO_R  # neck-to-shoulder bars
+INNER_JOINTS = {"torso", "torso_left", "torso_right"}   # inside the chest
+CLOTHED_JOINTS = {"lshoulder", "rshoulder", "lhip", "rhip"}
+SHOE_L, SHOE_W, SHOE_H = 0.85, 0.50, 0.34    # shoe size (times figure scale)
+SHOE_FWD = 0.22                              # toe-ward offset of its center
 HINGE_SCALE = 1.35        # knee/elbow balls this much wider than the limb
 HINGES = {"lknee", "rknee", "lelbow", "relbow"}
 CHEST_CORNERS = ("lshoulder", "rshoulder", "rhip", "lhip")
@@ -1212,7 +1240,9 @@ def figure_scale(T, name):
 def edge_radius(a, b, sf, look):
     if look == "flat":
         return BONE_R
-    if {a, b} & {"head"}:
+    if {a, b} in ({"neck", "lshoulder"}, {"neck", "rshoulder"}):
+        r = SHOULDER_R
+    elif {a, b} & {"head"}:
         r = NECK_R
     elif {a, b} & TORSO_JOINTS:
         r = TORSO_R
@@ -1540,6 +1570,152 @@ def build_chest(bpy, col, name, corners, mat, sf, female):
     return ob
 
 
+def narrow_hips(keys, joints, f):
+    """Pull the two hip joints toward their midpoint by factor *f* in
+    every key (male figures: narrower hips under wide shoulders).  The
+    chest's bottom corners follow; knees and feet are not moved."""
+    if "lhip" not in joints or "rhip" not in joints or not keys.v:
+        return
+    li, ri = joints.index("lhip"), joints.index("rhip")
+    keys.v = [np.array(v, float) for v in keys.v]    # rows may share memory
+    for v in keys.v:
+        L = v[2 * li:2 * li + 2].copy()
+        R = v[2 * ri:2 * ri + 2].copy()
+        mid = (L + R) / 2
+        v[2 * li:2 * li + 2] = mid + (L - mid) * f
+        v[2 * ri:2 * ri + 2] = mid + (R - mid) * f
+
+
+def _toe_angle(piece, prev):
+    """Shoe heading (rotation about z) for a motion piece: 0 points the
+    toes at the camera (front view); side views point them toward the
+    figure's facing."""
+    view = piece.get("view")
+    if view == "front":
+        return 0.0
+    if view == "side":
+        f = (piece.get("facing") or "right").lower()
+        return -math.pi / 2 if f in ("left", "lside") else math.pi / 2
+    return prev
+
+
+def shoe_keys(T, name, fps):
+    """Shoe heading keys: held between moves, turning during each move
+    that changes the view (a turn)."""
+    keys = KeyList(fps)
+    tr = sorted(T["tracks"].get(name, []), key=lambda p: (p["t0"], p["t1"]))
+    ang = None
+    for p in tr:
+        a = _toe_angle(p, ang)
+        if a is None:
+            continue
+        if ang is None:
+            keys.add(0.0, [a])
+        elif abs(a - ang) > 1e-6:
+            keys.add(p["t0"], [ang])
+            keys.add(p["t1"], [a])
+        ang = a
+    if not keys.f:
+        keys.add(0.0, [0.0])
+    return keys
+
+
+def build_shoes(bpy, col, name, empties, sf, shoe_mat, ball_me, T, fps):
+    """An ellipsoid shoe under each ankle, its bottom on the floor when
+    the foot is planted, turned to match the figure's view."""
+    out = []
+    keys = shoe_keys(T, name, fps)
+    L, W, H = SHOE_L * sf, SHOE_W * sf, SHOE_H * sf
+    for side in ("l", "r"):
+        ank = empties.get(f"{side}ankle")
+        if ank is None:
+            continue
+        piv = bpy.data.objects.new(f"{name}.{side}shoe.pivot", None)
+        piv.empty_display_size = 0.05
+        col.objects.link(piv)
+        piv.parent = ank
+        apply_keys(bpy, piv, "rotation_euler", [(2, 0, lambda v: v)], keys)
+        shoe = bpy.data.objects.new(f"{name}.{side}shoe", ball_me)
+        col.objects.link(shoe)
+        shoe.material_slots[0].link = "OBJECT"
+        shoe.material_slots[0].material = shoe_mat
+        shoe.parent = piv
+        # the floor sits LIMB_R * 0.6 below a planted ankle (setup_look)
+        shoe.location = (0.0, -SHOE_FWD * sf, -LIMB_R * 0.6 + H / 2)
+        shoe.scale = (W / 2, L / 2, H / 2)
+        out.append(shoe)
+    return out
+
+
+BUBBLE_Y = -1.5            # bubble panels' depth (in front of the cast)
+BUBBLE_MARGIN = 0.12       # keep bubbles this far inside the camera frame
+
+
+def _move_eval(c0, moves, rates, t, key=None):
+    """Value at time t of something that starts at c0 and changes by
+    camera-style moves ({"t0", "t1", "rate", "from", "to"})."""
+    get = key or (lambda v: np.asarray(v, float))
+    cur = get(c0)
+    for m in moves:
+        if m["t0"] > t + 1e-9:
+            break
+        a0, a1 = get(m["from"]), get(m["to"])
+        if m["t1"] <= t or m["t1"] <= m["t0"]:
+            cur = a1
+            continue
+        r = rates.get(m["rate"]) or rates["linear"]
+        x = float(r(np.array([(t - m["t0"]) / (m["t1"] - m["t0"])]))[0])
+        if abs(r.end - 1) > 1e-6 and abs(r.end) > 1e-6:
+            x /= r.end
+        cur = a0 + x * (a1 - a0)
+    return cur
+
+
+def camera_at(T, rates, t):
+    """(center x, center y, width) of the Manim camera frame at time t."""
+    c0 = T.get("camera_initial") or {"center": [0, 0],
+                                     "width": T["frame"]["width"]}
+    return _move_eval(c0, T.get("camera", []), rates, t,
+                      key=lambda c: np.array([c["center"][0], c["center"][1],
+                                              c["width"]], float))
+
+
+def bubble_track(b, T, rates, opt, tilt):
+    """Keys (t, [x, z]) for a bubble: its Manim position, nudged so the
+    whole bubble stays inside the camera frame while it is shown.  PAM
+    places bubbles by the speaker in world space, so in close-ups part of
+    a bubble can fall outside the frame (in the Manim video too)."""
+    rows = b.get("visibility") or []
+    spans = []
+    for k, (t, on) in enumerate(rows):
+        if on:
+            spans.append((t, rows[k + 1][0] if k + 1 < len(rows) else T["duration"]))
+    ct, st = math.cos(tilt), math.sin(tilt)
+    aspect = opt.res[1] / opt.res[0]
+    border = 0.035
+    hw = b["w"] / 2 + border
+    top = b["h"] / 2 + border
+    tail = [p[1] for p in (b.get("tail") or [])]
+    bot = max(b["h"] / 2 + border, -min(tail) if tail else 0.0)
+    out, nudged = [], False
+    for ta, tb in spans:
+        ts = np.concatenate([[ta], _inner_times(ta, tb, opt.fps), [tb]])
+        for t in ts:
+            x, z = _move_eval(b["initial"], b.get("moves", []), rates, t)
+            cx, cy, W = camera_at(T, rates, t)
+            H = W * aspect
+            m = BUBBLE_MARGIN * W / 14.2
+            lo, hi = cx - W / 2 + m + hw, cx + W / 2 - m - hw
+            nx = cx if lo > hi else min(max(x, lo), hi)
+            # screen height of a point at depth y: y*sin(tilt) + (z-cy)*cos
+            zhi = cy + (H / 2 - m - BUBBLE_Y * st) / ct - top
+            zlo = cy + (-H / 2 + m - BUBBLE_Y * st) / ct + bot
+            nz = min(max(z, zlo), zhi) if zlo <= zhi else zhi
+            nudged |= abs(nx - x) > 1e-4 or abs(nz - z) > 1e-4
+            out.append((float(t), [nx, nz]))
+    return out, nudged
+
+
 def build_bubbles(bpy, sc, T, rates, opt, native, tilt):
     """Speech bubbles as camera-facing panels: rounded box with a border,
     tail, and real text, shown and moved exactly as in the trace."""
@@ -1551,6 +1727,7 @@ def build_bubbles(bpy, sc, T, rates, opt, native, tilt):
     font = _font(bpy)
     mats = {}
     adv, line_h = _font_metrics(bpy, font)
+    nbubble_nudged = [0]
 
     def mat(hx):
         if hx not in mats:
@@ -1613,22 +1790,35 @@ def build_bubbles(bpy, sc, T, rates, opt, native, tilt):
             cu.size = min(b["text_w"] / dw, 0.9 * b["h"] / dh)
         # position (front of the characters) and moves
         keys = KeyList(opt.fps)
-        keys.add(0.0, b["initial"])
-        for mv in b.get("moves", []):
-            if mv["t1"] <= mv["t0"]:
-                keys.add(mv["t0"], mv["from"]); keys.add(mv["t0"], mv["to"])
-                continue
-            nat = native.get(mv["rate"])
-            keys.add(mv["t0"], mv["from"],
-                     (nat[0], nat[1]) if nat else ("LINEAR", "AUTO"))
-            keys.add(mv["t1"], mv["to"])
-        root.location = (b["initial"][0], -1.5, b["initial"][1])
+        track, nudged = bubble_track(b, T, rates, opt, tilt)
+        if nudged:
+            # kept inside the camera frame: baked over its time on screen
+            for t, v in track:
+                keys.add(t, v)
+            if track and track[0][0] > 0:
+                keys.f.insert(0, 1.0)
+                keys.v.insert(0, np.asarray(track[0][1], float))
+                keys.spec.insert(0, ("CONSTANT", "AUTO"))
+            nbubble_nudged[0] += 1
+        else:
+            keys.add(0.0, b["initial"])
+            for mv in b.get("moves", []):
+                if mv["t1"] <= mv["t0"]:
+                    keys.add(mv["t0"], mv["from"]); keys.add(mv["t0"], mv["to"])
+                    continue
+                nat = native.get(mv["rate"])
+                keys.add(mv["t0"], mv["from"],
+                         (nat[0], nat[1]) if nat else ("LINEAR", "AUTO"))
+                keys.add(mv["t1"], mv["to"])
+        root.location = (b["initial"][0], BUBBLE_Y, b["initial"][1])
         if len(keys.f) > 1:
             apply_keys(bpy, root, "location",
                        [(0, 0, lambda v: v), (2, 1, lambda v: v)], keys)
         # visibility, keyed only at changes
         seq = [(0.0, False)] + [(t, bool(on)) for t, on in b["visibility"]]
         key_visibility(parts, seq, opt.fps)
+    print(f"bubbles kept inside the camera frame: {nbubble_nudged[0]} "
+          f"of {len(bubbles)}")
     return len(bubbles)
 
 
@@ -2567,6 +2757,17 @@ def build(trace_path, out_path, opt=None):
         col.objects.link(root)
         keys, nbake = assemble_character(name, T, rates, opt, native)
         stats[name] = {"keys": len(keys.f), "baked": nbake}
+        is_dog = info.get("class") == "DogGraph"
+        chest = has_chest(joints, opt.look) and not is_dog
+        female = is_female(name, info, opt) if chest else False
+        if chest and not female and abs(opt.hips - 1.0) > 1e-6:
+            narrow_hips(keys, joints, opt.hips)
+        # skin (head, neck, arms, legs) vs clothing (chest, shoulders, hips)
+        skin_hex = opt.skin.get(name) or info.get("skin")
+        skin = mat
+        if skin_hex and opt.look != "flat":
+            skin = material(bpy, f"{name}_skin", hex_rgba(skin_hex))
+            stats[name]["skin"] = skin_hex
         # joint ball radius = thickest bone meeting it (rounded joints)
         jr = {}
         for a, b in info["edges"]:
@@ -2584,6 +2785,8 @@ def build(trace_path, out_path, opt=None):
             apply_keys(bpy, e, "location",
                        [(0, 2 * ji, lambda v: v), (2, 2 * ji + 1, lambda v: v)],
                        keys)
+            if chest and j in INNER_JOINTS:
+                continue                  # hidden inside the chest
             if j == "head":
                 r = (info.get("head_radius", 0.28) if opt.look == "flat"
                      else HEAD_R * sf)
@@ -2594,14 +2797,14 @@ def build(trace_path, out_path, opt=None):
             ball = bpy.data.objects.new(f"{name}.{j}.ball", ball_me)
             col.objects.link(ball)
             ball.material_slots[0].link = "OBJECT"
-            ball.material_slots[0].material = mat
+            ball.material_slots[0].material = mat if (
+                j in CLOTHED_JOINTS or (not chest and j in INNER_JOINTS)) \
+                else skin
             ball.parent = e
             ball.location = (0, 0, 0)
             ball.scale = (r, r, r)
             meshes.append(ball)
-        chest = has_chest(joints, opt.look) and info.get("class") != "DogGraph"
         if chest and keys.f:
-            female = is_female(name, info, opt)
             CV = chest_corner_values(np.array(keys.v), joints, female, sf)
             ck = KeyList(opt.fps)
             ck.f, ck.v, ck.spec = list(keys.f), list(CV), list(keys.spec)
@@ -2646,7 +2849,10 @@ def build(trace_path, out_path, opt=None):
             ob = bpy.data.objects.new(f"{name}.{a}-{b}", bone_me)
             col.objects.link(ob)
             ob.material_slots[0].link = "OBJECT"
-            ob.material_slots[0].material = mat
+            clothed = {a, b} & (TORSO_JOINTS - {"neck"}) or \
+                {a, b} in ({"neck", "lshoulder"}, {"neck", "rshoulder"},
+                           {"lhip", "rhip"}, {"lshoulder", "rshoulder"})
+            ob.material_slots[0].material = mat if clothed else skin
             r = edge_radius(a, b, sf, opt.look)
             ob.scale = (r, 1.0, r)
             c1 = ob.constraints.new("COPY_LOCATION")
@@ -2656,6 +2862,11 @@ def build(trace_path, out_path, opt=None):
             c2.rest_length = 1.0
             c2.volume = "NO_VOLUME"
             meshes.append(ob)
+        if opt.shoes and opt.look != "flat" and not is_dog:
+            meshes += build_shoes(bpy, col, name, empties, sf,
+                                  material(bpy, f"{name}_shoes",
+                                           hex_rgba(opt.shoes), roughness=0.3),
+                                  ball_me, T, opt.fps)
         # visibility: sparse keys, only where it changes
         rows = T["visibility"].get(name, [])
         changes, cur = [], False

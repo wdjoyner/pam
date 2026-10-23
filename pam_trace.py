@@ -33,7 +33,8 @@ Trace format (trace_version 3)
   "frame": {"width": w, "height": h},           # initial camera frame
   "rate_funcs": {name: [r(i/64) for i in 0..64]},
   "cast":   {name: {"class", "figure_type", "joints", "edges", "color",
-                    "head_radius", "node_radius"}},
+                    "head_radius", "node_radius", "gender", "build",
+                    "skin"}},
   "tracks": {name: [piece, ...]},                # time-ordered
   "visibility": {name: [[t, visible, opacity], ...]},   # changes only
   "camera": [{"t0", "t1", "rate", "from": {"center", "width"},
@@ -95,6 +96,7 @@ offset.  kind "cut" is an instantaneous jump (set_pose or any change
 made between plays); its t0 == t1.
 """
 import json
+import os
 import math
 import sys
 import inspect
@@ -654,6 +656,10 @@ class Tracer:
                 "gender": spec.get("gender"),
                 "build": spec.get("build") if isinstance(spec.get("build"), str)
                 else None,
+                # optional skin color, read from the screenplay (see
+                # screenplay_skins); PAM itself ignores it, the Blender
+                # export uses it for the head and limbs
+                "skin": SKINS.get(name),
                 "class": type(fig).__name__,
                 "figure_type": figure_type,
                 "joints": list(fig.dots.keys()),
@@ -1028,6 +1034,30 @@ class Tracer:
         }
 
 
+def screenplay_skins(path):
+    """{character: skin color} from the screenplay's cast blocks: a cast
+    entry's "skin", or "skin_color" in its "style".  PAM ignores these
+    keys; they are only for the Blender export.  Later cast blocks win."""
+    try:
+        steps = json.load(open(path))
+    except Exception:
+        return {}
+    out = {}
+    for st in steps if isinstance(steps, list) else []:
+        if not isinstance(st, dict) or st.get("action") != "cast":
+            continue
+        for nm, spec in (st.get("characters") or {}).items():
+            if not isinstance(spec, dict):
+                continue
+            style = spec.get("style") if isinstance(spec.get("style"), dict) \
+                else {}
+            sk = spec.get("skin") or style.get("skin_color")
+            if isinstance(sk, str):
+                out[nm] = sk
+    return out
+
+
+SKINS = screenplay_skins(os.environ.get("PAM_SCRIPT", "screenplay.json"))
 TR = Tracer()
 _orig_play, _orig_wait = Scene.play, Scene.wait
 
