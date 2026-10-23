@@ -33,6 +33,11 @@ Options:
     --no-overlays      leave out faces, torso icons, name tags, gloves,
                        PAM's shoes and on-screen cards (trace version 4)
     --no-labels        leave out the head labels ("Sidel", "Nona", ...)
+    --card-bg A        opacity of the dark panel behind on-screen text cards
+                       and captions (default 0: see-through; 1: as in Manim)
+    --flat-faces       draw faces as flat decals instead of 3D heads
+    --hem F            torso hem length below the hips, times the default
+                       (0: the torso ends at the hips, as before)
     --camera wide      hold the widest framing the scene uses for the
                        whole film, ignoring PAM's camera moves and cuts
                        (default "manim": follow them)
@@ -119,6 +124,9 @@ class Options:
     overlays = True
     labels = True
     bubble_lift = 0.50      # see BUBBLE_LIFT
+    card_bg = 0.0           # opacity of on-screen card / caption backings
+    hem = 1.0               # torso hem length (times HEM_MALE / HEM_FEMALE)
+    faces_3d = True
 
 
 def parse_args(argv):
@@ -172,6 +180,12 @@ def parse_args(argv):
             opt.labels = False
         elif k == "--bubble-lift":
             opt.bubble_lift = float(a[i + 1]); i += 1
+        elif k == "--hem":
+            opt.hem = float(a[i + 1]); i += 1
+        elif k == "--card-bg":
+            opt.card_bg = float(a[i + 1]); i += 1
+        elif k == "--flat-faces":
+            opt.faces_3d = False
         elif k == "--bust":
             opt.bust = True
         elif k == "--female":
@@ -1151,17 +1165,29 @@ REF_HEIGHT = 5.1          # head-to-ankle height of a default front-view figure
 LIMB_R, TORSO_R, NECK_R, HEAD_R = 0.20, 0.15, 0.09, 0.50
 SHOULDER_R = 2 * TORSO_R  # neck-to-shoulder bars
 INNER_JOINTS = {"torso", "torso_left", "torso_right"}   # inside the chest
+HEM_JOINTS = {"lhip", "rhip"}         # inside the hem (when there is one)
 CLOTHED_JOINTS = {"lshoulder", "rshoulder", "lhip", "rhip"}
 SHOE_L, SHOE_W, SHOE_H = 0.85, 0.50, 0.34    # shoe size (times figure scale)
 SHOE_FWD = 0.22                              # toe-ward offset of its center
-HINGE_SCALE = 1.35        # knee/elbow balls this much wider than the limb
+HINGE_SCALE = 1.15        # knee/elbow balls this much wider than the limb
 HINGES = {"lknee", "rknee", "lelbow", "relbow"}
 CHEST_CORNERS = ("lshoulder", "rshoulder", "rhip", "lhip")
-CHEST_DEPTH = 0.36        # front-to-back thickness of the chest slab
+CHEST_DEPTH = 0.50        # front-to-back thickness of the chest slab (deep
+                          # enough to hold the tops of the thighs)
 CHEST_PAD = 0.24          # extra width, so side views still show a body
 CHEST_GRID = 8            # chest surface subdivisions (for the bust)
 FEMALE_TOP = 0.45         # female chest: top width relative to the shoulders
 FEMALE_FLARE = 1.6        # female chest: bottom at least this x the top
+HEM_MALE = 0.30           # the torso reaches this far below the hips (a
+HEM_FEMALE = 0.50         # shirt / a short dress), times figure scale; the
+                          # legs come out from under it
+HEM_FLARE = 1.12          # the hem is this much wider than the hips
+# tapered limbs: radius (times LIMB_R * figure scale) at the near and far
+# end of each segment
+LIMB_TAPER = {("shoulder", "elbow"): (1.0, 0.82),
+              ("elbow", "wrist"): (0.82, 0.62),
+              ("hip", "knee"): (1.15, 0.85),
+              ("knee", "ankle"): (0.85, 0.62)}
 BUST_R = 0.20             # female chest: bust radius (times figure scale)
 BUST_U, BUST_V = 0.27, 0.30   # bust position across / down the chest
 FONT_PATHS = (
@@ -1511,7 +1537,20 @@ def is_female(name, info, opt):
     return (info.get("build") or "") == "narrow"
 
 
-def chest_corner_values(V, joints, female, sf):
+def limb_taper(a, b):
+    """(radius factor at a, at b) for a tapered limb segment, or None."""
+    def kind(j):
+        return j[1:] if j[:1] in ("l", "r") else j
+    ka, kb = kind(a), kind(b)
+    if (ka, kb) in LIMB_TAPER and a[:1] == b[:1]:
+        return LIMB_TAPER[ka, kb]
+    if (kb, ka) in LIMB_TAPER and a[:1] == b[:1]:
+        fb, fa = LIMB_TAPER[kb, ka]
+        return fa, fb
+    return None
+
+
+def chest_corner_values(V, joints, female, sf, hem=1.0):
     """Chest corner positions for every key (columns x, y for the four
     corners in CHEST_CORNERS order), derived from the shoulders and hips.
     Male: the joints' own spread plus padding (wide top, narrow bottom).
@@ -1538,8 +1577,16 @@ def chest_corner_values(V, joints, female, sf):
     else:
         top = ns + pad
         bot = nh + pad
+    # the hem: the torso continues below the hips, along the body's axis
+    axis = mh - ms
+    n = np.linalg.norm(axis, axis=1)
+    axis = np.where(n[:, None] > 1e-4, axis / np.maximum(n, 1e-9)[:, None],
+                    np.array([0.0, -1.0]))
+    drop = (HEM_FEMALE if female else HEM_MALE) * sf * hem
+    mb = mh + axis * drop
+    bot = bot * (HEM_FLARE if hem > 0 else 1.0)
     out = [ms - ds * top[:, None], ms + ds * top[:, None],
-           mh + dh * bot[:, None], mh - dh * bot[:, None]]
+           mb + dh * bot[:, None], mb - dh * bot[:, None]]
     return np.concatenate(out, axis=1)
 
 
@@ -1607,6 +1654,10 @@ def build_chest(bpy, col, name, corners, mat, sf, female):
     bev.segments = 3
     if hasattr(bev, "limit_method"):
         bev.limit_method = "ANGLE"
+        if hasattr(bev, "angle_limit"):
+            # only the slab's real edges, not the grid lines inside it
+            # (those make spikes at a flared hem's corners)
+            bev.angle_limit = math.radians(60)
     for poly in me.polygons:
         poly.use_smooth = True
     return ob
@@ -2861,7 +2912,9 @@ BAND_SCALE = 1.25          # clothed-limb radius = band half-width x this
 
 def _outline_parts(bpy, parts, mat_of, layer=DECAL_LAYER, extrude=0.002):
     """Curve objects for a list of outline parts (see pam_trace
-    capture_outline), in the XZ plane; later parts toward -y."""
+    capture_outline), in the XZ plane; later parts toward -y.  Returns
+    [(object, material, part index)].  A part may carry "_alpha" (0..1)
+    for a see-through fill."""
     out = []
     for i, p in enumerate(parts):
         for kind in ("fill", "stroke"):
@@ -2891,12 +2944,16 @@ def _outline_parts(bpy, parts, mat_of, layer=DECAL_LAYER, extrude=0.002):
             ob.rotation_euler = (math.pi / 2, 0, 0)
             ob.location = (0, -layer * (i + (0.5 if kind == "stroke" else 0.0)),
                            0)
-            out.append((ob, mat_of(color)))
+            alpha = p.get("_alpha") if kind == "fill" else None
+            out.append((ob, mat_of(color) if alpha is None
+                        else mat_of(color, alpha), i))
     return out
 
 
 def outline_meshes(bpy, jobs, mat_of, layer=DECAL_LAYER, batch=40):
-    """Build one mesh object (not linked anywhere) per (name, parts) job,
+    """Build one mesh object (not linked anywhere) per (name, parts[,
+    xform]) job (xform(part index, (x, y, z)) -> (x, y, z) reshapes the
+    vertices of each part, e.g. onto a 3D head),
     holding every part of that outline with one material slot per color.
 
     The parts are made as curves and evaluated to meshes in batches: one
@@ -2909,17 +2966,20 @@ def outline_meshes(bpy, jobs, mat_of, layer=DECAL_LAYER, batch=40):
         tmp = bpy.data.collections.new("_outline_tmp")
         bpy.context.scene.collection.children.link(tmp)
         built = []
-        for name, parts in chunk:
-            obs = _outline_parts(bpy, parts, mat_of, layer)
-            for ob, _ in obs:
+        for job in chunk:
+            name, parts = job[0], job[1]
+            xform = job[2] if len(job) > 2 else None
+            mo = job[3] if len(job) > 3 and job[3] is not None else mat_of
+            obs = _outline_parts(bpy, parts, mo, layer)
+            for ob, _, _ in obs:
                 tmp.objects.link(ob)
-            built.append((name, obs))
+            built.append((name, obs, xform))
         bpy.context.view_layer.update()
         dg = bpy.context.evaluated_depsgraph_get()
         trash = [tmp]
-        for name, obs in built:
+        for name, obs, xform in built:
             verts, faces, fmat, mats = [], [], [], []
-            for ob, m in obs:
+            for ob, m, pi in obs:
                 if m not in mats:
                     mats.append(m)
                 mi = mats.index(m)
@@ -2931,7 +2991,11 @@ def outline_meshes(bpy, jobs, mat_of, layer=DECAL_LAYER, batch=40):
                 if me is not None:
                     M = ob.matrix_world
                     base = len(verts)
-                    verts += [tuple(M @ v.co) for v in me.vertices]
+                    if xform is None:
+                        verts += [tuple(M @ v.co) for v in me.vertices]
+                    else:
+                        verts += [xform(pi, tuple(M @ v.co))
+                                  for v in me.vertices]
                     for poly in me.polygons:
                         faces.append([base + i for i in poly.vertices])
                         fmat.append(mi)
@@ -2952,12 +3016,130 @@ def outline_meshes(bpy, jobs, mat_of, layer=DECAL_LAYER, batch=40):
     return out
 
 
-def unlit(bpy, cache, hx, glow=False):
+def _blend(m):
+    """Let *m* be see-through in EEVEE (Blender 3.x-5.x)."""
+    if hasattr(m, "surface_render_method"):          # 4.2+
+        try:
+            m.surface_render_method = "BLENDED"
+        except Exception:
+            pass
+    if hasattr(m, "blend_method"):
+        try:
+            m.blend_method = "BLEND"
+        except Exception:
+            pass
+    if hasattr(m, "shadow_method"):
+        try:
+            m.shadow_method = "NONE"
+        except Exception:
+            pass
+
+
+def unlit(bpy, cache, hx, alpha=None):
     """Flat color for decals and cards: emission only, so Manim's colors
-    come through unchanged (glow=False keeps them from blooming)."""
-    if hx not in cache:
-        cache[hx] = material(bpy, "flat " + hx, hex_rgba(hx), emission=True)
-    return cache[hx]
+    come through unchanged; *alpha* < 1 makes it see-through."""
+    key = (hx, alpha)
+    if key in cache:
+        return cache[key]
+    m = material(bpy, "flat " + hx + ("" if alpha is None else f" {alpha:g}"),
+                 hex_rgba(hx), emission=True)
+    if alpha is not None and alpha < 1.0:
+        nt = m.node_tree
+        em = next(n for n in nt.nodes if n.type == "EMISSION")
+        out = next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL")
+        tr = nt.nodes.new("ShaderNodeBsdfTransparent")
+        mix = nt.nodes.new("ShaderNodeMixShader")
+        mix.inputs[0].default_value = float(alpha)
+        nt.links.new(tr.outputs[0], mix.inputs[1])
+        nt.links.new(em.outputs[0], mix.inputs[2])
+        nt.links.new(mix.outputs[0], out.inputs["Surface"])
+        _blend(m)
+    cache[key] = m
+    return m
+
+
+def lit(bpy, cache, hx, glow=0.25):
+    """A lit color with a little self-glow, for the 3D faces."""
+    key = ("lit", hx)
+    if key not in cache:
+        m = material(bpy, "lit " + hx, hex_rgba(hx), roughness=0.55)
+        try:
+            b = m.node_tree.nodes["Principled BSDF"]
+            ec = _socket(b, "Emission Color", "Emission")
+            es = _socket(b, "Emission Strength")
+            if ec is not None:
+                ec.default_value = hex_rgba(hx)
+            if es is not None:
+                es.default_value = glow
+        except Exception:
+            pass
+        cache[key] = m
+    return cache[key]
+
+
+def _bbox(part):
+    xs = [v for fl in part["paths"] for v in fl[0::2]]
+    ys = [v for fl in part["paths"] for v in fl[1::2]]
+    return min(xs), max(xs), min(ys), max(ys)
+
+
+FACE_DEPTH = 0.85          # 3D head depth as a fraction of its half width
+FACE_BODY_Y = -0.30        # neck / bib parts: flat, in front of the chest
+
+
+def face_plan(parts, head):
+    """Split a face outline (relative to its own center) into the head
+    shape (the largest filled part around the head joint *head*), parts
+    to wrap onto it, and flat body parts below it.  Returns None if no
+    head shape is found."""
+    best = None
+    for i, p in enumerate(parts):
+        if p["fill_opacity"] < 0.5:
+            continue
+        x0, x1, y0, y1 = _bbox(p)
+        if x0 <= head[0] <= x1 and y0 <= head[1] <= y1:
+            area = (x1 - x0) * (y1 - y0)
+            if best is None or area > best[0]:
+                best = (area, i, (x0, x1, y0, y1))
+    if best is None:
+        return None
+    _, disc, (x0, x1, y0, y1) = best
+    cx, cz = (x0 + x1) / 2, (y0 + y1) / 2
+    a, c = (x1 - x0) / 2, (y1 - y0) / 2
+    roles = {}
+    for i, p in enumerate(parts):
+        if i == disc:
+            roles[i] = "disc"
+            continue
+        px0, px1, py0, py1 = _bbox(p)
+        mx, mz = (px0 + px1) / 2, (py0 + py1) / 2
+        if mz < y0 + 0.15 * c and abs(mx - cx) < a:
+            roles[i] = "body"            # neck, bib
+        else:
+            roles[i] = "head"            # features, hair, ears
+    return {"disc": disc, "center": (cx, cz), "radii": (a, a * FACE_DEPTH, c),
+            "skin": parts[disc]["fill"], "roles": roles}
+
+
+def face_xform(plan, layer=DECAL_LAYER):
+    """Vertex transform for face_plan: head parts wrapped onto the front
+    of the head ellipsoid (later parts slightly in front), parts beyond
+    its rim flat in its middle plane, body parts flat on the chest."""
+    cx, cz = plan["center"]
+    a, b, c = plan["radii"]
+    roles = plan["roles"]
+
+    def xf(i, co):
+        x, y, z = co
+        lift = -layer * (i + 1)
+        if roles.get(i) == "body":
+            return (x, FACE_BODY_Y + y, z)
+        u, w = (x - cx) / a, (z - cz) / c
+        r2 = u * u + w * w
+        if r2 >= 1.0:
+            return (x, lift, z)
+        return (x, -b * math.sqrt(1.0 - r2) * 1.01 + lift, z)
+    return xf
 
 
 class OverlayBuilder:
@@ -2976,20 +3158,69 @@ class OverlayBuilder:
         if lc is not None:
             lc.exclude = True
 
-    def prebuild(self, sids):
+    def prebuild(self, sids, kinds=None):
         """Build the outline meshes for every shape in *sids* (call it
-        before the scene fills up)."""
+        before the scene fills up).  *kinds* maps a sid to how it is used:
+        "card" (its backing panel follows --card-bg) or ("face", head
+        joint position in the shape) (built as a 3D head, --flat-faces
+        aside)."""
         shapes = self.T.get("shapes") or {}
-        jobs = [(f"shape.{sid}", shapes[sid]["parts"]) for sid in sids
-                if sid not in self.shape_cols and sid in shapes
-                and shapes[sid].get("parts")]
-        obs = outline_meshes(self.bpy, jobs,
-                             lambda hx: unlit(self.bpy, self.mats, hx))
+        kinds = kinds or {}
+        bpy, opt = self.bpy, self.opt
+        jobs, extra = [], {}
+        for sid in sids:
+            if sid in self.shape_cols or not (shapes.get(sid) or {}).get("parts"):
+                continue
+            parts = shapes[sid]["parts"]
+            kind = kinds.get(sid)
+            if kind == "card" and parts and opt.card_bg < 1.0:
+                p0 = parts[0]
+                x0, x1, y0, y1 = _bbox(p0)
+                W, H = shapes[sid]["box"][2], shapes[sid]["box"][3]
+                if p0["fill_opacity"] > 0.2 and \
+                        (x1 - x0) * (y1 - y0) >= 0.9 * W * H:
+                    p0 = dict(p0)            # the backing panel
+                    if opt.card_bg <= 0:
+                        p0["fill_opacity"] = 0.0
+                    else:
+                        p0["_alpha"] = opt.card_bg * p0["fill_opacity"]
+                    parts = [p0] + parts[1:]
+            if isinstance(kind, tuple) and kind[0] == "face" and opt.faces_3d:
+                plan = face_plan(parts, kind[1])
+                if plan is not None:
+                    keep = [dict(p, fill_opacity=0.0, stroke_opacity=0.0)
+                            if i == plan["disc"] else p
+                            for i, p in enumerate(parts)]
+                    jobs.append((f"shape.{sid}", keep, face_xform(plan),
+                                 lambda hx, al=None: lit(bpy, self.mats, hx)))
+                    extra[f"shape.{sid}"] = plan
+                    continue
+            jobs.append((f"shape.{sid}", parts))
+        obs = outline_meshes(bpy, jobs,
+                             lambda hx, al=None: unlit(bpy, self.mats, hx, al))
         for name, ob in obs.items():
-            col = self.bpy.data.collections.new(name)
+            col = bpy.data.collections.new(name)
             self.lib.children.link(col)
             col.objects.link(ob)
+            plan = extra.get(name)
+            if plan is not None:
+                head = bpy.data.objects.new(name + ".head",
+                                            self.ball_mesh())
+                head.material_slots[0].link = "OBJECT"
+                head.material_slots[0].material = lit(bpy, self.mats,
+                                                      plan["skin"], glow=0.1)
+                head.location = (plan["center"][0], 0.0, plan["center"][1])
+                a, b, c = plan["radii"]
+                head.scale = (a, b, c)
+                col.objects.link(head)
             self.shape_cols[name[len("shape."):]] = col
+
+    def ball_mesh(self):
+        me = self.bpy.data.meshes.get("_face_ball")
+        if me is None:
+            me = unit_ball_mesh(self.bpy)
+            me.name = "_face_ball"
+        return me
 
     def shape_collection(self, sid):
         """A collection holding the outline mesh of shape *sid*, centered
@@ -3082,8 +3313,10 @@ class OverlayBuilder:
                 if not o.get("shape"):
                     stats["skipped"] += 1
                     continue
+                y = 0.0 if (k == "face" and self.opt.faces_3d) \
+                    else DECAL_Y.get(k, -0.3)
                 root = self.anchored(tag, o["char"], o["joints"],
-                                     o["offset"], DECAL_Y.get(k, -0.3))
+                                     o["offset"], y)
                 inst = self.instance(tag + ".shape", o["shape"], root)
                 if inst is None:
                     continue
@@ -3229,16 +3462,23 @@ def build(trace_path, out_path, opt=None):
     ob_builder = OverlayBuilder(bpy, sc, T, rates, opt, tilt, all_empties) \
         if (opt.overlays or opt.labels) and opt.look != "flat" else None
     if ob_builder is not None:
-        sids = []
+        sids, kinds = [], {}
         if opt.overlays:
-            sids += [o["shape"] for o in T.get("overlays") or []
-                     if o.get("shape")]
+            for o in T.get("overlays") or []:
+                if not o.get("shape"):
+                    continue
+                sids.append(o["shape"])
+                if o["kind"] == "card":
+                    kinds[o["shape"]] = "card"
+                elif o["kind"] == "face":
+                    kinds[o["shape"]] = ("face", (-o["offset"][0],
+                                                  -o["offset"][1]))
         if opt.labels:
             for rows in (T.get("looks") or {}).values():
                 lb = rows[0][1].get("label") if rows else None
                 if lb and lb.get("shape"):
                     sids.append(lb["shape"])
-        ob_builder.prebuild(list(dict.fromkeys(sids)))
+        ob_builder.prebuild(list(dict.fromkeys(sids)), kinds)
     for name, info in T["cast"].items():
         joints = info["joints"]
         if name not in T["initial"] or not T["initial"][name]:
@@ -3293,10 +3533,14 @@ def build(trace_path, out_path, opt=None):
             r = edge_radius(a, b, sf, opt.look)
             bd = bands.get((a, b))
             ra = rb = r
+            tp = limb_taper(a, b) if opt.look != "flat" else None
+            if tp is not None:
+                ra, rb = r * tp[0], r * tp[1]
             if bd:
                 ra, rb = (w / 2 * BAND_SCALE for w in bd["band"])
                 jband.setdefault(a, bd["color"])
                 jband.setdefault(b, bd["color"])
+            # tapered segments meet at the same radius at each joint
             jr[a] = max(jr.get(a, 0), ra)
             jr[b] = max(jr.get(b, 0), rb)
         empties, meshes = {}, []
@@ -3311,7 +3555,7 @@ def build(trace_path, out_path, opt=None):
             apply_keys(bpy, e, "location",
                        [(0, 2 * ji, lambda v: v), (2, 2 * ji + 1, lambda v: v)],
                        keys)
-            if chest and j in INNER_JOINTS:
+            if chest and (j in INNER_JOINTS or (opt.hem > 0 and j in HEM_JOINTS)):
                 continue                  # hidden inside the chest
             if j == "head":
                 r = (info.get("head_radius", 0.28) if opt.look == "flat"
@@ -3337,7 +3581,8 @@ def build(trace_path, out_path, opt=None):
             else:
                 meshes.append(ball)
         if chest and keys.f:
-            CV = chest_corner_values(np.array(keys.v), joints, female, sf)
+            CV = chest_corner_values(np.array(keys.v), joints, female, sf,
+                                     opt.hem)
             ck = KeyList(opt.fps)
             ck.f, ck.v, ck.spec = list(keys.f), list(CV), list(keys.spec)
             corners = {}
@@ -3390,7 +3635,12 @@ def build(trace_path, out_path, opt=None):
                 ob.material_slots[0].material = lmat(bd["color"], "band")
                 r = ra
             else:
-                ob = bpy.data.objects.new(f"{name}.{a}-{b}", bone_me)
+                tp = limb_taper(a, b) if opt.look != "flat" else None
+                if tp is not None:
+                    ob = bpy.data.objects.new(
+                        f"{name}.{a}-{b}", unit_cone_mesh(bpy, tp[1] / tp[0]))
+                else:
+                    ob = bpy.data.objects.new(f"{name}.{a}-{b}", bone_me)
                 col.objects.link(ob)
                 ob.material_slots[0].link = "OBJECT"
                 clothed = {a, b} & (TORSO_JOINTS - {"neck"}) or \
@@ -3404,6 +3654,8 @@ def build(trace_path, out_path, opt=None):
                     ob.material_slots[0].material = lmat(
                         (ecol.get((a, b)) or {}).get("color") or info["color"])
                 r = edge_radius(a, b, sf, opt.look)
+                if tp is not None:
+                    r *= tp[0]
             ob.scale = (r, 1.0, r)
             c1 = ob.constraints.new("COPY_LOCATION")
             c1.target = empties[a]
