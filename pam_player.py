@@ -1,7 +1,7 @@
 """
 PAM Player — animate humanoid and non-humanoid graphs from a JSON screenplay.
  
-version 0.9.12 
+version 0.9.23
 
 Usage
 -----

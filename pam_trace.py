@@ -28,7 +28,7 @@ How it works
 Trace format (trace_version 4)
 ------------------------------
 {
-  "trace_version": 2,
+  "trace_version": 4,
   "duration": seconds,
   "frame": {"width": w, "height": h},           # initial camera frame
   "rate_funcs": {name: [r(i/64) for i in 0..64]},
