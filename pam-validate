@@ -1,0 +1,6 @@
+#!/bin/bash
+# pam-validate — check PAM JSON screenplays without rendering a video.
+#   ./pam-validate scene.json [more.json ...] [--strict] [--quiet] [--json]
+# See pam_validate.py for the options and exit status.
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYTHONPATH="$DIR${PYTHONPATH:+:$PYTHONPATH}" exec python3 -W ignore "$DIR/pam_validate.py" "$@"
