@@ -1612,6 +1612,32 @@ Checklist:
 5. add a small screenplay test case;
 6. document the key.
 
+### Validate a screenplay without rendering
+
+`pam-validate` checks PAM JSON files in a second or two, without Manim drawing anything:
+
+```bash
+./pam-validate my_scene.json                 # or: python pam_validate.py my_scene.json
+./pam-validate scene1.json scene2.json --quiet
+./pam-validate my_scene.json --strict        # warnings also fail
+./pam-validate my_scene.json --json          # machine-readable report
+```
+
+It rejects unknown actions, invalid joint names, negative durations, and references to characters or props that do not exist at that step (never defined, defined later, or already removed). It also reports, as warnings, things the player passes over in silence: unresolved `# REVIEW` and `# PATCH` comments from `fountain2pam.py`, and action steps that carry a `_comment` (the player skips those entirely). The exit status is `0` when every file is valid and `1` otherwise.
+
+The valid action names and the checked keys are listed in `pam/action_specs.py`. A new handler in `pam/actions.py` needs no change there; a new action dispatched inline in `pam_player.py` must be added to `PLAYER_ACTIONS`, and a test fails until it is.
+
+`fountain2pam.py --warnings-json PATH` writes the compiler's review comments, validation warnings, and patch-guide hints to one JSON file.
+
+### Run the regression tests
+
+```bash
+python -m pytest            # everything, about a minute and a half
+python -m pytest -k golden  # only the golden-trace comparison
+```
+
+The tests trace three fixture screenplays with `pam_trace.py` and compare the result with stored golden traces, so a change to motion, timing, camera, or props shows up without rendering a video. See `tests/README.md` for what is covered and for when and how to record new golden traces.
+
 ---
 
 ## Troubleshooting
