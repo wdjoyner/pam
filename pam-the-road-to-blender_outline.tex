@@ -53,9 +53,11 @@
 \fancyhead[R]{\small Development outline}
 \fancyfoot[C]{\thepage}
 \setlength{\headsep}{19pt}
+\setlength{\emergencystretch}{3em}
 \newcommand{\file}[1]{\texttt{\detokenize{#1}}}
 \newcommand{\priority}[1]{\noindent\textbf{Priority:} #1\par\smallskip}
 \newcommand{\completion}[1]{\par\medskip\noindent\textbf{Completion test.} #1\par}
+\newcommand{\practical}[1]{\par\medskip\noindent\textbf{Practical note.} #1\par}
 \newcommand{\pam}{\textsc{pam}}
 
 \begin{document}
@@ -64,18 +66,34 @@
 \vspace{0.5em}
 {\Large Programming Roadmap for Choreography and Stateful Props}\par
 \vspace{0.7em}
-{\normalsize Development outline --- November 18, 2026}\par
+{\normalsize Development outline, Revision 2 --- November 18, 2026}\par
 \vspace{0.3em}
 {\small Repository: \url{https://github.com/wdjoyner/pam}}\par
 \end{center}
 \vspace{0.5em}
 
 \begin{abstract}
-The objective is to extend Pose And Motion (PAM) into a screenplay-driven animation engine capable of producing a \emph{complete, carefully timed Manim performance} that can later be rendered in Blender without changing the choreography. The plan consists of nine incremental milestones, with \emph{Abraham and Isaac, Revisited} (Draft 2) as the principal integration test. Its emphasis is on dependable choreography, interaction constraints, composite prop state, reproducible timing, and trace fidelity---before Blender cosmetics.
+The objective is to extend Pose And Motion (PAM) into a screenplay-driven animation engine capable of producing a \emph{complete, carefully timed Manim performance} that can later be rendered in Blender without changing the choreography. The plan consists of nine incremental milestones, with \emph{Abraham and Isaac, Revisited} (Draft 2) as the principal integration test. Its emphasis is on dependable choreography, interaction constraints, composite prop state, reproducible timing, and trace fidelity---before Blender cosmetics. Revision 2 fixes the frame clock at 15 frames per second, carries the first vertical slice all the way to Blender, commits to an analytic two-bone solver for contact constraints, and brings the proposed syntax in line with existing PAM conventions.
 \end{abstract}
 
 \tableofcontents
 \clearpage
+
+\section*{Revision notes}
+\addcontentsline{toc}{section}{Revision notes}
+
+Revision 1 was drafted by Carbon and ChatGPT. Revision 2 incorporates a review by Claude against the repository as of commit \file{c91c82d}. The strategy is unchanged. The substantive changes are:
+\begin{enumerate}
+\item \textbf{15 fps frame clock} (decision by David), replacing the proposed 30 fps. See Section~\ref{sec:decisions}.
+\item \textbf{The vertical slice now ends in Blender}, not in Manim, so that the riskiest interface (the trace of constrained motion) is tested first. See Section~\ref{sec:slice}.
+\item \textbf{Trace format decision moved forward.} The current trace stores each move as two endpoints and a rate function, which cannot represent constrained motion. A per-frame sampled piece is specified in Milestone~3 and implemented in Milestone~7.
+\item \textbf{Constraints use an analytic two-bone solver}, with explicit rules for bend direction, out-of-reach targets, and which figure yields.
+\item \textbf{Milestone 2 names its real cost}: action handlers must be able to return animations instead of playing them, and \file{say} must become parallel-safe.
+\item \textbf{Proposed syntax follows existing conventions} (\file{do}, \file{wait}, a \file{frames} key alongside \file{rt}).
+\item \textbf{Milestone 4 is staged}: knife and phone first, scroll second, rope last. A continuity ledger gives cross-scene prop state a concrete mechanism.
+\item \textbf{Milestone 1 gains golden-trace tests}, which are cheap and also protect the existing Blender export.
+\item A relative sizing table, a version-label reconciliation task, and an explicit compatibility rule have been added.
+\end{enumerate}
 
 \section{Architectural objective}
 
@@ -97,9 +115,9 @@ The Manim runtime determines character movement, interactions, timing, camera sh
 \node[box,fill=pamblue] (f) {\textbf{Fountain+ screenplay}\\Dialogue, scenes, camera instructions, production cues};
 \node[box,fill=pamblue,below=of f] (j) {\textbf{PAM JSON + cast and prop registries}\\Authoritative executable performance};
 \node[box,fill=pamteal,below=of j] (r) {\textbf{PAM animation runtime}\\Choreography, constraints, prop states, timing};
-\node[box,fill=pamteal,below=of r] (m) {\textbf{Manim animatic}\\Complete performance and editorial reference};
+\node[box,fill=pamteal,below=of r] (m) {\textbf{Manim animatic (15 fps)}\\Complete performance and editorial reference};
 \node[box,fill=pampurple,below=of m] (t) {\textbf{PAM motion + semantic-event trace}\\Joint motion, camera, prop states, synchronized timebase};
-\node[box,fill=pampurple,below=of t] (b) {\textbf{Blender renderer}\\Geometry and visual refinement without re-choreography};
+\node[box,fill=pampurple,below=of t] (b) {\textbf{Blender renderer (30 fps)}\\Geometry and visual refinement without re-choreography};
 \draw[arrow] (f)--(j); \draw[arrow] (j)--(r); \draw[arrow] (r)--(m);
 \draw[arrow] (m)--(t); \draw[arrow] (t)--(b);
 \end{tikzpicture}
@@ -109,25 +127,86 @@ The Manim runtime determines character movement, interactions, timing, camera sh
 
 A practical implementation principle follows: build \emph{constraints}, \emph{choreography}, and \emph{prop state} as three distinct subsystems, coordinated by a single timeline. The existing PAM runtime and its instrumentation hooks should be extended incrementally, not replaced.
 
+\section{Project decisions and conventions}
+\label{sec:decisions}
+
+These apply to every milestone.
+
+\subsection{Frame clock: 15 fps}
+The timeline's integer frame clock runs at \textbf{15 frames per second}. This is the frame rate of Manim's low-quality setting, which is what \file{pam-render} uses by default, so the animatic renders quickly and still shows whether a scene works.
+\begin{itemize}
+\item One frame is $1/15$ of a second. A three-frame beat is $0.2$ seconds.
+\item Manim's medium and high quality settings run at 30 and 60 fps, and \file{trace2blender.py} defaults to 30 fps. All are whole multiples of 15, so every animatic frame lands exactly on a frame of the finer render: animatic frame $f$ is Blender frame $1+2f$ at 30 fps.
+\item Blender interpolates the in-between frames. Timing is authored and verified only at 15 fps.
+\item The trace records \file{"fps": 15} at top level so that no consumer has to assume it.
+\end{itemize}
+
+\subsection{Compatibility rule}
+Existing screenplays must render exactly as they do now. The new timeline, constraints, and prop states are opt-in: a scene uses them only when it contains the new actions or keys. Any change to PAM's public API is raised with David before it is made.
+
+\subsection{Naming conventions for new syntax}
+New syntax should look like the syntax PAM already has.
+\begin{itemize}
+\item Sub-action lists use the key \file{do}, as \file{parallel} already does. The key \file{steps} is not introduced.
+\item Durations in frames use a new key \file{frames}. The existing keys \file{rt}, \file{hold}, \file{duration}, and \file{run_time} keep their meaning in seconds. A step may give one or the other, not both; the validator warns if both appear.
+\item A deliberate pause is the existing \file{wait} action with a \file{frames} key. A separate \file{hold} action is not introduced, since \file{hold} is already a duration key.
+\item \file{remove_prop} remains the canonical removal action.
+\end{itemize}
+
+\subsection{Version label}
+The package reports \file{__version__ = "0.9.13"} in \file{pam/__init__.py}, while comments in \file{pam_player.py} refer to PAM 1.0.1. Reconcile these in Milestone~1, then decide what the release at the end of this roadmap is called. If 1.0 has in effect already shipped, this roadmap leads to 1.1 or 2.0, and the document title should follow.
+
+\subsection{Relative size of the milestones}
+\begin{table}[htbp]
+\centering
+\begin{tabularx}{\textwidth}{@{}l l X@{}}
+\toprule
+\textbf{Milestone} & \textbf{Size} & \textbf{Why}\\
+\midrule
+1. Baseline & Small & Mostly test scaffolding; no runtime changes.\\
+2. Timeline & Large & Requires handlers that return animations.\\
+3. Constraints & Large & New solver, new per-frame motion, new trace piece.\\
+4. Prop states & Medium & Knife and phone are small; scroll and rope are not.\\
+5. Fountain+ cues & Medium & Compiler changes are contained.\\
+6. Manim short & Large & Authoring work, six scenes.\\
+7. Trace & Small & If the sampled piece is built during Milestone~3.\\
+8. Blender parity & Medium & Builds on the existing exporter.\\
+9. Documentation & Small & \\
+\bottomrule
+\end{tabularx}
+\caption{Relative sizes only. Milestones 2 and 3 are most of the engine work.}
+\end{table}
+
 \section{Milestone 1: Establish a regression-tested baseline}
-\priority{Critical}
+\priority{Critical. \textbf{Start here.}}
 
 \noindent\textbf{Modules:} \file{pam_player.py}, \file{pam_trace.py}, \file{trace2blender.py}, and a new \file{tests/} directory.
 
-Before changing functionality, protect existing PAM behavior. The current code already includes character scaling, locomotion, prop attachments, camera controls, trace generation, instrumentation through \file{pam/hooks.py}, and warning output such as \file{PAM_WARNINGS_JSON}.
+Before changing functionality, protect existing PAM behavior. The current code already includes character scaling, locomotion, prop attachments, camera controls, trace generation, instrumentation through \file{pam/hooks.py}, and warning output such as \file{PAM_WARNINGS_JSON}. The repository has no test directory yet.
 
 \subsection{Programming tasks}
 \begin{enumerate}
-\item Record the current Git commit and reference version for reproducibility.
-\item Add a \file{pytest} test suite and identify existing PAM examples suitable as regression fixtures.
-\item Test character scaling, locomotion, named poses, prop attachment and handoff, camera movement, and motion-trace generation.
+\item Record the current Git commit and reference version for reproducibility, and reconcile the version label (Section~\ref{sec:decisions}).
+\item Add a \file{pytest} test suite. The screenplays already in the repository root are the fixtures:
+  \begin{itemize}
+  \item \file{screenplay_alice-meets-bob.json}
+  \item \file{lucy-meets-lenny2_pam.json}
+  \item \file{wdj_nona-vs-governor-venus3.json}
+  \end{itemize}
+\item \textbf{Golden-trace tests.} Run \file{pam_trace.py} on each fixture, store the resulting trace JSON, and have the test compare a fresh trace against the stored one within a numerical tolerance. Because the tracer runs without writing video, these tests are fast, and a single comparison covers scaling, locomotion, poses, prop attachment and handoff, camera moves, and speech bubbles.
 \item Add a JSON validator that rejects unknown actions, invalid joint names, negative durations, and references to missing characters or props.
 \item Capture and report warnings from \file{fountain2pam.py} rather than silently ignoring unresolved \file{# REVIEW} comments.
 \item Provide a command for validating an animation without rendering a video.
+\item \textbf{Check one assumption for Milestone 3.} Confirm whether Manim, in the dry-run mode the tracer uses, still advances updaters on every frame. If it does not, the tracer must step constraints itself. Knowing this now avoids a surprise later.
 \end{enumerate}
 
 This stage should involve little or no restructuring of the runtime.
-\completion{Existing PAM scripts continue to execute, and their basic motion, camera, and prop behavior remain unchanged.}
+
+\practical{Actions are dispatched inside \file{pam_player.py}, so the validator needs a list of valid action names and their keys. Keep that list in one place (a small action registry) that both the validator and, later, the player read. Otherwise the validator becomes a second copy of the dispatcher that drifts out of date.}
+
+\practical{The golden traces also protect the existing Blender export during the long Manim-only stretch of this roadmap. Add one test that builds a \file{.blend} from a stored trace without error.}
+
+\completion{Existing PAM scripts continue to execute, and their traces match the stored golden traces. The validation command runs on every fixture.}
 
 \section{Milestone 2: Define a synchronized animation timeline}
 \priority{Critical}
@@ -137,7 +216,7 @@ This stage should involve little or no restructuring of the runtime.
 
 PAM already supports action durations, \file{Scene.play}, \file{Scene.wait}, and camera timing. A complete comic performance needs an explicit mechanism for synchronizing parallel actions, dialogue, camera cuts, and intentional pauses.
 
-The proposed timeline should use an internal integer frame clock, initially at 30 frames per second; legacy actions specified in seconds would be converted at the timeline boundary. This avoids accumulating floating-point timing drift and allows an editor to specify exact frame counts for physical gags.
+The timeline uses an internal integer frame clock at 15 frames per second (Section~\ref{sec:decisions}). Legacy durations in seconds are converted at the timeline boundary by rounding to the nearest whole frame, with a minimum of one frame. Manim already renders each \file{play} as a whole number of frames, so durations are in effect quantized today; the timeline makes that rounding explicit and uniform. This avoids accumulating timing drift and lets an editor specify exact frame counts for physical gags.
 
 \subsection{Proposed action format}
 The following is an \emph{interface proposal}, not existing PAM syntax:
@@ -145,29 +224,29 @@ The following is an \emph{interface proposal}, not existing PAM syntax:
 {
   "action": "sequence",
   "id": "s02_pull_attempt",
-  "fps": 30,
-  "steps": [
+  "do": [
     {
       "action": "grip_character",
       "who": "abraham",
       "target": "isaac",
-      "duration_frames": 12
+      "frames": 6
     },
     {
       "action": "paired_action",
       "name": "pull_immovable",
       "a": "abraham",
       "b": "isaac",
-      "duration_frames": 36
+      "frames": 18
     },
     {
       "action": "slip_on_back",
       "who": "abraham",
-      "duration_frames": 9
+      "frames": 4
     },
     {
-      "action": "hold",
-      "duration_frames": 18
+      "action": "wait",
+      "frames": 9,
+      "beat": "comic_hold"
     }
   ]
 }
@@ -176,7 +255,7 @@ The following is an \emph{interface proposal}, not existing PAM syntax:
 \subsection{Runtime responsibilities}
 \begin{itemize}
 \item Sequential and simultaneous actions, with deterministic ordering.
-\item Fixed-duration gestures and pauses (including explicit \emph{holds}).
+\item Fixed-duration gestures and pauses (including explicit holds).
 \item Exact onset and completion times for contact constraints.
 \item Camera cuts on specified frames.
 \item Synchronization of sound effects and dialogue with movement.
@@ -184,7 +263,21 @@ The following is an \emph{interface proposal}, not existing PAM syntax:
 \end{itemize}
 
 Stillness is a deliberate acting choice, not merely an absence of animation. The timeline must represent it explicitly.
-\completion{Two actors perform overlapping movements while the camera cuts and dialogue begins at exact designated frames. Repeated renders have identical timing.}
+
+\subsection{The underlying refactor}
+This milestone is larger than its feature list suggests. At present many action handlers call \file{scene.play} themselves, the \file{parallel} block accepts only actions that resolve to a single \file{play}, and \file{say} is documented as not parallel-safe. Dialogue that begins on an exact frame while two actors are moving requires handlers that can hand their animations to the timeline instead of playing them.
+
+Do this incrementally:
+\begin{enumerate}
+\item Give the timeline a way to ask a handler for its animations and duration. The existing \file{collect_anims} path used by \file{parallel} is the starting point.
+\item Convert handlers only as the Abraham--Isaac scenes need them. Unconverted actions keep working sequentially, as they do now.
+\item Make \file{say} schedulable: bubble fade-in, hold, and fade-out become three timed pieces the timeline can overlap with motion.
+\item Multi-play actions (\file{carry}, \file{sit_down}, \file{stand_up}) stay sequential until a scene needs otherwise.
+\end{enumerate}
+
+\practical{The validation command should list every legacy duration that is not a whole number of frames at 15 fps, with the rounded value, so that surprises show up in a report and not in the render.}
+
+\completion{Two actors perform overlapping movements while the camera cuts and dialogue begins at exact designated frames. Repeated renders have identical timing. All golden traces from Milestone~1 still match.}
 
 \section{Milestone 3: Reusable choreography and interaction constraints}
 \priority{Critical---the principal new engine feature}
@@ -207,7 +300,7 @@ root\_lock & Keep Isaac stationary while Abraham pulls.\\
 joint\_to\_point & Keep a hand, foot, or prop at a fixed spatial target.\\
 \bottomrule
 \end{tabularx}
-\caption{The first four contact constraints. Each has an explicit active interval.}
+\caption{The first four contact constraints. Each has an explicit active interval in frames.}
 \end{table}
 
 In the \file{pull_immovable} action, Isaac's root remains locked and Abraham's hand remains attached to Isaac's wrist while Abraham leans backward. When Abraham slips, the wrist constraint is released and a fast fall action begins. The important abstraction is the temporary relation between character skeletons, not a collection of hard-coded screen coordinates.
@@ -233,12 +326,45 @@ altar\_tumble\_hug & 6 & Both characters tumble while embracing.\\
 \bottomrule
 \end{longtable}
 
-Begin with deterministic key poses and simple constraint correction. A complete inverse-kinematics solver might be valuable later, but it is not initially necessary: existing graph skeletons allow geometric adjustment of elbows, shoulders, hips, and knees between specified poses.
+\subsection{The solver: analytic two-bone correction}
+Revision 1 proposed ``simple constraint correction'' without inverse kinematics. Keeping a hand on a target while the bones keep their lengths \emph{is} inverse kinematics, but only its simplest case, and that case has a closed-form solution in two dimensions. Commit to it.
+
+For an arm, the shoulder position and the wrist target are known, and the upper-arm and forearm lengths are fixed. The elbow lies at one of the two intersection points of two circles: one centered at the shoulder with the upper-arm radius, one centered at the target with the forearm radius. Legs are the same problem with hip, knee, and ankle. This is a few dozen lines of code and needs no iteration. A general solver is not needed for any routine in the table above.
+
+Four rules must be written down before coding, because each has a visible effect:
+\begin{enumerate}
+\item \textbf{Bend direction.} Of the two elbow solutions, choose the one on the same side as the elbow in the current pose, so that elbows and knees never flip mid-move. A routine may override this.
+\item \textbf{Out of reach.} If the target is farther than the arm's full length, straighten the arm toward the target and stop short. Report the shortfall to the routine. This is not an error: in \file{mismatched_hug} the shortfall is the joke.
+\item \textbf{Driver and follower.} Every two-figure constraint names which figure yields. In \file{pull_immovable}, Isaac is the driver (his wrist goes where his pose puts it) and Abraham is the follower (his arm is solved to reach it). A \file{root_lock} makes a figure a driver for every constraint it takes part in.
+\item \textbf{Order of evaluation.} Each frame: advance key-pose interpolation for all figures, then apply root locks, then solve followers. With one constraint per limb this needs a single pass.
+\end{enumerate}
+
+\practical{Solve in world coordinates, after body scale, depth rescale, and rotation have been applied, then convert the corrected joints back to figure-local coordinates. This respects the existing rule that rotation pivots are stored figure-local, and it is what makes the routines scale-aware.}
 
 \subsection{Scale-aware choreography}
 Constraints must operate on \emph{resolved, scaled joint positions}. For instance, \file{mismatched_hug} should measure Isaac's actual torso width, while Abraham's reach is determined by his arm lengths. It should not rely on fixed screen coordinates. This preserves the joke if the relative size of the characters changes.
 
-\completion{Change Isaac's scale from 1.15 to 1.30 and replay the Scene 2 physical gags. The movements remain coherent without manual re-blocking.}
+\subsection{Consequence for the trace: a sampled piece}
+\label{sec:sampled}
+This decision belongs here and not in Milestone~7. The current trace (version~4) stores each move of a figure as a \file{from} joint set, a \file{to} joint set, and a rate function, and the Blender builder interpolates between them. A constrained limb does not move that way: a hand pinned to a wrist while the body leans travels along an arc that the two endpoints do not determine.
+
+Add a piece kind that stores the resolved joints on every frame of a constrained interval:
+\begin{lstlisting}
+{
+  "kind": "sampled",
+  "source": "constraint",
+  "f0": 6, "f1": 24,
+  "t0": 0.4, "t1": 1.6,
+  "joints": ["shoulder_r", "elbow_r", "wrist_r"],
+  "frames": [
+    {"shoulder_r": [x, y], "elbow_r": [x, y], "wrist_r": [x, y]},
+    ...
+  ]
+}
+\end{lstlisting}
+At 15 fps this is small: a two-second constrained move is 30 samples per joint. Only the constrained joints need sampling; the rest of the figure keeps its ordinary pieces. The Blender builder keys each sample directly and does not solve anything.
+
+\completion{Change Isaac's scale from 1.15 to 1.30 and replay the Scene 2 physical gags. The movements remain coherent without manual re-blocking, and no elbow or knee flips direction.}
 
 \section{Milestone 4: Stateful composite props}
 \priority{Critical}
@@ -248,6 +374,8 @@ Constraints must operate on \emph{resolved, scaled joint positions}. For instanc
 \noindent\hspace*{1.2em}\file{pam/props_environment.py}, \file{pam_player.py}, and \file{pam/hooks.py}.
 
 PAM already has a prop scene graph, attachment points, and handoff events. The missing abstraction is a generic method for a prop to change its structure or appearance as part of the performance. Prefer a \emph{state machine} to separate hard-coded actions for every individual object.
+
+There are precedents to generalize. Doors and lids already track an open or closed state, and the governor prop already writes a \file{states} list into the trace. The new module should absorb these patterns, not sit beside them.
 
 \subsection{Composite knife example}
 This is a proposed definition, not current PAM syntax:
@@ -269,19 +397,31 @@ This is a proposed definition, not current PAM syntax:
 
 A generic \file{prop_transition} action would indicate which pieces separate, which attachments release, and which animations play. The trace must preserve prop identities and transition events; positions alone do not convey enough information for Blender to reproduce the correct geometry.
 
-\subsection{First four prop families}
+\subsection{Four prop families, in three stages}
+The four families are not equally hard. Build them in this order, each with its own completion test.
 \begin{itemize}
-\item \textbf{Knife---composite prop.} States \file{intact}, \file{broken}, \file{blade_carried}, and \file{blade_embedded}. The handle and blade retain separate identities after breaking.
-\item \textbf{Rope---deformable attachment.} States \file{loose}, \file{tied}, \file{tightened}, and \file{snapped}. The loop follows Isaac's wrists until it breaks; after the snap, two separate pieces recoil.
-\item \textbf{Scroll---text-bearing prop.} States \file{rolled}, \file{unrolled}, \file{edited}, and \file{trailing}. Text revisions and geometry transformations are separate dimensions of its state.
-\item \textbf{Phone---interactive display.} States \file{standby}, \file{recording}, and \file{live}. The screen display and viewer count can change independently of the phone's spatial location.
+\item \textbf{Stage 4a: knife and phone.} Both are plain state machines over rigid parts.
+  \begin{itemize}
+  \item \emph{Knife---composite prop.} States \file{intact}, \file{broken}, \file{blade_carried}, and \file{blade_embedded}. The handle and blade retain separate identities after breaking.
+  \item \emph{Phone---interactive display.} States \file{standby}, \file{recording}, and \file{live}. The screen display and viewer count can change independently of the phone's spatial location.
+  \end{itemize}
+\item \textbf{Stage 4b: scroll---text-bearing prop.} States \file{rolled}, \file{unrolled}, \file{edited}, and \file{trailing}. Text revisions and geometry transformations are separate dimensions of its state. The new problem is carrying editable text through the trace so that Blender can redraw it.
+\item \textbf{Stage 4c: rope---deformable attachment.} States \file{loose}, \file{tied}, \file{tightened}, and \file{snapped}. The loop follows Isaac's wrists until it breaks; after the snap, two separate pieces recoil. A rope is a curve whose shape changes every frame, so it needs the sampled trace piece of Section~\ref{sec:sampled} applied to control points, and a curve object on the Blender side. Do it last.
 \end{itemize}
 
-\subsection{Cross-scene continuity}
+\subsection{Cross-scene continuity: a ledger}
 After the knife breaks in Scene 2, its handle and blade must remain separate objects. The blade should be located in Abraham's satchel during Scene 4 and embedded in the altar during Scene 5, according to explicit state and attachment data. The runtime must not infer this continuity from whichever items happened to be visible in a prior Manim frame.
 
+Revision 1 stated this requirement without a mechanism. Each scene is a separate JSON file, so something must carry state between them. Use a \textbf{continuity ledger}: one JSON file per project that records, for each prop, its state, its parts, and what each part is attached to at the end of every scene.
+\begin{itemize}
+\item Playing or validating a scene writes that scene's closing entry.
+\item The next scene reads the previous entry as its opening state. A scene may override it explicitly, and the validator reports every override.
+\item The validator can walk all six scenes and check the ledger without rendering anything.
+\end{itemize}
+This is the same idea as the global cast-and-props sidecar file already on the PAM backburner; build them as one file.
+
 The same principle governs the rope's knot and the scroll's revisions. State continuity should be testable without rendering graphics.
-\completion{Every knife component reaches its expected state and location, with no disappearing or duplicated pieces. The state tests pass independently of the renderer.}
+\completion{Every knife component reaches its expected state and location in every scene, with no disappearing or duplicated pieces. The ledger tests pass independently of the renderer.}
 
 \section{Milestone 5: Fountain+ compilation and shot direction}
 \priority{High}
@@ -300,6 +440,7 @@ projects/abraham_isaac/
         characters.json
     props/
         prop_definitions.json
+        continuity_ledger.json
     cues/
         animation_cues.json
     scenes/
@@ -316,12 +457,14 @@ The screenplay maintained in the \file{writing-guides/shorts} project can remain
 \item \textbf{Prop-aware camera framing.} Existing camera code can target named characters and props. Improve inserts by calculating framing from an object's bounding box and intended screen margin, rather than relying principally on horizontal position. This is important for the scroll, the broken knife, and the phone.
 \end{enumerate}
 
-\completion{Recompiling the Fountain screenplay does not erase hand-authored choreography or incorrectly frame the critical inserts.}
+\practical{The beat identifier must survive rewrites of the prose around it. Put it in a Fountain note next to the action line, for example \file{[[beat: s02_pull_attempt]]}, and have the compiler report any cue whose identifier no longer appears in the screenplay, and any identifier with no cue.}
+
+\completion{Recompiling the Fountain screenplay does not erase hand-authored choreography or incorrectly frame the critical inserts. Orphaned cues are reported.}
 
 \section{Milestone 6: The complete Manim performance}
 \priority{High---the first major artistic deliverable}
 
-This milestone is deliberately independent of Blender. All six scenes must become a complete enough animated performance that a viewer can assess the comedy without needing to read the screenplay. The Manim render should include dialogue, speech bubbles or voices, physical acting, prop effects, camera work, intentional holds, and transitions.
+This milestone is deliberately independent of Blender. All six scenes must become a complete enough animated performance that a viewer can assess the comedy without needing to read the screenplay. The Manim render, at 15 fps, should include dialogue, speech bubbles or voices, physical acting, prop effects, camera work, intentional holds, and transitions.
 
 \subsection{Scene-by-scene acceptance tests}
 \begin{longtable}{@{}p{0.24\textwidth}p{0.69\textwidth}@{}}
@@ -342,9 +485,7 @@ This milestone is deliberately independent of Blender. All six scenes must becom
 \bottomrule
 \end{longtable}
 
-\subsection{Performance profiles and acting}
-Create optional \emph{performance profiles} for recurring behaviors. Abraham's profile could contain hesitant speech preparation, finger-counting, anxiety, exaggerated effort, and sudden decisiveness. Isaac's could include relaxed posture, casual strength, cheerful reactions, and fast recovery.
-
+\subsection{Acting: four phases}
 Avoid mechanically attaching the same gesture to every dialogue line. Where appropriate, an action should have four phases:
 \[
 \text{anticipation}\;\longrightarrow\;
@@ -352,9 +493,12 @@ Avoid mechanically attaching the same gesture to every dialogue line. Where appr
 \text{reaction}\;\longrightarrow\;
 \text{recovery}.
 \]
-For the cork-pop gag, Isaac offers his hand, Abraham accepts, the abrupt movement occurs, and the image holds briefly before Abraham speaks. Each phase's duration should be adjustable without rewriting the choreography.
+For the cork-pop gag, Isaac offers his hand, Abraham accepts, the abrupt movement occurs, and the image holds briefly before Abraham speaks. Each phase's duration, in frames, should be adjustable without rewriting the choreography.
 
 The most important dramatic choice in Scene 5 is to permit stillness after the knife incident: the performance turns from staged slapstick toward a sincere exchange between father and son.
+
+\subsection{Performance profiles (optional, deferred)}
+Revision 1 proposed \emph{performance profiles} for recurring behaviors: hesitant speech preparation, finger-counting, and exaggerated effort for Abraham; relaxed posture, casual strength, and fast recovery for Isaac. This is a good idea but it is not needed to finish the short, and PAM already has a mechanism for character mannerisms in \file{pam/tics.py}. Author the six scenes by hand first. If the same gestures recur often enough to be tedious, extend the tic system instead of building a second one.
 
 \completion{The complete six-scene Manim video is independently watchable. Its physical jokes and emotional turn are comprehensible without the script. This is a valid production milestone even before Blender is used.}
 
@@ -363,12 +507,21 @@ The most important dramatic choice in Scene 5 is to permit stillness after the k
 
 \noindent\textbf{Modify:} \file{pam/hooks.py}, \file{pam_trace.py}.
 
-The existing PAM trace already records skeletal motion, actions, camera transforms, overlays, prop positions, attachments, and visibility. Extend this format rather than replacing it. The main addition is a stream of typed semantic events aligned with the same integer frame clock.
+The existing PAM trace already records skeletal motion, actions, camera transforms, overlays, prop positions, attachments, and visibility. Extend this format rather than replacing it, and bump it to \textbf{trace version 5}. Older traces must still build.
+
+\subsection{Additions in version 5}
+\begin{itemize}
+\item A top-level \file{"fps": 15}.
+\item Integer frame fields \file{f0} and \file{f1} on pieces, alongside the existing \file{t0} and \file{t1} in seconds.
+\item The \file{sampled} piece of Section~\ref{sec:sampled}, for constrained limbs and for rope control points.
+\item A stream of typed semantic events on the same frame clock.
+\item The active intervals of contact constraints, creation of new prop components, and updates to text displayed on surfaces.
+\end{itemize}
 
 \subsection{Example event}
 \begin{lstlisting}
 {
-  "frame": 412,
+  "frame": 206,
   "event": "prop_state_changed",
   "prop": "knife",
   "from": "intact",
@@ -376,12 +529,12 @@ The existing PAM trace already records skeletal motion, actions, camera transfor
 }
 \end{lstlisting}
 
-Also record the active intervals of contact constraints, creation of new prop components, and updates to text displayed on surfaces.
-
 \subsection{Resolved motion versus recomputed constraints}
-Store \emph{resolved movement}, not merely the constraints that produced it. Manim calculates actual joint positions after constraint correction. The tracer stores those positions and the semantic events Blender needs to select or instantiate the right geometry. Blender should \emph{not} solve the choreography a second time.
+Store \emph{resolved movement}, not merely the constraints that produced it. Manim calculates actual joint positions after constraint correction. The tracer stores those positions and the semantic events Blender needs to select or instantiate the right geometry. Blender should \emph{not} solve the choreography a second time. Constraint intervals are recorded for information and debugging only.
 
-\completion{A trace replay reconstructs the Manim performance's joint movement, camera cuts, prop states, and frame timings within specified numerical tolerances.}
+\practical{Most of this milestone is done early: the sampled piece and the frame fields are built during the vertical slice (Section~\ref{sec:slice}), and the prop events during Stage 4a. What remains here is completing the event vocabulary and documenting the format at the top of \file{pam_trace.py}.}
+
+\completion{A trace replay reconstructs the Manim performance's joint movement, camera cuts, prop states, and frame timings within specified numerical tolerances. Version 4 traces still build.}
 
 \section{Milestone 8: Blender parity before embellishment}
 \priority{After completion of the Manim performance}
@@ -390,7 +543,11 @@ Store \emph{resolved movement}, not merely the constraints that produced it. Man
 
 The first Blender target is not more attractive rendering but \emph{correct reproduction}. Begin with plain capsule figures, simple meshes, and basic lighting. Check paired actions, separated knife pieces, rope attachments, text changes, and camera motions against Manim.
 
+Blender renders at 30 fps from the 15 fps trace. Each trace frame $f$ is keyed on Blender frame $1+2f$; the frames between are interpolated. Parity is checked on the keyed frames.
+
 After parity is demonstrated, improve the character meshes, robes, sandals, rocks, desert environments, lighting, and scroll-ribbon deformation. Keep these appearance changes in asset and material layers with minimal effect on choreography code.
+
+\practical{The exporter already has character and material work in it (solid chests, joint balls, shoes, the EEVEE look, speech bubbles). None of that should be removed. ``Capsule figures'' here means that parity is judged on motion and identity, not that existing appearance work is rolled back. Camera zoom is known not to carry over to the Blender render at present; fix that here, since camera parity is part of the completion test.}
 
 \completion{Blender matches the Manim animation in movement, staging, prop identity, and timing before detailed geometry and materials are added.}
 
@@ -399,56 +556,69 @@ After parity is demonstrated, improve the character meshes, robes, sandals, rock
 
 Document generic PAM features in the main repository:
 \begin{itemize}
-\item Timeline and sequence formats, including parallel actions and holds.
-\item Choreography routines and scale-aware interaction constraints.
-\item Composite-prop definitions, states, transitions, and continuity.
+\item Timeline and sequence formats, including parallel actions, holds, and the \file{frames} key.
+\item Choreography routines, the two-bone solver and its four rules, and scale-aware interaction constraints.
+\item Composite-prop definitions, states, transitions, and the continuity ledger.
 \item Fountain+ cue integration and prop-aware camera framing.
-\item Semantic trace events and Blender reconstruction guarantees.
+\item Trace version 5, semantic events, and Blender reconstruction guarantees.
 \item Small, self-contained, automated examples and regression tests.
 \end{itemize}
 
-The six-scene Abraham--Isaac animation becomes a substantial integration example demonstrating the end-to-end system. Reserve the \emph{PAM 1.0} label for a release in which the regression tests and Manim performance acceptance criteria pass.
+The six-scene Abraham--Isaac animation becomes a substantial integration example demonstrating the end-to-end system. Apply the release label chosen in Milestone~1 only when the regression tests and Manim performance acceptance criteria pass.
 
 \section{Implementation dependencies and sequencing}
 
 \begin{enumerate}
-\item Regression tests and validation.
-\item Timeline and synchronized actions.
-\item Contact constraints and choreography primitives.
-\item Stateful composite props.
+\item Regression tests, golden traces, and validation.
+\item \textbf{Vertical slice} (Section~\ref{sec:slice}): thin versions of the timeline, one constraint, the sampled trace piece, and Blender playback, for one gag.
+\item Timeline and synchronized actions, completed.
+\item Contact constraints and choreography primitives, completed.
+\item Stateful composite props (knife and phone, then scroll, then rope) and the continuity ledger.
 \item Fountain+ integration and prop camera targets.
 \item Complete Manim short.
-\item Semantic trace export.
+\item Semantic trace export, completed.
 \item Blender motion parity.
 \item Documentation and release tests.
 \end{enumerate}
 
-The first four stages involve the most significant engine-development work. The later stages primarily integrate, validate, and package those generic capabilities. In particular, postpone detailed Blender cosmetics until choreography and state transitions can be verified in Manim.
+Milestones 2 and 3 involve the most significant engine-development work. The later stages primarily integrate, validate, and package those generic capabilities. In particular, postpone detailed Blender cosmetics until choreography and state transitions can be verified in Manim.
 
-\section{Recommended first coding task: a vertical slice}
+\section{Recommended first coding tasks}
+\label{sec:slice}
 
-Start with one \emph{complete choreography example}, not nine disconnected implementation branches. The Scene 2 failed wrist-pull is the best initial vertical slice.
+\subsection{First: Milestone 1}
+Begin with the baseline. It is small, it changes no runtime behavior, and every later milestone has a completion test that depends on the golden traces. Its last task also answers the one open technical question (whether updaters advance in dry-run mode) before any design depends on the answer.
 
-It requires:
+\subsection{Second: a vertical slice that reaches Blender}
+Then build one \emph{complete choreography example}, not nine disconnected implementation branches. The Scene 2 failed wrist-pull is the best choice.
+
+In Revision 1 the slice ended at the Manim render. It now runs through every layer, because the interface most likely to cause trouble is the last one: whether constrained motion survives the trip through the trace into Blender. Testing that with one arm and one gag is far cheaper than discovering a problem after six scenes are authored.
+
+The slice requires:
 \begin{enumerate}
-\item A timeline with discrete durations and an explicit pause.
+\item A timeline with durations in frames at 15 fps and an explicit pause.
 \item Two differently scaled characters, Abraham and Isaac.
-\item One wrist-to-wrist contact constraint.
+\item One wrist-to-wrist contact constraint, solved by the two-bone method, with Isaac as driver.
 \item A root lock that makes Isaac immovable.
 \item Constraint release at a specified frame.
 \item Abraham's sudden fall followed by a comic hold.
-\item Consistent replay and a regression test.
+\item A \file{sampled} piece in the trace for Abraham's constrained arm.
+\item Playback of that trace in Blender, with Abraham's hand visibly staying on Isaac's wrist.
+\item Consistent replay and a golden-trace regression test.
 \end{enumerate}
 
-Once this works, add the breakaway knife as the first prop-state test. Together these two short sequences exercise almost every important new concept while keeping debugging manageable.
+Keep everything else as thin as possible: only the handlers this gag uses are converted for the timeline, and only one constraint type is implemented.
 
-The primary architectural recommendation is to make \textbf{constraints, choreography, and prop states three separate subsystems joined by a single timeline}. This allows additional physical gags without continually rewriting \file{pam_player.py} and gives PAM a reusable base for later projects, including the rest of \emph{Abraham and Isaac, Revisited}.
+\subsection{Third: the breakaway knife}
+Once the slice works, add the breakaway knife as the first prop-state test (Stage 4a), including its ledger entry and its \file{prop_state_changed} trace event. Together these two short sequences exercise almost every important new concept while keeping debugging manageable.
+
+The primary architectural recommendation is unchanged: make \textbf{constraints, choreography, and prop states three separate subsystems joined by a single timeline}. This allows additional physical gags without continually rewriting \file{pam_player.py} and gives PAM a reusable base for later projects, including the rest of \emph{Abraham and Isaac, Revisited}.
 
 \section*{Concluding principle}
 \addcontentsline{toc}{section}{Concluding principle}
 
 \begin{quote}
-\emph{Build a better choreography and prop-state system before spending effort on Blender cosmetics. Treat the Manim animatic as the complete reference performance, not a disposable rough visualization.}
+\emph{Build a better choreography and prop-state system before spending effort on Blender cosmetics. Treat the Manim animatic as the complete reference performance, not a disposable rough visualization. Prove the whole path once, with one gag, before widening it.}
 \end{quote}
 
 This is the foundation to establish before extending the Blender renderer.
