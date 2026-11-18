@@ -1,0 +1,66 @@
+{
+  "fixtures": {
+    "screenplay_alice-meets-bob.json": {
+      "golden": "screenplay_alice-meets-bob.trace.json",
+      "fixture_sha256": "70eacd4fed5ace4fab4f81665a05c502f0bf16320d3d748d3fcc4b85706b9982",
+      "trace_version": 4,
+      "hooks_version": 2,
+      "duration": 46.2667,
+      "cast": [
+        "alice",
+        "bob"
+      ],
+      "plays": 118,
+      "pieces": 80
+    },
+    "lucy-meets-lenny2_pam.json": {
+      "golden": "lucy-meets-lenny2_pam.trace.json",
+      "fixture_sha256": "cc3be23c1243f47cd8ad2d24d839c1e9f9f612f8892bbbe2789b437662cb34e2",
+      "trace_version": 4,
+      "hooks_version": 2,
+      "duration": 71.2667,
+      "cast": [
+        "lenny",
+        "dog",
+        "lucy"
+      ],
+      "plays": 209,
+      "pieces": 158
+    },
+    "wdj_nona-vs-governor-venus3.json": {
+      "golden": "wdj_nona-vs-governor-venus3.trace.json",
+      "fixture_sha256": "dd51191d733bdeaefd5b0a0ec1d6de5ae3433694eac65da41ee926bb8b2ff01d",
+      "trace_version": 4,
+      "hooks_version": 2,
+      "duration": 182.8667,
+      "cast": [
+        "sidel",
+        "nona"
+      ],
+      "plays": 399,
+      "pieces": 31
+    }
+  },
+  "reference": {
+    "commit": "8af434d23298fb71e252a758113f53981d0db6dc",
+    "tracked_files_modified": false,
+    "pam_version": "0.9.13",
+    "recorded": "2026-11-18"
+  },
+  "environment": {
+    "python": "3.13.18",
+    "platform": "Linux-6.18.44-fc-v595-x86_64-with-glibc2.39",
+    "manim": "0.22.1",
+    "manimpango": "0.7.1",
+    "numpy": "2.5.3",
+    "text_probe": {
+      "text": "PAM golden trace 0123",
+      "font": "Courier New",
+      "size": [
+        4.153,
+        0.31
+      ]
+    }
+  },
+  "tolerance": 0.002
+}
