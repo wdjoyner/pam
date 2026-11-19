@@ -1979,8 +1979,8 @@ Recommended documentation set for the repository:
 | Document | Scope |
 |---|---|
 | `README.md` | Repository front door, quick start, architecture overview |
-| `pam-reference-book_v0918.tex` or compiled PDF | Full reference manual |
-| `pam_player-manual.md` | Player internals, camera, action loop, bubble registry, environment variables |
+| `pam-reference-book.tex` and its compiled PDF | Full reference manual |
+| `pam-player_manual.md` | Running the player, environment variables, the actions it handles, camera metadata, the timeline |
 | `CHARACTER_PROPERTIES.md` | Character creation fields, actions, faces, wardrobe, styles, tics |
 | `PROP_PROPERTIES.md` | Prop creation fields, metadata, registry behavior, prop actions, prop catalog |
 | `fountain2pam-manual.md` | Fountain+ syntax and conversion workflow |

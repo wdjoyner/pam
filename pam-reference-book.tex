@@ -119,9 +119,9 @@
   urlcolor={blue},
   pdfcreator={LaTeX via pandoc}}
 
-\title{PAM Reference Book\\[0.4em]\normalsize for PAM v0.9.23}
+\title{PAM Reference Book\\[0.4em]\normalsize for PAM 1.0.1}
 \author{David Joyner; source documents co-authored with Claude}
-\date{July 9, 2026}
+\date{November 19, 2026}
 
 \begin{document}
 \frontmatter
@@ -801,10 +801,14 @@ stateful-prop dispatch, walk-following, and prop-side gotchas. \\
 every annotation key with examples, CAMERA / LIGHTING vocabulary tables,
 action-interpreter pattern reference, output file structures, complete
 worked screenplay example. \\
-\textbf{\texttt{pam\_player-manual.md}} & (planned) Player-side
-reference: action handler internals, the camera system
-(\texttt{MovingCameraScene}, \texttt{\_apply\_camera}, framing / MOVE
-vocabulary), parallel-block semantics, the bubble registry. \\
+\textbf{\texttt{pam-player\_manual.md}} & Player-side reference: how
+to run the player, its environment variables, every action it handles
+directly, the camera metadata, and the timeline (frames, sequences,
+timed parallel blocks, constraints). \\
+\textbf{\texttt{pam-the-road-to-blender\_outline.tex}} & The roadmap
+from the Manim animatic to Blender, in nine milestones. \\
+\textbf{\texttt{tests/README.md}} & The regression tests, the golden
+traces, and what was found while building them. \\
 \textbf{\texttt{BACK\_BURNER.md}} & Items deferred to v1.0.0 or later:
 API normalization (\texttt{to\_x}/\texttt{x}), the \texttt{StatefulProp}
 mixin refactor, walk-and-talk attached-bubble pattern, etc. \\
@@ -909,6 +913,15 @@ Headline changes
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
+1.0.1 & The Blender roadmap, Milestones 1 and 2. \textbf{Regression
+baseline}: golden-trace tests and \texttt{pam-validate}.
+\textbf{Timeline}: a 15 fps frame clock and the \texttt{frames} key;
+\texttt{sequence} and named beats; timed \texttt{parallel} blocks with
+\texttt{at}, in which \texttt{say}, camera cuts, walks and contact
+constraints run on exact frames. \textbf{Contact constraints}:
+\texttt{constrain} / \texttt{release} (\texttt{joint\_to\_joint},
+\texttt{root\_lock}), \texttt{slip\_on\_back}. \textbf{Trace
+version 5} for the Blender export. All opt-in. See \S14. \\
 0.9.23 & Backburner items 10--11, 18, and item-6 Option C.
 \textbf{2.5D depth system} (items 10--11): optional
 \texttt{"depth"}/\texttt{"rescale"} on cast and props entries;
@@ -2206,6 +2219,17 @@ happen \emph{after} the animation rather than within it:
 Without this post-pass, a \texttt{turn} inside a \texttt{parallel} block
 would animate the figure to the side pose but leave \texttt{fig.pose}
 set to \texttt{standing\_front}, breaking the next \texttt{walk\_to}.
+
+\subsection{6.5 Timed parallel blocks}\label{timed-parallel-blocks-pointer}
+
+Everything above describes an ordinary \texttt{parallel} block, in
+which every step shares the block's one run time and \texttt{say}
+cannot take part. A block whose steps carry \texttt{at} or
+\texttt{frames} is a \emph{timed} block and is played by
+\texttt{pam/timeline.py} instead: each step starts on its own frame and
+lasts its own number of frames, and dialogue, camera cuts and contact
+constraints can be steps. See \S\ref{timed-parallel-blocks}. A block
+without those keys is not affected.
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
 
@@ -4471,6 +4495,365 @@ array is the more meaningful reference there, since sidecar blocks
 can themselves produce warnings. Composes with
 \texttt{PAM\_LOG}/\texttt{PAM\_WARNINGS\_ONLY}; all three can be
 active at once.
+
+\section{14. Runtime additions for the Blender roadmap (PAM 1.0.1): the
+timeline}\label{runtime-additions-timeline}\index{timeline}\index{frame clock}
+
+Milestones 1 and 2 of \emph{PAM: The Road to Blender}, and its vertical
+slice. Everything in this section is opt-in: a screenplay that uses none
+of the keys and actions below is loaded, played and traced exactly as
+before. The modules are \texttt{pam/timeline.py},
+\texttt{pam/constraints.py} and \texttt{pam/choreography.py}; each
+begins with its design notes.
+
+\subsection{\texorpdfstring{14.1 The frame clock and \texttt{frames}}{14.1 The frame clock and frames}}\label{the-frame-clock}\index{frames@\texttt{frames}}
+
+The timeline counts in frames at \textbf{15 per second}, the frame rate
+of \texttt{manim -ql}, which \texttt{pam-render} uses by default.
+Manim's 30 and 60 fps qualities are whole multiples of it, so a length
+in frames is exact at every quality.
+
+\texttt{"frames": n} gives a step's length in frames. It is used in
+place of the action's seconds key (\texttt{rt}, \texttt{t},
+\texttt{hold}), not with it; if both are present the frames win and
+\texttt{pam-validate} warns.
+
+\begin{verbatim}
+{"action": "morph", "who": "abraham", "pose": "pull_lean", "frames": 12}
+{"action": "wait", "frames": 9, "beat": "comic_hold"}
+\end{verbatim}
+
+At the top level and in a \texttt{sequence}, \texttt{frames} is
+understood by \texttt{wait}, \texttt{morph}, \texttt{turn},
+\texttt{scale}, \texttt{slip\_on\_back}, \texttt{fade\_out},
+\texttt{say}, and a timed \texttt{parallel} block. More actions accept
+it inside a timed block (\S14.4).
+
+Two details of Manim shape the implementation. Manim renders
+\texttt{len(numpy.arange(0, run\_time, 1/fps))} frames for a play, and
+for some whole numbers of frames the plain quotient is a hair too
+large: 23/15 and 31/15 seconds render 24 and 32 frames.
+\texttt{frames\_to\_seconds(n)} therefore returns $n/15$ seconds less
+one nanosecond (and exactly $1/15$ for a single frame). A wait during
+which nothing can change is counted differently again, so a wait given
+in frames is played frame by frame.
+
+\subsection{\texorpdfstring{14.2 \texttt{sequence} and beats}{14.2 sequence and beats}}\label{sequence-and-beats}\index{sequence@\texttt{sequence}}\index{beat@\texttt{beat}}
+
+\begin{verbatim}
+{"action": "sequence", "id": "s02_wrist_pull", "do": [ ... steps ... ]}
+\end{verbatim}
+
+The steps run in order, exactly as they would at the top level. The
+console reports the frames the sequence ran on and any step that did
+not take the frames it asked for. \texttt{"beat": "name"} on a step
+names the frame it starts on; beats are reported and written to the
+trace. Constraints started in a sequence end with it.
+
+\subsection{\texorpdfstring{14.3 Timed \texttt{parallel} blocks}{14.3 Timed parallel blocks}}\label{timed-parallel-blocks}\index{parallel@\texttt{parallel}!timed block}\index{at@\texttt{at}}
+
+An ordinary \texttt{parallel} block (\S6) plays its steps together, all
+with one run time. A \emph{timed} block gives each step its own first
+frame and its own length, so that two actors can move on overlapping
+frames while a line of dialogue begins, and the camera cuts, on exact
+frames.
+
+A \texttt{parallel} block is timed when the block has \texttt{frames},
+or when any step in its \texttt{do} list has \texttt{at},
+\texttt{frames}, \texttt{frames\_in} or \texttt{frames\_out}, is a
+\texttt{sequence}, or is a camera marker. Every other \texttt{parallel}
+block plays exactly as \S6 describes.
+
+\begin{verbatim}
+{"action": "parallel", "id": "s02_overlap", "frames": 84, "do": [
+  {"action": "sequence", "id": "abraham_arrives", "do": [
+    {"action": "walk_to", "who": "abraham", "x": 0.8, "frames": 30,
+     "beat": "walk_in"},
+    {"action": "morph", "who": "abraham", "pose": "look_up_point",
+     "frames": 6}
+  ]},
+  {"action": "turn", "who": "isaac", "pose": "standing_side",
+   "at": 6, "frames": 9},
+  {"action": "say", "who": "isaac", "text": "You walked all this way?",
+   "at": 12, "frames": 30},
+  {"_subscene_marker": "s02_overlap_medium", "at": 30,
+   "_shot_meta": {"framing": "medium", "subject": "isaac",
+                  "move": "static"}},
+  {"action": "wait", "at": 75, "frames": 9, "beat": "comic_hold"}
+]}
+\end{verbatim}
+
+The full scene is \texttt{abe-isaac\_overlap\_timeline.json}.
+
+Keys on the block:
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{do} --- the steps.
+\item
+  \texttt{id} --- name used in the console report and the trace.
+\item
+  \texttt{frames} --- the block lasts exactly this long; what is left
+  after its last step is stillness. Without it the block ends when its
+  last step ends.
+\item
+  \texttt{rt} --- default length, in seconds, of a step that gives none
+  (default 0.4, which is 6 frames).
+\item
+  \texttt{rt\_per\_kf} --- default seconds per keyframe of a walk, run
+  or trot (default 0.20, which is 3 frames).
+\end{itemize}
+
+Keys on a step:
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{at} --- the frame, counted from the start of the block, on
+  which the step starts (default 0). Only for steps written directly in
+  the block.
+\item
+  \texttt{frames} --- the step's length. Without it the step's seconds
+  key is used, then the block's \texttt{rt}.
+\item
+  \texttt{beat} --- names the frame the step starts on.
+\end{itemize}
+
+Seconds inside a timed block are rounded to the nearest whole frame,
+halves up, and never to less than one frame (0.3 s is 5 frames).
+
+\subsection{14.4 What a step of a timed block may be}\label{timed-block-steps}
+
+\begin{itemize}
+\item
+  \texttt{morph}, \texttt{turn}, \texttt{scale},
+  \texttt{slip\_on\_back}, \texttt{fade\_out} --- one move over the
+  step's frames.
+\item
+  \texttt{walk\_to}, \texttt{run\_to}, \texttt{trot\_to} --- with
+  \texttt{frames}, the whole move takes exactly that long; without,
+  each keyframe takes 3 frames and the length depends on the distance.
+\item
+  \texttt{say} --- see \S14.5.
+\item
+  \texttt{wait} --- stillness; with a \texttt{sound} key and no length,
+  a sound effect on an exact frame.
+\item
+  \texttt{constrain}, \texttt{release} --- the contact starts or ends
+  on that frame (\S14.7).
+\item
+  a camera marker --- see \S14.6.
+\item
+  \texttt{sequence} --- a track: its steps follow one another, the
+  first starting on the sequence's \texttt{at}. Use one per actor.
+\end{itemize}
+
+The list lives in \texttt{pam/action\_specs.py}, in the three sets
+whose names begin with \texttt{TIMELINE\_}; the validator and the
+player both read it.
+
+\textbf{Limitations.}
+
+\begin{itemize}
+\item
+  Actions that play several animations of their own cannot be steps of
+  a timed block: \texttt{wave}, \texttt{nod}, \texttt{shake\_head},
+  \texttt{shrug}, \texttt{carry}, \texttt{sit\_down},
+  \texttt{stand\_up}, \texttt{rotate}, \texttt{prop\_say}, and the
+  camera moves \texttt{pan-up}, \texttt{pan-down}, \texttt{descend},
+  \texttt{push-into}. The player skips such a step with a message, and
+  \texttt{pam-validate} reports it as an error. Put it before or after
+  the block.
+\item
+  A \texttt{parallel} block cannot be a step of a timed block, and a
+  \texttt{sequence} cannot be nested in a \texttt{sequence} there.
+\item
+  If two steps move the same figure on the same frames, the one written
+  later wins on those frames.
+\item
+  \texttt{depth} on a walk is ignored, as in an ordinary
+  \texttt{parallel} block.
+\end{itemize}
+
+A step's \texttt{sound}, and its character's \texttt{sfx}, starts on
+the frame the step starts.
+
+\subsection{\texorpdfstring{14.5 \texttt{say} on the frame clock}{14.5 say on the frame clock}}\label{say-on-the-frame-clock}\index{say@\texttt{say}!on the frame clock}\index{frames\_in@\texttt{frames\_in}}\index{frames\_out@\texttt{frames\_out}}
+
+A \texttt{say} whose length is given in frames is played as three timed
+pieces: the bubble fades in, holds, and fades out.
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{frames} --- the whole line, fades included.
+\item
+  \texttt{frames\_in}, \texttt{frames\_out} --- the fades (defaults 6
+  and 5, from \texttt{rt\_in} 0.4 and \texttt{rt\_out} 0.3).
+\item
+  With \texttt{"persist": true} (or \texttt{duration}) there is no
+  fade-out; the bubble is registered as a persistent bubble (\S8) when
+  its hold ends.
+\end{itemize}
+
+Such a line can stand at the top level, in a \texttt{sequence}, or in a
+timed \texttt{parallel} block, where it overlaps other action. It is
+for human, alien and dog characters; \texttt{prop\_say} is not
+schedulable yet. A bubble shown this way stays where it appeared; for
+a character who talks while walking, use \texttt{persist}, whose bubble
+follows as before. A \texttt{say} without \texttt{frames} plays as it
+always has.
+
+To make this possible \texttt{HumanGraph.say} and \texttt{DogGraph.say}
+take \texttt{build\_only=True}, which builds the bubble, announces it
+on \texttt{pam.hooks}, and returns it without playing anything.
+
+\subsection{14.6 The camera on the frame clock}\label{camera-on-the-frame-clock}
+
+A \texttt{\_subscene\_marker} step in a timed block cuts the camera on
+its \texttt{at} frame. With \texttt{frames}, or an animated
+\texttt{move} (\texttt{push}, \texttt{pull}, \texttt{pan-follow},
+\texttt{drift}, \texttt{zoom}), the camera travels for that many frames
+to where the cut would have put it. Framing, subject, zone and
+\texttt{bg\_color} are resolved as for any marker (\S7).
+
+\subsection{\texorpdfstring{14.7 Contact constraints: \texttt{constrain} and \texttt{release}}{14.7 Contact constraints: constrain and release}}\label{contact-constraints}\index{constrain@\texttt{constrain}}\index{release@\texttt{release}}\index{contact constraints}
+
+\begin{verbatim}
+{"action": "constrain", "id": "grip", "type": "joint_to_joint",
+ "who": "abraham", "joint": "rwrist",
+ "target": "isaac", "target_joint": "lwrist", "blend": 6}
+...
+{"action": "release", "id": "grip"}
+
+{"action": "constrain", "id": "isaac_root", "type": "root_lock",
+ "who": "isaac"}
+\end{verbatim}
+
+Keys of \texttt{constrain}:
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{id} --- name used by \texttt{release} and in reports
+  (required).
+\item
+  \texttt{type} --- \texttt{joint\_to\_joint} or \texttt{root\_lock}.
+\item
+  \texttt{who} --- the figure that yields.
+\item
+  \texttt{joint} --- the wrist or ankle held on the target
+  (\texttt{root\_lock}: the joint that stays put, default
+  \texttt{lankle}).
+\item
+  \texttt{target}, \texttt{target\_joint} --- the other figure and the
+  joint the hand stays on.
+\item
+  \texttt{blend} --- frames the hand takes to reach the target
+  (default 0: at once).
+\item
+  \texttt{frames} --- release by itself after this many frames.
+\item
+  \texttt{bend} --- \texttt{keep} (default), \texttt{up} or
+  \texttt{down}: which way the elbow or knee bends.
+\end{itemize}
+
+\texttt{joint\_to\_joint} solves the elbow or knee on every frame with
+an analytic two-bone solver: bone lengths do not change, and the joint
+stays on the side it was on when the constraint started. If the target
+is out of reach the limb straightens toward it and the shortfall is
+reported; that is not an error. \texttt{root\_lock} keeps a figure
+where it stands, whatever else tries to move it. On every frame root
+locks are applied first, then the other constraints in the order they
+were declared.
+
+The \texttt{slip\_on\_back} action and the pose \texttt{pull\_lean}
+were added with the constraints for the Scene 2 wrist-pull
+(\texttt{abe-isaac\_wrist-pull\_slice.json}).
+
+\subsection{14.8 How a timed block is played}\label{how-a-timed-block-is-played}
+
+\texttt{pam.timeline.Block} cuts the block at every frame on which a
+step starts or ends, and plays each stretch between two cuts as one
+\texttt{Scene.play} of exactly that many frames. Inside a stretch every
+running step is advanced to its own position: a morph that began 4
+frames before the stretch and lasts 12 is a third of the way along when
+the stretch starts, and keeps its one smooth curve across the cuts.
+Steps start and end between plays, which is where Manim allows mobjects
+to come and go.
+
+Within one frame the order is fixed: steps that end on it are finished
+first, then steps that start on it are started, both in the order they
+are written. Two renders of the same screenplay are therefore identical
+frame for frame.
+
+The player supplies what each step does through \texttt{\_tl\_start}
+in \texttt{pam\_player.py}, which returns the step's timed pieces
+(\texttt{pam.timeline.Phase}). Single-move actions hand over their
+animations through the same \texttt{\_collect\_anims} path the ordinary
+\texttt{parallel} block uses (\S6.2).
+\texttt{pam.timeline.describe(step)} says what a step is and how many
+frames it takes; the validator and the player both call it.
+
+\subsection{14.9 The trace: version 5}\label{trace-version-5}\index{trace!version 5}
+
+A screenplay that uses the timeline is traced by \texttt{pam\_trace.py}
+as trace version 5; any other is still written as version 4, unchanged.
+Version 5 adds:
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{"fps": 15} and whole-frame \texttt{f0}, \texttt{f1} on every
+  piece;
+\item
+  \texttt{sequences}, with their beats;
+\item
+  \texttt{constraints}, with the frames they were in force;
+\item
+  a \texttt{sampled} piece holding a constrained limb's joints on every
+  frame;
+\item
+  \texttt{blocks}: for each timed \texttt{parallel} block, which step
+  ran on which frames.
+\end{itemize}
+
+Inside a timed block the tracer records frame by frame: one linear
+piece per frame for whatever moved (figures, camera, bubbles, props,
+overlays). \texttt{trace2blender.py} keys those directly and solves
+nothing, so overlapping moves, the frame a line starts on, the frame
+the camera cuts on, and a hand held on a wrist carry over to Blender.
+
+New \texttt{pam.hooks} events: \texttt{sequence}, \texttt{beat},
+\texttt{constraint}, \texttt{constraint\_sample}, \texttt{block},
+\texttt{block\_item} and \texttt{frame}.
+
+\subsection{\texorpdfstring{14.10 Validation: \texttt{pam-validate}}{14.10 Validation: pam-validate}}\label{pam-validate}\index{pam-validate@\texttt{pam-validate}}
+
+\begin{verbatim}
+./pam-validate my_scene.json
+./pam-validate my_scene.json --strict     # warnings also fail
+./pam-validate my_scene.json --json       # machine-readable report
+./pam-validate my_scene.json --frames     # durations not in whole frames
+\end{verbatim}
+
+\texttt{pam-validate} checks a screenplay in a second or two, without
+rendering. It rejects unknown actions, invalid joint names, negative
+durations, frame counts that are not whole numbers, malformed
+constraints, steps of a timed block that cannot run on the frame clock,
+and references to characters or props that do not exist at that step.
+
+For a timed block it also warns about a duration in seconds that is
+rounded (with the number of frames it becomes), two steps that move the
+same figure on the same frames, a block whose \texttt{frames} is
+shorter than its steps, and \texttt{at} where it has no meaning.
+\texttt{--frames} lists every duration in the screenplay that is not a
+whole number of frames at 15 fps, with the value it rounds to; these
+are notes and never fail a file.
+
+The regression tests are in \texttt{tests/}; \texttt{tests/README.md}
+describes the golden traces and how to record them.
 
 \chapter{Character Properties
 Reference}\label{character-properties-reference}
@@ -13666,6 +14049,11 @@ folded into the single-file LaTeX output:
 \item
   \texttt{PROP\_PROPERTIES-pam0914.md}
 \end{itemize}
+
+Section 14 of the \texttt{pam\_player.py} chapter (the timeline) was
+written directly in LaTeX from \texttt{pam/timeline.py},
+\texttt{pam/constraints.py}, \texttt{pam/validate.py} and
+\texttt{pam-player\_manual.md}.
 
 \section{External links}\label{external-links}
 
