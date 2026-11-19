@@ -98,6 +98,25 @@
           "by": "bottom",
           "hidden": true
         }
+      },
+      "scroll": {
+        "type": "scroll",
+        "state": "unrolled",
+        "text": [
+          "GENESIS / B'RESHIT"
+        ],
+        "attached": {
+          "to": "abraham",
+          "joint": "lwrist"
+        }
+      },
+      "quill": {
+        "type": "quill",
+        "attached": {
+          "to": "satchel",
+          "mode": "in",
+          "hidden": true
+        }
       }
     },
     "ledger": {
@@ -160,6 +179,67 @@
               "viewers": 0,
               "comment": null
             }
+          },
+          "scroll": {
+            "type": "scroll",
+            "state": "rolled",
+            "attached": {
+              "to": "abraham",
+              "kind": "character",
+              "joint": "rhip",
+              "mode": "in",
+              "angle": 25.0
+            },
+            "text": {
+              "lines": [
+                [
+                  {
+                    "text": "GENESIS / B'RESHIT",
+                    "rev": 0
+                  }
+                ],
+                [
+                  {
+                    "text": "AND ABRAHAM RAISED THE KNIFE",
+                    "rev": 1
+                  },
+                  {
+                    "text": ".",
+                    "rev": 1,
+                    "struck": 2
+                  },
+                  {
+                    "text": "?",
+                    "rev": 2
+                  }
+                ]
+              ],
+              "revisions": [
+                {
+                  "rev": 1,
+                  "write": "AND ABRAHAM RAISED THE KNIFE.",
+                  "line": 2,
+                  "scene": "scene1"
+                },
+                {
+                  "rev": 2,
+                  "replace": ".",
+                  "with": "?",
+                  "line": 2,
+                  "scene": "scene1"
+                }
+              ]
+            }
+          },
+          "quill": {
+            "type": "quill",
+            "attached": {
+              "to": "satchel",
+              "kind": "prop",
+              "mode": "in",
+              "angle": 30.0,
+              "hidden": true
+            }
           }
         }
       },
@@ -218,6 +298,67 @@
             "display": {
               "viewers": 0,
               "comment": null
+            }
+          },
+          "scroll": {
+            "type": "scroll",
+            "state": "rolled",
+            "attached": {
+              "to": "abraham",
+              "kind": "character",
+              "joint": "rhip",
+              "mode": "in",
+              "angle": 25.0
+            },
+            "text": {
+              "lines": [
+                [
+                  {
+                    "text": "GENESIS / B'RESHIT",
+                    "rev": 0
+                  }
+                ],
+                [
+                  {
+                    "text": "AND ABRAHAM RAISED THE KNIFE",
+                    "rev": 1
+                  },
+                  {
+                    "text": ".",
+                    "rev": 1,
+                    "struck": 2
+                  },
+                  {
+                    "text": "?",
+                    "rev": 2
+                  }
+                ]
+              ],
+              "revisions": [
+                {
+                  "rev": 1,
+                  "write": "AND ABRAHAM RAISED THE KNIFE.",
+                  "line": 2,
+                  "scene": "scene1"
+                },
+                {
+                  "rev": 2,
+                  "replace": ".",
+                  "with": "?",
+                  "line": 2,
+                  "scene": "scene1"
+                }
+              ]
+            }
+          },
+          "quill": {
+            "type": "quill",
+            "attached": {
+              "to": "satchel",
+              "kind": "prop",
+              "mode": "in",
+              "angle": 30.0,
+              "hidden": true
             }
           }
         }
@@ -278,6 +419,67 @@
               "viewers": 0,
               "comment": null
             }
+          },
+          "scroll": {
+            "type": "scroll",
+            "state": "rolled",
+            "attached": {
+              "to": "abraham",
+              "kind": "character",
+              "joint": "rhip",
+              "mode": "in",
+              "angle": 25.0
+            },
+            "text": {
+              "lines": [
+                [
+                  {
+                    "text": "GENESIS / B'RESHIT",
+                    "rev": 0
+                  }
+                ],
+                [
+                  {
+                    "text": "AND ABRAHAM RAISED THE KNIFE",
+                    "rev": 1
+                  },
+                  {
+                    "text": ".",
+                    "rev": 1,
+                    "struck": 2
+                  },
+                  {
+                    "text": "?",
+                    "rev": 2
+                  }
+                ]
+              ],
+              "revisions": [
+                {
+                  "rev": 1,
+                  "write": "AND ABRAHAM RAISED THE KNIFE.",
+                  "line": 2,
+                  "scene": "scene1"
+                },
+                {
+                  "rev": 2,
+                  "replace": ".",
+                  "with": "?",
+                  "line": 2,
+                  "scene": "scene1"
+                }
+              ]
+            }
+          },
+          "quill": {
+            "type": "quill",
+            "attached": {
+              "to": "satchel",
+              "kind": "prop",
+              "mode": "in",
+              "angle": 30.0,
+              "hidden": true
+            }
           }
         }
       },
@@ -336,6 +538,67 @@
             "display": {
               "viewers": 0,
               "comment": null
+            }
+          },
+          "scroll": {
+            "type": "scroll",
+            "state": "rolled",
+            "attached": {
+              "to": "abraham",
+              "kind": "character",
+              "joint": "rhip",
+              "mode": "in",
+              "angle": 25.0
+            },
+            "text": {
+              "lines": [
+                [
+                  {
+                    "text": "GENESIS / B'RESHIT",
+                    "rev": 0
+                  }
+                ],
+                [
+                  {
+                    "text": "AND ABRAHAM RAISED THE KNIFE",
+                    "rev": 1
+                  },
+                  {
+                    "text": ".",
+                    "rev": 1,
+                    "struck": 2
+                  },
+                  {
+                    "text": "?",
+                    "rev": 2
+                  }
+                ]
+              ],
+              "revisions": [
+                {
+                  "rev": 1,
+                  "write": "AND ABRAHAM RAISED THE KNIFE.",
+                  "line": 2,
+                  "scene": "scene1"
+                },
+                {
+                  "rev": 2,
+                  "replace": ".",
+                  "with": "?",
+                  "line": 2,
+                  "scene": "scene1"
+                }
+              ]
+            }
+          },
+          "quill": {
+            "type": "quill",
+            "attached": {
+              "to": "satchel",
+              "kind": "prop",
+              "mode": "in",
+              "angle": 30.0,
+              "hidden": true
             }
           }
         }
@@ -401,6 +664,67 @@
               "viewers": 480,
               "comment": "IS THAT A REAL KNIFE"
             }
+          },
+          "scroll": {
+            "type": "scroll",
+            "state": "rolled",
+            "attached": {
+              "to": "abraham",
+              "kind": "character",
+              "joint": "rhip",
+              "mode": "in",
+              "angle": 25.0
+            },
+            "text": {
+              "lines": [
+                [
+                  {
+                    "text": "GENESIS / B'RESHIT",
+                    "rev": 0
+                  }
+                ],
+                [
+                  {
+                    "text": "AND ABRAHAM RAISED THE KNIFE",
+                    "rev": 1
+                  },
+                  {
+                    "text": ".",
+                    "rev": 1,
+                    "struck": 2
+                  },
+                  {
+                    "text": "?",
+                    "rev": 2
+                  }
+                ]
+              ],
+              "revisions": [
+                {
+                  "rev": 1,
+                  "write": "AND ABRAHAM RAISED THE KNIFE.",
+                  "line": 2,
+                  "scene": "scene1"
+                },
+                {
+                  "rev": 2,
+                  "replace": ".",
+                  "with": "?",
+                  "line": 2,
+                  "scene": "scene1"
+                }
+              ]
+            }
+          },
+          "quill": {
+            "type": "quill",
+            "attached": {
+              "to": "satchel",
+              "kind": "prop",
+              "mode": "in",
+              "angle": 30.0,
+              "hidden": true
+            }
           }
         }
       },
@@ -465,6 +789,84 @@
             "display": {
               "viewers": 900,
               "comment": null
+            }
+          },
+          "scroll": {
+            "type": "scroll",
+            "state": "trailing",
+            "attached": {
+              "to": "abraham",
+              "kind": "character",
+              "joint": "lwrist",
+              "mode": "held",
+              "angle": 0.0
+            },
+            "text": {
+              "lines": [
+                [
+                  {
+                    "text": "GENESIS / B'RESHIT",
+                    "rev": 0
+                  }
+                ],
+                [
+                  {
+                    "text": "AND ABRAHAM RAISED ",
+                    "rev": 1
+                  },
+                  {
+                    "text": "THE KNIFE",
+                    "rev": 1,
+                    "struck": 3
+                  },
+                  {
+                    "text": ".",
+                    "rev": 1,
+                    "struck": 2
+                  },
+                  {
+                    "text": "?",
+                    "rev": 2,
+                    "struck": 3
+                  },
+                  {
+                    "text": "HIS SON.",
+                    "rev": 3
+                  }
+                ]
+              ],
+              "revisions": [
+                {
+                  "rev": 1,
+                  "write": "AND ABRAHAM RAISED THE KNIFE.",
+                  "line": 2,
+                  "scene": "scene1"
+                },
+                {
+                  "rev": 2,
+                  "replace": ".",
+                  "with": "?",
+                  "line": 2,
+                  "scene": "scene1"
+                },
+                {
+                  "rev": 3,
+                  "replace": "THE KNIFE?",
+                  "with": "HIS SON.",
+                  "line": 2,
+                  "scene": "scene6"
+                }
+              ]
+            }
+          },
+          "quill": {
+            "type": "quill",
+            "attached": {
+              "to": "satchel",
+              "kind": "prop",
+              "mode": "in",
+              "angle": 30.0,
+              "hidden": true
             }
           }
         }

@@ -3315,13 +3315,14 @@ class PAMPlayer(MovingCameraScene):
             if n <= 0:
                 return {"phases": [], "end": end_sfx}
             travel = _pam_prop_states.travel_animation
-            if "display" not in ch.changed:
+            if "display" not in ch.changed and "text" not in ch.changed:
                 return {"phases": [Phase(
                     n, (lambda: [travel(mgr, moving)]) if moving else None,
                     after=lambda: mgr.finish(ch, moving))],
                     "end": end_sfx}
             # A display may only be redrawn between two plays, so a
-            # number that climbs is one play per frame.
+            # number that climbs, or text being written, is one play
+            # per frame.
             phases = []
             for k in range(n):
                 phases.append(Phase(

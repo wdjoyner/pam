@@ -1,7 +1,7 @@
 """
 pam.prop_states — state machines for props, and the continuity ledger.
 
-Milestone 4, Stage 4a, of *PAM: The Road to Blender*.  The module
+Milestones 4a and 4b of *PAM: The Road to Blender*.  The module
 provides:
 
 * a generic state machine for props, with one action that drives it,
@@ -10,6 +10,9 @@ provides:
   a handle and a blade);
 * props with a display (the ``phone``: what its screen shows changes
   independently of where the phone is);
+* props that bear text (the ``scroll``, Stage 4b): what it says, with
+  every revision, changes independently of how it is open and where it
+  is;
 * attachments: a prop, or a part of one, kept on a character's joint,
   on or in another prop, or at rest on the stage, on every frame;
 * the continuity ledger: what state each prop is in, and what each of
@@ -84,8 +87,12 @@ Keys:
 ``attached`` where the prop (or the named part) goes; see below
 ``parts``    composite props: ``{part: {"attached": {...}, "rate": ...}}``
 ``display``  new values of display fields (``viewers``, ``comment``)
-``frames``   how long the move, and a climbing number, take (default 0:
-             at once).  The state itself changes on the first frame.
+``text``     changes to the text of a text-bearing prop: an op or a
+             list of ops (``write``, ``cross_out``, ``replace``; see
+             "Text-bearing props" below)
+``frames``   how long the move, a climbing number, and writing or
+             crossing out take (default 0: at once).  The state itself
+             changes on the first frame.
 ``rate``     easing of the move: ``smooth`` (default), ``linear``,
              ``rush_into`` (a fall), ``rush_from``
 ``at``, ``beat``, ``sound``   as on any step of a timed block
@@ -100,7 +107,9 @@ An attachment (``attached``):
              (default), ``top``, ``bottom``, ``left``, ``right`` or
              ``[dx, dy]`` from its center
 ``by``       which place of the moved prop sits there: one of the same
-             names, or a part of a composite prop (default ``center``)
+             names, a part of a composite prop, or a named point of the
+             prop (``grip``, on a scroll).  Default: the prop's anchor
+             if it has one (a scroll's grip), else ``center``
 ``offset``   ``[dx, dy]`` added to the target
 ``x``, ``y`` ``"to": null``: where on the stage (default: where it is)
 ``angle``    the prop's orientation in degrees (default: as it is)
@@ -116,6 +125,64 @@ hand-off actions (``pick_up``, ``hand_to``, ``place_on``, ...) keep
 their behavior; when they act on a prop this module follows, the
 attachment is updated in the books, and the prop is let go of.
 
+Text-bearing props
+------------------
+A ``scroll`` has two dimensions of state that change independently:
+
+* its *state*, how it is open: ``rolled``, ``unrolled``, ``edited``
+  (open and being written on) and ``trailing`` (unrolled further and
+  streaming out from its grip like a banner; its ``angle`` says which
+  way).  A rolled scroll is unrolled before it is written on; it may
+  be rolled up or let trail from any open state.
+* its *text*: lines, each made of spans that remember the revision
+  that wrote them and the one that crossed them out.
+
+Writing, crossing out and replacing text is a ``text`` key on a
+``prop_transition``, and it is allowed only while the scroll is
+``edited`` (in the same step, ``"to": "edited"`` can put it there)::
+
+    {"action": "props", "items": {"scroll": {"type": "scroll",
+        "text": ["GENESIS / B'RESHIT"],
+        "attached": {"to": "abraham", "joint": "lwrist"}}}}
+    {"action": "prop_transition", "prop": "scroll", "to": "unrolled"}
+    {"action": "prop_transition", "prop": "scroll", "to": "edited",
+     "text": {"write": "AND ABRAHAM RAISED THE KNIFE."}, "frames": 30}
+    {"action": "prop_transition", "prop": "scroll",
+     "text": {"replace": ".", "with": "?", "line": 2}, "frames": 6}
+    {"action": "prop_transition", "prop": "scroll",
+     "text": [{"cross_out": "THE KNIFE?"},
+              {"write": "HIS SON.", "line": 2}], "frames": 24}
+
+A text op (``apply_text``):
+
+``write``       text written as a new last line, or, with ``line``, at
+                the end of that line
+``cross_out``   a phrase crossed out: found in what the line says
+                (crossed-out text is skipped), exactly once unless
+                ``occurrence`` says which
+``replace``     a phrase crossed out and ``with`` written right after it
+``line``        the line, from 1 (from the end when negative)
+``occurrence``  which of several matches, from 1
+
+The ops of one step are applied in order, and each is a revision.
+With ``frames`` the step is drawn over that many frames: letters appear
+one by one, and the line through a crossed-out phrase grows from its
+left end (one stroke per letter written, one per three letters crossed
+out).  The text's revisions, with the scene each was made in, go into
+the ledger with the rest of the scroll's state.  The item's ``text``
+(a list of lines) is what the scroll says before any revision.
+
+What the scroll shows on a frame is a *row* (``text_row``):
+``{"state", "lines"}``, each line a list of runs ``{"text", "at",
+"rev"}`` with ``"struck"``, ``"strike"`` (how much of the line through
+it is drawn) and ``"shown"`` (letters written so far) as they apply.
+The player draws it, the tracer records it frame by frame, and
+trace2blender.py draws it again.
+
+A scroll is kept on its attachment by its *grip*, the middle of its
+near roller, so it stays in the hand that holds it whether it is
+rolled, open or trailing.
+
 The continuity ledger
 ---------------------
 The ledger is a ``continuity`` block in the project's cast-and-props
@@ -130,17 +197,19 @@ sidecar (``pam_sidecar.json`` next to the scenes, or ``PAM_SIDECAR``)::
 ``scenes``   the scenes in playing order, by file name without ".json"
 ``props``    the props whose state carries from scene to scene, as they
              are before the first scene
-``ledger``   written by PAM: for each scene, the state, parts and
-             attachments of every one of those props when it ended
+``ledger``   written by PAM: for each scene, the state, parts,
+             attachments, display and text of every one of those props
+             when it ended
 
 A scene listed in ``scenes`` opens with every such prop as the scene
 before it left it (the first scene: as ``props`` has it).  The props
 are declared for the scene automatically.  A scene may still state a
-prop's ``state``, ``attached``, ``parts`` or ``display`` itself; where
-that differs from the ledger it is an *override*, and the validator
-reports each one.  Playing a scene (``pam-render``, ``pam_trace.py``)
-and validating it (``pam-validate``) both write its closing entry, with
-the same code.  The file is rewritten only when an entry changes.
+prop's ``state``, ``attached``, ``parts``, ``display`` or ``text``
+itself; where that differs from the ledger it is an *override*, and
+the validator reports each one.  Playing a scene (``pam-render``,
+``pam_trace.py``) and validating it (``pam-validate``) both write its
+closing entry, with the same code.  The file is rewritten only when an
+entry changes.
 
 ``World`` is the bookkeeping: it reads steps and needs no Manim scene,
 which is how the validator walks a whole film.  ``StateManager`` is the
@@ -152,13 +221,17 @@ Hooks
 ``"prop_declared"``       scene, prop, type, machine, state, mob, parts
                           ({part: mob}), display, frame, t
 ``"prop_state_changed"``  scene, prop, frame, t, frames, changed (a
-                          list of ``state``, ``attached``, ``display``),
-                          from, to, attached ({prop or part:
-                          attachment}), display, cause (the action)
+                          list of ``state``, ``attached``, ``display``,
+                          ``text``), from, to, attached ({prop or part:
+                          attachment}), display, text ({"revisions",
+                          "reads"}), cause (the action)
 ``"prop_attached"``       scene, prop (or ``prop.part``), mob, attach,
                           frame, t: the prop has arrived
 ``"prop_display"``        scene, prop, frame, t, display: what the
                           display shows from this frame
+``"prop_text"``           scene, prop, frame, t, state, text (a row,
+                          ``text_row``): what a text-bearing prop shows,
+                          and how it is open, from this frame
 """
 from __future__ import annotations
 
@@ -205,6 +278,28 @@ MACHINES = {
         },
         "display": {"viewers": 0, "comment": None},
     },
+    # Text-bearing prop (Stage 4b).  The state is how the scroll is
+    # open; its text is a second dimension, changed by "text" steps
+    # (see "Text-bearing props" in the module docstring).  "open": the
+    # text shows; "writable": the text may change.
+    "scroll": {
+        "initial": "rolled",
+        "states": {
+            "rolled":   {"open": False},
+            "unrolled": {"open": True},
+            "edited":   {"open": True, "writable": True},
+            "trailing": {"open": True},
+        },
+        # a scroll is unrolled before it is written on; rolled up or
+        # let trail from any open state
+        "transitions": {
+            "rolled":   ["unrolled", "trailing"],
+            "unrolled": ["rolled", "edited", "trailing"],
+            "edited":   ["unrolled", "rolled", "trailing"],
+            "trailing": ["unrolled", "rolled"],
+        },
+        "text": True,
+    },
     # The three patterns PAM already had.
     "doors": {
         "initial": "closed",
@@ -235,12 +330,19 @@ TYPE_MACHINE = {
     "pocket_door": "doors", "elevator": "doors",
     "avatar_pod": "lid", "pod": "lid",
     "dodecahedron": "governor",
+    "scroll": "scroll",
 }
 
 # Prop types that are composite whether or not the item says so.
 COMPOSITE_TYPES = frozenset({"knife", "composite_prop"})
 
-# Keys of a prop item that make it a stateful prop.
+# Prop types that bear text (Stage 4b); stateful whether or not the
+# item says so.
+TEXT_TYPES = frozenset({"scroll"})
+
+# Keys of a prop item that make it a stateful prop.  ("text" is not
+# one: a scroll is stateful by its type, and a "text" key on any other
+# prop keeps meaning whatever its builder makes of it.)
 STATE_KEYS = ("state", "states", "initial_state", "transitions", "parts",
               "attached", "display")
 
@@ -279,8 +381,8 @@ JOINED = "joined"           # a part that moves with its composite prop
 POINTS = ("center", "top", "bottom", "left", "right")
 RATES = ("smooth", "linear", "rush_into", "rush_from")
 TRANSITION_KEYS = frozenset({
-    "action", "prop", "to", "attached", "parts", "display", "frames",
-    "rate",
+    "action", "prop", "to", "attached", "parts", "display", "text",
+    "frames", "rate",
     "at", "beat", "sound", "sfx", "sfx_trigger", "sfx_delay", "sfx_gain",
     "sfx_duration", "id", "rt", "run_time"})
 
@@ -334,6 +436,7 @@ def is_stateful_item(spec):
     if not isinstance(spec, dict):
         return False
     return str(spec.get("type") or "").lower() in COMPOSITE_TYPES \
+        or str(spec.get("type") or "").lower() in TEXT_TYPES \
         or any(k in spec for k in STATE_KEYS)
 
 
@@ -387,6 +490,364 @@ def is_timed_transition(step):
             and step["frames"] > 0)
 
 
+# ── text: what a text-bearing prop says, and its revisions ───────────────
+#
+# A text is {"lines": [[span, ...], ...], "revisions": [op, ...]}.  A
+# span is {"text": str, "rev": n} and, once crossed out,
+# {"struck": m}: the revision that wrote it and the one that crossed it
+# out.  Revision 0 is the text as declared.  "revisions" lists every
+# change as it was applied (the op, its revision number, the line it
+# was made on, and the scene it was made in).
+#
+# Internally a line is a list of characters [ch, rev, struck, mark]:
+# "mark" says how a character comes into being in the step being
+# applied, so that the step can be shown frame by frame (text_row).
+
+TEXT_OPS = ("write", "cross_out", "replace")
+TEXT_OP_KEYS = ("write", "cross_out", "replace", "with", "line",
+                "occurrence")
+CROSS_CHARS = 3             # characters crossed out per stroke
+
+
+def blank_text():
+    return {"lines": [], "revisions": []}
+
+
+def _is_count(v, least=1):
+    return isinstance(v, int) and not isinstance(v, bool) and v >= least
+
+
+def normalize_text(raw, problems=None, where="text"):
+    """A text in normal form, or None.  *raw* is a list of lines (each
+    a string, or a list of spans), a string (lines split at newlines),
+    or a text in normal form (as the ledger writes it)."""
+    bad = problems if problems is not None else []
+    revisions = []
+    if isinstance(raw, str):
+        lines = raw.split("\n")
+    elif isinstance(raw, dict):
+        lines = raw.get("lines")
+        revisions = raw.get("revisions") or []
+        if not isinstance(lines, list) or not isinstance(revisions, list):
+            bad.append((ERROR, "bad-text",
+                        f"'{where}' must have 'lines' (a list) and, "
+                        f"optionally, 'revisions' (a list)"))
+            return None
+    elif isinstance(raw, list):
+        lines = raw
+    else:
+        bad.append((ERROR, "bad-text",
+                    f"'{where}' must be a list of lines, got {raw!r}"))
+        return None
+    out = []
+    for i, line in enumerate(lines):
+        if isinstance(line, str):
+            if "\n" in line:
+                bad.append((ERROR, "bad-text",
+                            f"'{where}' line {i + 1} has a newline in it"))
+                return None
+            out.append(_spans([[c, 0, None, None] for c in line]))
+            continue
+        if not isinstance(line, list):
+            bad.append((ERROR, "bad-text",
+                        f"'{where}' line {i + 1} must be a string or a "
+                        f"list of spans"))
+            return None
+        chars = []
+        for sp in line:
+            ok = isinstance(sp, dict) and isinstance(sp.get("text"), str) \
+                and "\n" not in sp["text"] \
+                and _is_count(sp.get("rev", 0), 0) \
+                and (sp.get("struck") is None
+                     or _is_count(sp["struck"], 0))
+            if not ok:
+                bad.append((ERROR, "bad-text",
+                            f"'{where}' line {i + 1}: a span is "
+                            f"{{\"text\": ..., \"rev\": n}}, with "
+                            f"\"struck\": m once crossed out; got {sp!r}"))
+                return None
+            chars += [[c, sp.get("rev", 0), sp.get("struck"), None]
+                      for c in sp["text"]]
+        out.append(_spans(chars))
+    revs = [copy.deepcopy(r) for r in revisions if isinstance(r, dict)]
+    return {"lines": out, "revisions": revs}
+
+
+def _chars(spans):
+    return [[c, sp.get("rev", 0), sp.get("struck"), None]
+            for sp in spans for c in sp["text"]]
+
+
+def _spans(chars):
+    """Characters back into spans: neighbors with the same revisions
+    are one span."""
+    out = []
+    for c, rev, struck, _ in chars:
+        if out and out[-1]["rev"] == rev and out[-1].get("struck") == struck:
+            out[-1]["text"] += c
+            continue
+        sp = {"text": c, "rev": rev}
+        if struck is not None:
+            sp["struck"] = struck
+        out.append(sp)
+    return out
+
+
+def reading(text):
+    """What a text says: each line without what is crossed out."""
+    return ["".join(sp["text"] for sp in line if sp.get("struck") is None)
+            for line in (text or {}).get("lines") or ()]
+
+
+def _next_rev(text):
+    revs = [r.get("rev", 0) for r in text.get("revisions") or ()
+            if _is_count(r.get("rev", 0), 0)]
+    revs += [max(sp.get("rev", 0), sp.get("struck") or 0)
+             for line in text.get("lines") or () for sp in line]
+    return max(revs + [0]) + 1
+
+
+def _quote_lines(text):
+    lines = reading(text)
+    return " / ".join(repr(s) for s in lines) if lines else "nothing"
+
+
+def apply_text(text, ops, problems, prop="the prop", scene=None):
+    """Apply text ops (a list, or one op) to *text*.  Returns
+    ``(new text, plan)``, or ``(None, None)`` when an op is wrong; the
+    problems are appended to *problems*.  The ops are applied in order,
+    each one to the text the one before left, and each is a revision.
+
+    An op is one of::
+
+        {"write": "AND ABRAHAM RAISED THE KNIFE."}    a new last line
+        {"write": "?", "line": 2}                     at the end of line 2
+        {"cross_out": "THE KNIFE"}                    crossed out
+        {"replace": ".", "with": "?", "line": 2}      crossed out, and the
+                                                      new text after it
+
+    ``line`` counts from 1 (from the end when negative).  A phrase is
+    found in what the line says (crossed-out text is skipped); it must
+    be found exactly once, unless ``occurrence`` (counting from 1)
+    says which.
+
+    *plan* says how the change is drawn over the step's frames: in
+    *strokes*, one per character written and one per three characters
+    crossed out (at least two per phrase), in order.
+    """
+    if isinstance(ops, dict):
+        ops = [ops]
+    if not isinstance(ops, list) or not ops:
+        problems.append((ERROR, "bad-text",
+                         "'text' must be an op or a list of ops "
+                         "(write, cross_out, replace)"))
+        return None, None
+    lines = [_chars(line) for line in text.get("lines") or ()]
+    rev = _next_rev(text)
+    stroke = 0
+    applied = []
+
+    def fail(code, msg):
+        problems.append((ERROR, code, msg))
+        return None, None
+
+    def which_line(op, where):
+        n = op.get("line")
+        if n is None:
+            return None, True
+        if isinstance(n, bool) or not isinstance(n, int) or n == 0:
+            problems.append((ERROR, "bad-text",
+                             f"'{where}.line' must be a line number "
+                             f"(1 is the first, -1 the last), got {n!r}"))
+            return None, False
+        idx = n - 1 if n > 0 else len(lines) + n
+        if not 0 <= idx < len(lines):
+            problems.append((ERROR, "text-line",
+                             f"'{where}.line': {prop} has no line {n} "
+                             f"(it has {len(lines)})"))
+            return None, False
+        return idx, True
+
+    def new_chars(s):
+        nonlocal stroke
+        out = []
+        for c in s:
+            out.append([c, rev, None, {"new": stroke}])
+            if not c.isspace():
+                stroke += 1
+        return out
+
+    for i, op in enumerate(ops):
+        where = f"text[{i}]"
+        if not isinstance(op, dict):
+            return fail("bad-text", f"'{where}' must be an object, got "
+                                    f"{op!r}")
+        kinds = [k for k in TEXT_OPS if k in op]
+        if len(kinds) != 1:
+            return fail("bad-text",
+                        f"'{where}' must have exactly one of "
+                        f"{', '.join(TEXT_OPS)}")
+        kind = kinds[0]
+        for key in op:
+            if key not in TEXT_OP_KEYS or (key == "with"
+                                           and kind != "replace") \
+                    or (key == "occurrence" and kind == "write"):
+                problems.append((WARNING, "unused-key",
+                                 f"'{where}.{key}' is not used by "
+                                 f"'{kind}'"))
+        val = op[kind]
+        if not isinstance(val, str) or not val or "\n" in val:
+            return fail("bad-text", f"'{where}.{kind}' must be text on one "
+                                    f"line, got {val!r}")
+        idx, ok = which_line(op, where)
+        if not ok:
+            return None, None
+        rec = {"rev": rev, kind: val}
+        if kind == "write":
+            if idx is None:
+                lines.append(new_chars(val))
+                idx = len(lines) - 1
+            else:
+                lines[idx] += new_chars(val)
+            rec["line"] = idx + 1
+        else:
+            if kind == "replace":
+                repl = op.get("with")
+                if not isinstance(repl, str) or not repl or "\n" in repl:
+                    return fail("bad-text",
+                                f"'{where}.with' must be text on one line, "
+                                f"got {repl!r}")
+            found = []          # (line index, [char indices])
+            for li in ([idx] if idx is not None else range(len(lines))):
+                pos = [j for j, ch in enumerate(lines[li]) if ch[2] is None]
+                said = "".join(lines[li][j][0] for j in pos)
+                k = said.find(val)
+                while k >= 0:
+                    found.append((li, pos[k:k + len(val)]))
+                    k = said.find(val, k + len(val))
+            occ = op.get("occurrence")
+            if occ is not None and not _is_count(occ):
+                return fail("bad-text", f"'{where}.occurrence' must be a "
+                                        f"whole number from 1, got {occ!r}")
+            if not found:
+                return fail("text-not-found",
+                            f"{prop} does not say {val!r}"
+                            + (f" on line {op['line']}" if idx is not None
+                               else "")
+                            + f" (it says {_quote_lines(_text_of(lines))})")
+            if occ is None and len(found) > 1:
+                return fail("text-ambiguous",
+                            f"{prop} says {val!r} {len(found)} times; give "
+                            f"'line' or 'occurrence'")
+            if occ is not None and occ > len(found):
+                return fail("text-not-found",
+                            f"{prop} says {val!r} only {len(found)} "
+                            f"time{'' if len(found) == 1 else 's'}")
+            li, js = found[(occ or 1) - 1]
+            m = len(js)
+            ink = sum(1 for j in js if not lines[li][j][0].isspace())
+            s0 = stroke
+            stroke += max(2, -(-ink // CROSS_CHARS))
+            for k, j in enumerate(js):
+                lines[li][j][2] = rev
+                lines[li][j][3] = {"strike": (s0, stroke, k, m)}
+            if kind == "replace":
+                rec["with"] = repl
+                at = js[-1] + 1
+                lines[li][at:at] = new_chars(repl)
+            rec["line"] = li + 1
+            if occ is not None:
+                rec["occurrence"] = occ
+        if scene:
+            rec["scene"] = scene
+        applied.append(rec)
+        rev += 1
+    new = {"lines": [_spans(line) for line in lines],
+           "revisions": copy.deepcopy(text.get("revisions") or []) + applied}
+    return new, {"strokes": stroke, "lines": lines, "applied": applied}
+
+
+def _text_of(lines):
+    return {"lines": [_spans(line) for line in lines]}
+
+
+def text_row(text, state=None, plan=None, progress=None):
+    """What a text-bearing prop shows: ``{"state", "lines"}``, where a
+    line is a list of runs ``{"text", "at", "rev"}`` with ``"struck"``
+    (the revision that crosses it out), ``"strike"`` (how much of the
+    line through it is drawn, 0 to 1) and ``"shown"`` (how many of its
+    characters are written so far, when not all).  ``"at"`` is the
+    column the run starts in.  A word written after crossed-out text is
+    set one column apart from it.
+
+    With *plan* (from ``apply_text``) and *progress* (strokes done),
+    the text is shown part of the way through the step that changes
+    it; without, as it is."""
+    if plan is not None:
+        lines = plan["lines"]
+        p = None if progress is None else float(progress)
+        if p is not None and p >= plan["strokes"] - 1e-9:
+            p = None                        # the step is complete
+    else:
+        lines = [_chars(line) for line in (text or {}).get("lines") or ()]
+        p = None
+    out = []
+    for line in lines:
+        runs, col, prev = [], 0, None
+        for ch in line:
+            c, rev, struck, mark = ch
+            if prev is not None and prev[2] is not None \
+                    and not prev[0].isspace() and struck is None \
+                    and c.isalnum():
+                col += 1                    # a word after a struck one
+            vis, frac = True, None
+            if p is not None and mark is not None:
+                if "new" in mark:
+                    vis = mark["new"] < p - 1e-9
+                if "strike" in mark:
+                    s0, s1, k, m = mark["strike"]
+                    g = min(1.0, max(0.0, (p - s0) / max(s1 - s0, 1e-9)))
+                    frac = min(1.0, max(0.0, g * m - k))
+            if struck is not None and frac is None:
+                frac = 1.0
+            group = (rev, struck)
+            if runs and runs[-1][0] == group \
+                    and runs[-1][1]["at"] + len(runs[-1][1]["text"]) == col:
+                r = runs[-1][1]
+            else:
+                r = {"text": "", "at": col, "rev": rev}
+                if struck is not None:
+                    r["struck"] = struck
+                    r["_f"] = []
+                r["_shown"] = 0
+                runs.append((group, r))
+            r["text"] += c
+            if vis:
+                r["_shown"] += 1
+            if struck is not None:
+                r["_f"].append(frac)
+            col += 1
+            prev = ch
+        row = []
+        for _, r in runs:
+            n = r.pop("_shown")
+            if n < len(r["text"]):
+                r["shown"] = n
+            if "_f" in r:
+                fs = r.pop("_f")
+                r["strike"] = round(sum(fs) / len(fs), 4)
+            row.append(r)
+        out.append(row)
+    return {"state": state, "lines": out}
+
+
+def text_progress(plan, k, n):
+    """Strokes done after frame *k* of a change *n* frames long."""
+    if not n or k >= n:
+        return plan["strokes"]
+    return plan["strokes"] * k / n
+
+
 # ── bound machines: one way to ask a prop for its state ──────────────────
 
 def _bound_object(mob, bound):
@@ -435,7 +896,11 @@ class Change:
         #                                                   "inherited"}
         self.display = None         # the display after the step
         self.display_from = None
-        self.changed = []           # "state", "attached", "display"
+        self.text = None            # the text after the step
+        self.text_from = None
+        self.text_plan = None       # how it is drawn (apply_text)
+        self.changed = []           # "state", "attached", "display",
+        #                             "text"
         self.frames = 0
         self.cause = "prop_transition"
 
@@ -458,6 +923,9 @@ class Change:
                                for k, v in self.moves.items()}
         if "display" in self.changed:
             out["display"] = dict(self.display)
+        if "text" in self.changed:
+            out["text"] = {"revisions": copy.deepcopy(
+                self.text_plan["applied"]), "reads": reading(self.text)}
         return out
 
 
@@ -489,6 +957,8 @@ class World:
         self.log = []               # events, in order
         self.overrides = []         # where a scene departs from the ledger
         self.removed = set()
+        self.scene = None           # the scene's name in the ledger, if
+        #                             any (text revisions record it)
 
     # ── names ────────────────────────────────────────────────────────
     def split(self, name):
@@ -691,6 +1161,20 @@ class World:
                 override("display", (opening or {}).get("display"), new)
                 disp = new
             rec["display"] = disp
+        # text (a text-bearing prop)
+        if m and m.get("text"):
+            text = copy.deepcopy((opening or {}).get("text")) \
+                or blank_text()
+            if "text" in spec:
+                new = normalize_text(spec["text"], problems, f"{name}.text")
+                if new is not None:
+                    override("text", (opening or {}).get("text"), new)
+                    text = new
+            rec["text"] = text
+        elif "text" in spec and m:
+            problems.append((ERROR, "no-text",
+                             f"'{name}' ({ptype or 'no type'}) bears no "
+                             f"text"))
         # attachment of the whole
         old = (opening or {}).get("attached")
         if "attached" in spec:
@@ -1045,6 +1529,39 @@ class World:
                     ch.display_from = None
         if not ch.ok:
             return ch
+
+        # ── the text ─────────────────────────────────────────────────
+        if "text" in step:
+            st = ((m or {}).get("states") or {}).get(new.get("state")) or {}
+            if part is not None:
+                ch.error("bad-step", "text belongs to the whole prop")
+            elif not (m or {}).get("text"):
+                ch.error("no-text", f"'{base}' "
+                                    f"({rec.get('type') or 'no type'}) "
+                                    f"bears no text")
+            elif not st.get("writable"):
+                can = [k for k, v in m["states"].items()
+                       if v.get("writable")]
+                ch.error("not-writable",
+                         f"'{base}' is {new.get('state')}: it can be "
+                         f"written on only while it is "
+                         f"{' or '.join(can)} (\"to\": \"{can[0]}\", in "
+                         f"this step or one before)")
+            else:
+                before = len(ch.problems)
+                text, plan = apply_text(rec.get("text") or blank_text(),
+                                        step["text"], ch.problems,
+                                        prop=f"'{base}'", scene=self.scene)
+                if text is None or any(lv == ERROR for lv, _, _
+                                       in ch.problems[before:]):
+                    ch.ok = False
+                else:
+                    ch.text_from = rec.get("text") or blank_text()
+                    ch.text, ch.text_plan = text, plan
+                    new["text"] = text
+                    ch.changed.append("text")
+        if not ch.ok:
+            return ch
         if not ch.changed:
             ch.warn("no-change", "this prop_transition changes nothing")
             return ch
@@ -1195,6 +1712,8 @@ class World:
                     for p, pr in rec["parts"].items()}
             if "display" in rec:
                 row["display"] = dict(rec["display"])
+            if "text" in rec:
+                row["text"] = copy.deepcopy(rec["text"])
             out[name] = row
         return out
 
@@ -1439,8 +1958,11 @@ def with_continuity(actions, script_path, characters=()):
         if name in declared or not isinstance(spec, dict):
             continue
         # the definition only: where the prop is comes from the ledger
+        bears_text = bool((machine_for(spec.get("type"), spec) or {})
+                          .get("text"))
         items[name] = {k: v for k, v in spec.items()
                        if k not in ("state", "attached", "display")
+                       and not (k == "text" and bears_text)
                        and not (k == "parts" and machine_name(
                            spec.get("type"), spec) != "custom")}
     if not items:
@@ -1498,9 +2020,19 @@ class StateManager:
         self.world = World()
         self.links = {}             # prop or prop.part -> _Link
         self.mobs = {}              # the same names -> mobject
-        self.continuity = None
+        self._continuity = None
         self._driver = None
         self._ramps = {}            # prop -> displayed values this frame
+
+    @property
+    def continuity(self):
+        return self._continuity
+
+    @continuity.setter
+    def continuity(self, cont):
+        # text revisions record the scene they were made in
+        self._continuity = cont
+        self.world.scene = getattr(cont, "scene", None)
 
     # ── clock ────────────────────────────────────────────────────────
     def time(self):
@@ -1583,6 +2115,8 @@ class StateManager:
                         frame=self.frame(), t=self.time())
         if rec.get("display") is not None:
             self._draw_display(name, rec["display"])
+        if rec.get("text") is not None:
+            self._draw_text(name, text_row(rec["text"], rec.get("state")))
         fade = True
         targets = [name] if rec.get("attached") is not None else []
         if "parts" in rec and not self.world.connected(name):
@@ -1640,7 +2174,20 @@ class StateManager:
                 return np.array([float(c[0]), float(c[1])])
             if by in POINTS:
                 return point_of(mob, by)
-        c = mob.get_center()
+            named = getattr(mob, "pam_point", None)
+            xy = named(by) if callable(named) else None
+            if xy is not None:
+                return np.array([float(xy[0]), float(xy[1])])
+        return self._ref_xy(mob)
+
+    @staticmethod
+    def _ref_xy(mob):
+        """The place a prop is kept by when its attachment names none:
+        its anchor if it has one (a scroll: its grip), else the center
+        of its bounding box."""
+        import numpy as np
+        anchor = getattr(mob, "pam_anchor", None)
+        c = anchor() if callable(anchor) else mob.get_center()
         return np.array([float(c[0]), float(c[1])])
 
     def _target_xy(self, link):
@@ -1677,6 +2224,11 @@ class StateManager:
         mob = self.mobs.get(target)
         if mob is None:
             return None
+        if travel:
+            # a prop that has not been put on its attachment yet (what
+            # it is on came on stage only now) is put there first, so
+            # that it travels from where it belongs
+            self._settle(target)
         self._release_hold(target)
         link = self.links.get(target)
         if link is None:
@@ -1764,7 +2316,7 @@ class StateManager:
                 joint = att["joint"]
                 jc = fig.dots[joint].get_center()
                 for mob, name in self._traced(link):
-                    c = mob.get_center()
+                    c = self._ref_xy(mob)
                     _hooks.emit(
                         "prop_attach", fig=fig, scene=self.scene,
                         t=self.time(), prop=mob, prop_name=name,
@@ -1784,9 +2336,24 @@ class StateManager:
             mgr.step()
             self._place()
 
-    def _place(self):
+    def _settle(self, target, seen=None):
+        """Put *target*, and what it is attached to, where they belong
+        now: a prop on a character who came on stage only now (or on a
+        prop on such a character) has not been put there yet."""
+        seen = set() if seen is None else seen
+        link = self.links.get(target)
+        if link is None or link.start is not None or target in seen:
+            return
+        seen.add(target)
+        to = (link.attach or {}).get("to")
+        if (link.attach or {}).get("kind") == "prop" and to is not None:
+            self._settle(self.world.split(to)[0], seen)
+            self._settle(to, seen)
+        self._place([link])
+
+    def _place(self, links=None):
         import numpy as np
-        for link in list(self.links.values()):
+        for link in list(self.links.values()) if links is None else links:
             att, mob = link.attach, link.mob
             tgt = self._target_xy(link)
             if tgt is None:
@@ -1888,6 +2455,8 @@ class StateManager:
                         frame=self.frame(), t=self.time())
         if rec.get("display") is not None:
             self._draw_display(name, rec["display"])
+        if rec.get("text") is not None:
+            self._draw_text(name, text_row(rec["text"], rec.get("state")))
 
     def begin(self, ch, timed):
         """Carry out the start of a change: the new state, the display,
@@ -1919,6 +2488,14 @@ class StateManager:
             climbing = bool(timed and ch.frames and "display" in ch.changed)
             self._draw_display(name, self.ramp(ch, 0, ch.frames)
                                if climbing else rec["display"])
+        if rec.get("text") is not None and (
+                "state" in ch.changed or "text" in ch.changed):
+            # text written over the step's frames starts unwritten;
+            # text_ramp() and finish() take it from there
+            writing = bool(timed and ch.frames and "text" in ch.changed)
+            self._draw_text(name, self.text_ramp(ch, 0, ch.frames)
+                            if writing else text_row(rec["text"],
+                                                     rec.get("state")))
         moving = []
         for target, mv in ch.moves.items():
             link = self._link(target, mv["attach"],
@@ -1937,6 +2514,8 @@ class StateManager:
                         for t, mv in ch.moves.items())
               + (f"; display {ch.display}" if "display" in ch.changed
                  else "")
+              + (f"; text {' / '.join(reading(ch.text))!r}"
+                 if "text" in ch.changed else "")
               + f" on frame {self.frame()}"
               + (f", over {ch.frames} frames" if timed and ch.frames
                  else "") + ".")
@@ -1950,6 +2529,9 @@ class StateManager:
                 link.start = None
         if "display" in ch.changed and ch.record.get("display") is not None:
             self._draw_display(ch.prop, ch.record["display"])
+        if "text" in ch.changed and ch.record.get("text") is not None:
+            self._draw_text(ch.prop, text_row(ch.record["text"],
+                                              ch.record.get("state")))
         self.step()
 
     def ramp(self, ch, k, n):
@@ -1965,12 +2547,23 @@ class StateManager:
                 out[key] = int(round(va + (vb - va) * k / n))
         return out
 
+    def text_ramp(self, ch, k, n):
+        """What the text shows on frame *k* of *n* of a change: the
+        strokes of the step (``apply_text``) are spread evenly over its
+        frames."""
+        return text_row(ch.text, ch.record.get("state"), ch.text_plan,
+                        text_progress(ch.text_plan, k, n))
+
     def show_ramp(self, ch, k, n, moving):
-        """After frame *k* of *n* of a change with a climbing number."""
+        """After frame *k* of *n* of a change with a climbing number or
+        text being written."""
         if k >= n:
             self.finish(ch, moving)
-        else:
+            return
+        if "display" in ch.changed:
             self._draw_display(ch.prop, self.ramp(ch, k, n))
+        if "text" in ch.changed:
+            self._draw_text(ch.prop, self.text_ramp(ch, k, n))
 
     # ── bound machines ───────────────────────────────────────────────
     def enter_bound(self, name, state, rt, scene=None):
@@ -2014,6 +2607,25 @@ class StateManager:
                         frame=self.frame(), t=self.time(),
                         state=rec.get("state"), screen=screen,
                         display=dict(display))
+
+    def _draw_text(self, name, row):
+        """Draw what a text-bearing prop shows, and how it is open
+        (``row``: ``text_row``).  Between two plays only."""
+        from pam import hooks as _hooks
+        mob = self.mobs.get(name)
+        if mob is None or self.world.props.get(name) is None:
+            return
+        shown = json.dumps(row, sort_keys=True)
+        if getattr(mob, "pam_text_shown", None) == shown:
+            return
+        mob.pam_text_shown = shown
+        draw = getattr(mob, "pam_draw_text", None)
+        if draw is not None:
+            draw(row.get("state"), row)
+        if _hooks.active():
+            _hooks.emit("prop_text", scene=self.scene, prop=name,
+                        frame=self.frame(), t=self.time(),
+                        state=row.get("state"), text=copy.deepcopy(row))
 
     # ── existing actions on followed props ───────────────────────────
     def note_legacy(self, step):

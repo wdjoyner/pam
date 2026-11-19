@@ -803,7 +803,7 @@ The timeline counts in frames at **15 per second**, the frame rate of `manim -ql
 {"action": "wait", "frames": 9, "beat": "comic_hold"}
 ```
 
-At the top level and in a `sequence`, `frames` is understood by `wait`, `morph`, `turn`, `scale`, `slip_on_back`, `fade_out`, `say`, the choreography routines (`pull_immovable`, `cork_pop_up`, `mismatched_hug`), `prop_transition`, and a timed `parallel` block. More actions accept it inside a timed block (below).
+At the top level and in a `sequence`, `frames` is understood by `wait`, `morph`, `turn`, `scale`, `slip_on_back`, `fade_out`, `say`, the choreography routines (`pull_immovable`, `cork_pop_up`, `mismatched_hug`), `prop_transition` (also one that writes on a scroll), and a timed `parallel` block. More actions accept it inside a timed block (below).
 
 ## `sequence`
 
@@ -857,7 +857,7 @@ A `parallel` block is timed when the block has `frames`, or when any step in its
 | `say` | the bubble fades in, holds, and fades out as three timed pieces. `frames` is the whole line, `frames_in` and `frames_out` the fades (defaults 6 and 5). With `persist` there is no fade-out. Human, alien and dog characters |
 | `wait` | stillness; with a `sound` key and no length, a sound effect on an exact frame |
 | `constrain`, `release` | the contact starts or ends on that frame |
-| `prop_transition` | a prop changes state on that frame; with `frames`, its move to a new attachment, or a number on its display that climbs, takes that long (see "Stateful props" below) |
+| `prop_transition` | a prop changes state on that frame; with `frames`, its move to a new attachment, a number on its display that climbs, or text written on a scroll or crossed out, takes that long (see "Stateful props" below) |
 | `pull_immovable`, `cork_pop_up`, `mismatched_hug` | a choreography routine (below): its phases follow one another, each a set number of frames; `frames` is the whole routine |
 | `_subscene_marker` | a camera cut on that frame; with `frames`, or an animated `move` (`push`, `pull`, `pan-follow`, `drift`, `zoom`), the camera travels for that long |
 | `sequence` | a track: its steps follow one another, the first starting on the sequence's `at`. Use one per actor |
@@ -1023,9 +1023,9 @@ PAMPlayer: mismatched_hug 'hug' (abraham -> isaac) ran frames 97-127; arm 0.8648
 
 ## Stateful props
 
-A stateful prop has a state (`intact`, `broken`, ...), may be made of parts, may have a display, and is kept on an attachment: a character's joint, another prop, or a place on the stage. One action changes all of it, `prop_transition`. The module is `pam/prop_states.py`; its first page is the full reference.
+A stateful prop has a state (`intact`, `broken`, ...), may be made of parts, may have a display, may bear text, and is kept on an attachment: a character's joint, another prop, or a place on the stage. One action changes all of it, `prop_transition`. The module is `pam/prop_states.py`; its first page is the full reference.
 
-A prop is stateful when its item says so (any of the keys `state`, `attached`, `parts`, `display`, `states`), when it is a composite type (`knife`, `composite_prop`), when a `prop_transition` names it, or when the continuity ledger carries it. Every other prop is built and played as before.
+A prop is stateful when its item says so (any of the keys `state`, `attached`, `parts`, `display`, `states`), when it is a composite type (`knife`, `composite_prop`) or a text-bearing one (`scroll`), when a `prop_transition` names it, or when the continuity ledger carries it. Every other prop is built and played as before.
 
 ```json
 {"action": "props", "items": {
@@ -1040,6 +1040,7 @@ A prop is stateful when its item says so (any of the keys `state`, `attached`, `
 - `state` — the state it starts in (default: the machine's first state)
 - `attached` — where it starts (an attachment, below). Not the older `attach` key, which names a point on a `parent` and keeps its meaning
 - `display` — starting values of its display fields
+- `text` — a `scroll`: what it says before any revision, a list of lines
 - `parts` — `{part: {"attached": {...}}}`: where the parts of a composite prop start when they are apart
 - `states`, `initial_state`, `transitions` — a machine of the item's own (see `composite_prop`)
 
@@ -1049,6 +1050,7 @@ A prop is stateful when its item says so (any of the keys `state`, `attached`, `
 |---|---|---|
 | `knife` | `intact`, `broken`, `blade_carried`, `blade_embedded` | composite: parts `handle` and `blade`. Nothing leads back to `intact`. `blade_carried` needs the blade's attachment mode `in` or `held`; `blade_embedded` needs `embedded` |
 | `phone`, `cellphone`, `smartphone` | `standby`, `recording`, `live` | display fields `viewers` (a whole number) and `comment` (text or null) |
+| `scroll` | `rolled`, `unrolled`, `edited`, `trailing` | bears text, changed by `text` steps only while it is `edited`. From `rolled`: `unrolled` or `trailing`; it is unrolled before it is written on. From any open state it may be rolled up or let trail |
 | `pocket_door`, `elevator` | `closed`, `open` | the state is the prop's `is_open`; entering it calls `open_doors` / `close_doors` |
 | `avatar_pod`, `pod` | `closed`, `open` | `is_open`; `open_lid` / `close_lid` |
 | `dodecahedron` (the Governor) | `gold`, `amber`, `dark` | the Governor's own state; `set_state` |
@@ -1070,6 +1072,9 @@ Put a prop in a state, move it or its parts to new attachments, change what its 
 
 {"action": "prop_transition", "prop": "phone", "to": "live", "display": {"viewers": 3}}
 {"action": "prop_transition", "prop": "phone", "display": {"viewers": 240}, "frames": 30}
+
+{"action": "prop_transition", "prop": "scroll", "to": "edited", "frames": 24,
+ "text": {"replace": "THE KNIFE?", "with": "HIS SON."}}
 ```
 
 ### Keys
@@ -1078,7 +1083,8 @@ Put a prop in a state, move it or its parts to new attachments, change what its 
 - `attached` — where the prop (or the named part) goes
 - `parts` — composite props: `{part: {"attached": {...}, "rate": ...}}`
 - `display` — new values of display fields
-- `frames` — how long the move, and a number that climbs, take (default 0: at once). The state changes on the first frame
+- `text` — a `scroll`: changes to what it says, one op or a list (see "The `scroll`" below)
+- `frames` — how long the move, a number that climbs, and writing or crossing out take (default 0: at once). The state changes on the first frame
 - `rate` — easing of the move: `smooth` (default), `linear`, `rush_into` (a fall), `rush_from`
 - `at`, `beat`, `sound` — as for any step of a timed block
 - `rt` or `run_time` — doors, lids and the Governor only, outside a timed block: the length of the prop's own animation in seconds (default 0.6)
@@ -1087,7 +1093,7 @@ Put a prop in a state, move it or its parts to new attachments, change what its 
 - `to` — a character, a prop or scene object, or `null` (at rest on the stage)
 - `joint` — on a character: the joint the prop stays on (default `rwrist`)
 - `point` — on a prop: where, as for `joint_to_prop`: `center` (default), `top`, `bottom`, `left`, `right`, or `[dx, dy]` from its center
-- `by` — which place of the moved prop sits there: one of the same names, or a part of a composite prop (`"by": "blade"`). Default `center`
+- `by` — which place of the moved prop sits there: one of the same names, a part of a composite prop (`"by": "blade"`), or a named point of the prop (`"by": "grip"` on a scroll). Default: the prop's anchor if it has one (a scroll's grip; `center` there means the grip too), else `center`
 - `offset` — `[dx, dy]` added to the target
 - `x`, `y` — with `"to": null`: where on the stage (default: where it is)
 - `angle` — the prop's orientation in degrees, counterclockwise (default: as it is). The knife's blade points to +x at 0
@@ -1101,6 +1107,7 @@ Put a prop in a state, move it or its parts to new attachments, change what its 
 - the state changes only along the machine's transitions; a step that asks for anything else is skipped with a message, and `pam-validate` reports it as an error
 - with `frames`, a `prop_transition` runs on the frame clock wherever it stands: at the top level, in a `sequence`, or as a step of a timed `parallel` block
 - a number on a display climbs evenly over the step's frames, one value per frame; anything else on the display (a comment) is new from the first frame
+- text on a scroll is written evenly over the step's frames, letter by letter; a crossed-out phrase gets its line drawn from left to right first (see "The `scroll`")
 - in a timed block a door, lid or Governor transition needs `frames`
 - `reparent_prop`, `move_prop` and the hand-off actions (`pick_up`, `grab`, `hand_to`, `put_down`, `place_on`, `stick_to`, ...) keep their behavior. On a prop that is being kept on an attachment they let go of it first, and the new place is entered in the books
 - the console reports every change with its frame:
@@ -1128,9 +1135,71 @@ A cellphone's screen shows its state: dim in `standby`, a red LIVE button in `re
 
 New plain props that the Abraham and Isaac scenes use, for other props to go into, rest on or stick in: `satchel`, `bowl`, `rock`, `altar` (three stones; `[-0.30, 0.18]` from its center is the gap between the first two).
 
+## The `scroll`
+
+A text-bearing prop. Two dimensions of its state change independently: its **state**, how it is open (`rolled`, `unrolled`, `edited`: open and being written on, `trailing`: unrolled further and streaming out from its grip like a banner), and its **text**, every line with every revision. Rolling, unrolling and trailing never change the text, and writing never changes the state or where the scroll is. One step may do several of these at once.
+
+```json
+{"action": "props", "items": {
+  "scroll": {"type": "scroll", "text": ["GENESIS / B'RESHIT"],
+             "attached": {"to": "abraham", "joint": "lwrist"}}}}
+{"action": "prop_transition", "prop": "scroll", "to": "unrolled", "frames": 6}
+{"action": "prop_transition", "prop": "scroll", "to": "edited", "frames": 30,
+ "text": {"write": "AND ABRAHAM RAISED THE KNIFE."}}
+{"action": "prop_transition", "prop": "scroll", "frames": 6,
+ "text": {"replace": ".", "with": "?", "line": 2}}
+{"action": "prop_transition", "prop": "scroll", "frames": 24,
+ "text": {"replace": "THE KNIFE?", "with": "HIS SON."}}
+{"action": "prop_transition", "prop": "scroll", "to": "trailing", "frames": 6}
+```
+
+### Text ops
+
+A `text` key holds one op or a list of them. The ops of one step are applied in order, each to what the one before left, and each is one revision.
+
+| Op | What it does |
+|---|---|
+| `{"write": "..."}` | writes a new last line |
+| `{"write": "...", "line": n}` | writes at the end of line `n` |
+| `{"cross_out": "..."}` | draws a line through the phrase; it stays on the page and no longer counts as what the scroll says |
+| `{"replace": "...", "with": "..."}` | crosses out the phrase and writes the new text right after it |
+
+- `line` — counts from 1; `-1` is the last line. On `cross_out` and `replace` it says where to look
+- `occurrence` — which match, from 1, when the phrase is said more than once
+- a phrase is looked for in what the line says, leaving out crossed-out text: after `.` is replaced by `?`, the line says `THE KNIFE?`
+- a phrase that is not there, or is there more than once with no `line` or `occurrence`, is an error (`text-not-found`, `text-ambiguous`)
+- text is written only while the scroll is `edited` (`not-writable` otherwise). `"to": "edited"` in the same step puts it there first
+- a word written right after crossed-out text is set one column apart from it
+
+### On the frame clock
+
+With `frames`, each letter written is one stroke, and each three letters crossed out are one stroke (at least two for a phrase); the strokes are spread evenly over the frames. Crossing out comes before the writing that replaces it. Without `frames` the change is there at once.
+
+### Where it is
+
+The scroll is drawn in its own frame from its **grip**, the middle of its near roller, and is kept on an attachment by the grip: rolled, open or trailing, the grip stays in the hand that holds it. `angle` turns it about the grip; a trailing scroll at angle 0 streams out to the right of the hand. The open sheet shows the last seven lines, set in a monospaced font in fixed columns; a line too long for the sheet is set smaller.
+
+### In the ledger
+
+The scroll's state, text and revisions go into the ledger. Each revision records its number, the op, the line it was made on, and the scene it was made in:
+
+```json
+"text": {"lines": [[{"text": "GENESIS / B'RESHIT", "rev": 0}],
+                   [{"text": "AND ABRAHAM RAISED ", "rev": 1},
+                    {"text": "THE KNIFE", "rev": 1, "struck": 3},
+                    {"text": ".", "rev": 1, "struck": 2},
+                    {"text": "?", "rev": 2, "struck": 3},
+                    {"text": "HIS SON.", "rev": 3}]],
+         "revisions": [{"rev": 1, "write": "AND ABRAHAM RAISED THE KNIFE.", "line": 2, "scene": "scene1"},
+                       {"rev": 2, "replace": ".", "with": "?", "line": 2, "scene": "scene1"},
+                       {"rev": 3, "replace": "THE KNIFE?", "with": "HIS SON.", "line": 2, "scene": "scene6"}]}
+```
+
+A `quill` is a plain prop, to write with.
+
 ## The continuity ledger
 
-The ledger records, for each prop a film carries from scene to scene, its state, its parts and what each is attached to at the end of every scene. It is a `continuity` block in the project's cast-and-props sidecar (`pam_sidecar.json` next to the scenes, or `PAM_SIDECAR`):
+The ledger records, for each prop a film carries from scene to scene, its state, its parts, what each is attached to, and what its display shows and its text says, at the end of every scene. It is a `continuity` block in the project's cast-and-props sidecar (`pam_sidecar.json` next to the scenes, or `PAM_SIDECAR`):
 
 ```json
 [
@@ -1154,7 +1223,7 @@ The ledger records, for each prop a film carries from scene to scene, its state,
 ### How it works
 - a scene listed in `scenes` opens with every one of those props as the scene before left it. They are declared for the scene automatically; a prop the scene declares itself keeps the scene's item
 - playing a scene (`pam-render`, `pam_trace.py`) and validating it (`pam-validate`) both write its closing entry, with the same code. The file is rewritten only when an entry changes, and an entry holds no date, so validating a finished film again leaves the file as it is
-- a scene may state a carried prop's `state`, `attached`, `parts` or `display` itself. Where that differs from the ledger it is an override: allowed, and reported by `pam-validate` as a `ledger-override` warning, every time
+- a scene may state a carried prop's `state`, `attached`, `parts`, `display` or `text` itself. Where that differs from the ledger it is an override: allowed, and reported by `pam-validate` as a `ledger-override` warning, every time
 - `pam-validate` reports an error when a carried prop is attached to something the scene does not have, at the start or at the end of the scene, and when a composite prop has lost a part. A scene with errors does not write its entry, and an entry it wrote earlier is removed
 - if the scene before has no entry yet, the nearest earlier one is used and `pam-validate` warns (`ledger-missing`)
 - a scene that the block does not list, and any screenplay without such a sidecar, has no ledger
@@ -1165,10 +1234,10 @@ The ledger records, for each prop a film carries from scene to scene, its state,
 ./pam-validate scene3.json --no-ledger        # reads the ledger, writes nothing
 ```
 
-`projects/abe-isaac` holds six scenes that take the knife and the phone through *Abraham and Isaac, Revisited*; `abe-isaac_knife-break.json` is the Scene 2 break by itself.
+`projects/abe-isaac` holds six scenes that take the knife, the phone and the scroll through *Abraham and Isaac, Revisited*; `abe-isaac_knife-break.json` is the Scene 2 break by itself, and `abe-isaac_scroll-revision.json` the scroll's whole story in one scene.
 
 ### In the trace and in Blender
-A scene with stateful props is traced as version 5. `"prop_states"` names each such prop, the prop objects it is made of, its state from each frame on and what its display shows; `"prop_events"` lists every change (`prop_state_changed`) with its frame. `trace2blender.py` builds each part once, keeps it on its attachment, turns it, hides it, and gives the phone its screens. A hand held on a prop (`joint_to_prop`) is moved to where Blender puts the prop, and an empty named `contact.<id>` marks the held point.
+A scene with stateful props is traced as version 5. `"prop_states"` names each such prop, the prop objects it is made of, its state from each frame on, what its display shows and, for a scroll, its text frame by frame (`"text"`: the letters written so far, and how far each line through struck text is drawn); `"prop_events"` lists every change (`prop_state_changed`) with its frame. `trace2blender.py` builds each part once, keeps it on its attachment, turns it, hides it, gives the phone its screens, and draws the scroll's roll, sheet or ribbon with its text, letter by letter on the same frames. A hand held on a prop (`joint_to_prop`) is moved to where Blender puts the prop, and an empty named `contact.<id>` marks the held point.
 
 ## Checking a screenplay first
 

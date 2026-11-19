@@ -147,11 +147,13 @@ as version 4, byte for byte as before.  Version 5 adds:
                    "object": prop id,            # only present when
                    "states": [[f, state], ...],  # there are any
                    "display": [[f, {"state", "screen", field: value}],
-                               ...]}],
+                               ...],
+                   "text"?: [[f, {"state", "lines"}], ...]}],
   "prop_events": [{"event": "prop_state_changed", "prop", "f", "t",
                    "frames", "changed": ["state" | "attached" |
-                   "display"], "from", "to", "attached": {prop or
-                   prop.part: attachment}, "display", "cause"}],
+                   "display" | "text"], "from", "to", "attached": {prop
+                   or prop.part: attachment}, "display", "text":
+                   {"revisions", "reads"}, "cause"}],
 and one more kind of piece in "tracks":
 
   {"kind": "sampled", "source": "constraint", "constraint": id,
@@ -173,18 +175,28 @@ composite prop has no prop object of its own, so nothing is drawn
 twice, and its parts are the same two objects before and after it
 breaks.  "states" is the state from each frame on; "display" is what a
 display shows from each frame on (the phone's screen, viewer count and
-comment).  "prop_events" lists every change in order, with the frame it
-happened on.  The prop objects of such props carry, besides the usual
+comment).  "text" (a text-bearing prop: the scroll) is what it says
+from each frame on, frame by frame while it is being written or
+crossed out: {"state", "lines"}, each line a list of runs {"text",
+"at" (its column), "rev", "struck"?, "strike"? (how much of the line
+through it is drawn, 0 to 1), "shown"? (letters written so far)}; see
+prop_states.text_row.  "prop_events" lists every change in order, with
+the frame it happened on.  The prop objects of such props carry, besides the usual
 keys:
   "part_of", "part"     the composite prop a part belongs to
-  "model"               what to build ({"kind": "knife_blade", ...})
+  "model"               what to build ({"kind": "knife_blade", ...};
+                        a scroll's sizes and text layout, {"kind":
+                        "scroll", ...})
   "attachments"         [[t, attachment], ...]: from t the prop is on
                         this attachment (as in pam/prop_states.py: to,
                         kind, joint or point, mode, hidden, ...)
   "angles"              [{"t0", "t1", "rate", "from", "to"}]: turns, in
                         degrees
 and a hold made by a prop_transition has "offset": [dx, dy], where the
-prop sits from the joint.  The Governor's "states" list is read through
+prop sits from the joint.  A prop with an anchor (a scroll: its grip) is
+followed by its anchor, not by the center of its bounding box: "initial"
+and "moves" give the anchor and the box's size, and it has no
+"geometry", since its outline changes with its state.  The Governor's "states" list is read through
 the same function (prop_states.state_of) as every other prop's state.
 
 A sampled piece holds the resolved world position of a constrained
@@ -467,7 +479,10 @@ class PropTracker:
     # ── per-prop state ──────────────────────────────────────────────────
     @staticmethod
     def _box(mob):
-        c = mob.get_center()
+        # a prop with an anchor (a scroll: its grip) is followed by the
+        # anchor; any other by the center of its bounding box
+        anchor = getattr(mob, "pam_anchor", None)
+        c = anchor() if callable(anchor) else mob.get_center()
         return [_r4(c[0]), _r4(c[1]), _r4(mob.width), _r4(mob.height)]
 
     @staticmethod
@@ -521,7 +536,8 @@ class PropTracker:
                                          "rate": rate if t1 > t0 else "linear",
                                          "from": a, "to": b})
                     rec["_box"] = box
-            if visible and rec["geometry"] is None and op > 0.5:
+            if visible and rec["geometry"] is None and op > 0.5 \
+                    and not getattr(mob, "pam_no_outline", False):
                 self._capture_geometry(rec, mob, box)
             # visibility (appears from the play's start, leaves at its end)
             if rec["_vis"] != visible:
@@ -1320,7 +1336,7 @@ class Tracer:
         elif event == "frame":
             self._on_frame(data)
         elif event in ("prop_declared", "prop_state_changed",
-                       "prop_attached", "prop_display"):
+                       "prop_attached", "prop_display", "prop_text"):
             self.timeline = True
             self._on_prop_state(event, data)
 
@@ -1349,7 +1365,7 @@ class Tracer:
             ev = {"event": "prop_state_changed", "prop": name, "f": f,
                   "t": _r4(data.get("t", self.now()))}
             for k in ("frames", "changed", "from", "to", "attached",
-                      "display", "cause"):
+                      "display", "text", "cause"):
                 if data.get(k) is not None:
                     ev[k] = _json_safe(data[k])
             self.prop_events.append(ev)
@@ -1374,6 +1390,15 @@ class Tracer:
                     rec["display"][-1] = [f, row]
                 else:
                     rec["display"].append([f, row])
+        elif event == "prop_text":
+            rec = self.prop_states.get(name)
+            if rec is not None:
+                row = _json_safe(data.get("text") or {})
+                rows = rec.setdefault("text", [])
+                if rows and rows[-1][0] == f:
+                    rows[-1] = [f, row]
+                else:
+                    rows.append([f, row])
 
     # ── timeline: frame by frame inside a timed block ────────────────────
     def _on_frame(self, data):

@@ -73,5 +73,88 @@
  {
   "action": "wait",
   "frames": 9
+ },
+ {
+  "action": "prop_transition",
+  "prop": "scroll",
+  "frames": 6,
+  "beat": "scroll_from_belt",
+  "attached": {
+   "to": "abraham",
+   "joint": "lwrist",
+   "mode": "held",
+   "angle": 0
+  }
+ },
+ {
+  "action": "prop_transition",
+  "prop": "scroll",
+  "to": "unrolled",
+  "frames": 6,
+  "beat": "unrolls"
+ },
+ {
+  "action": "prop_transition",
+  "prop": "quill",
+  "frames": 6,
+  "beat": "takes_quill",
+  "attached": {
+   "to": "abraham",
+   "joint": "rwrist",
+   "angle": 30
+  }
+ },
+ {
+  "action": "prop_transition",
+  "prop": "scroll",
+  "to": "edited",
+  "frames": 24,
+  "beat": "revision",
+  "text": {
+   "replace": "THE KNIFE?",
+   "with": "HIS SON."
+  }
+ },
+ {
+  "action": "wait",
+  "frames": 15,
+  "beat": "insert"
+ },
+ {
+  "action": "prop_transition",
+  "prop": "quill",
+  "frames": 6,
+  "beat": "quill_away",
+  "attached": {
+   "to": "satchel",
+   "mode": "in",
+   "hidden": true
+  }
+ },
+ {
+  "action": "parallel",
+  "id": "s06_bolt",
+  "frames": 24,
+  "do": [
+   {
+    "action": "prop_transition",
+    "prop": "scroll",
+    "to": "trailing",
+    "frames": 6,
+    "beat": "trails"
+   },
+   {
+    "action": "walk_to",
+    "who": "abraham",
+    "x": -2.6,
+    "at": 3,
+    "frames": 18,
+    "beat": "bolts"
+   }
+  ]
+ },
+ {
+  "action": "wait",
+  "frames": 6
  }
 ]

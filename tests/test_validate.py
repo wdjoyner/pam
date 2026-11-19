@@ -455,6 +455,7 @@ EXPECTED = {
     "abe-isaac_overlap_timeline.json": ([], 0),
     "abe-isaac_scene2-gags.json": ([], 0),
     "abe-isaac_knife-break.json": ([], 0),
+    "abe-isaac_scroll-revision.json": ([], 0),
 }
 
 

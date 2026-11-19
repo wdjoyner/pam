@@ -45,6 +45,7 @@ def _command(trace, out):
     "abe-isaac_overlap_timeline.json",        # a timed parallel block
     "abe-isaac_scene2-gags.json",             # choreography routines
     "abe-isaac_knife-break.json",             # stateful props, a hand on a prop
+    "abe-isaac_scroll-revision.json",         # a text-bearing prop
 ])
 def test_blend_builds_from_golden_trace(fixture, tmp_path):
     out = tmp_path / "scene.blend"
@@ -465,3 +466,97 @@ def test_phone_screens_follow_its_state_in_blender(tmp_path):
     assert not [n for n in names
                 if n.startswith(f"prop.other.{other['id']}.")
                 and ("live" in n or "viewers" in n or "screen_on" in n)]
+
+
+# ── the scroll (Stage 4b) ────────────────────────────────────────────────
+
+@pytest.fixture(scope="module")
+def scroll_blend(tmp_path_factory):
+    tmp = tmp_path_factory.mktemp("scroll_blend")
+    trace = tt.golden_path(tt.SCROLL)
+    out = tmp / "scroll.blend"
+    log = _build(trace, out, tmp)
+    T = json.loads(trace.read_text())
+    rec = tt.prop_object(T, "scroll")
+    return T, rec, f"prop.scroll.{rec['id']}", out, tmp, log
+
+
+def _expected(T, rec, frame):
+    """What the trace says the scroll shows on *frame*, laid out as
+    trace2blender.py must lay it out: texts [[body, x, z]], strikes
+    [[x, z, length]], from the model's columns and rows."""
+    m = rec["model"]
+    row = tt.state_at(tt.prop_state(T, "scroll")["text"], frame)
+    texts, strikes = [], []
+    if row["state"] == "rolled":
+        return row["state"], texts, strikes
+    for j, runs in enumerate(row["lines"][-int(m["rows"]):]):
+        width = max(r["at"] + len(r["text"]) for r in runs)
+        cw = m["cell_w"] * min(1.0, m["cols"] / width)
+        z = m["baseline0"] - j * m["line_h"]
+        for r in runs:
+            body = r["text"][:r.get("shown", len(r["text"]))].rstrip()
+            x = m["text_x"] + r["at"] * cw
+            if body.strip():
+                texts.append([body, x, z])
+            if r.get("struck") is not None and r.get("strike", 0) > 0:
+                strikes.append([x, z + m["strike_y"] * cw,
+                                len(r["text"]) * cw * r["strike"]])
+    texts.sort(key=lambda t: (-t[2], t[1]))
+    return row["state"], texts, strikes
+
+
+def _events_of(T, prop):
+    return [e for e in T["prop_events"] if e["prop"] == prop]
+
+
+def test_scroll_is_redrawn_in_blender_as_the_trace_has_it(scroll_blend):
+    """The text, letter by letter as it is written, the lines through
+    struck text as they grow, and the shape of each state, on the same
+    frames as in Manim."""
+    T, rec, root, blend, tmp, log = scroll_blend
+    assert "'kind': 'scroll'" in log
+    frames = set()
+    for ev in _events_of(T, "scroll"):
+        n = ev.get("frames") or 0
+        for k in (0, 1, n // 3, n // 2, n - 1, n, n + 2):
+            frames.add(ev["f"] + k)
+    frames = sorted(f for f in frames if f <= round(T["duration"] * 15))
+    got = _probe("blender_scroll_probe.py", tmp, blend, root,
+                 ",".join(str(1 + 2 * f) for f in frames), tag="SCROLL ")
+    shape = {"rolled": "roll", "unrolled": "sheet", "edited": "sheet",
+             "trailing": "ribbon"}
+    for f in frames:
+        g = got[str(1 + 2 * f)]
+        state, texts, strikes = _expected(T, rec, f)
+        if not tt.prop_visible(rec, f):
+            assert not any(g["shapes"].values()) and not g["texts"], f
+            continue
+        assert [k for k, on in g["shapes"].items() if on] == \
+            [shape[state]], (f, state)
+        assert [t[0] for t in g["texts"]] == [t[0] for t in texts], f
+        for a, b in zip(g["texts"], texts):
+            assert a[1:] == pytest.approx(b[1:], abs=1e-4), (f, a, b)
+        assert len(g["strikes"]) == len(strikes), f
+        for a, b in zip(sorted(g["strikes"]), sorted(strikes)):
+            assert a == pytest.approx(b, abs=1e-4), (f, a, b)
+
+
+def test_the_scroll_is_in_the_hand_in_blender(scroll_blend):
+    T, rec, root, blend, tmp, log = scroll_blend
+    (hold,) = [h for h in rec["holds"] if h["hand"] == "lwrist"]
+    f0, f1 = round(hold["t0"] * 15) + 1, round(hold["t1"] * 15) - 1
+    frames = list(range(f0, f1, 7)) + [f1]
+    got = _probe("blender_scroll_probe.py", tmp, blend, root,
+                 ",".join(str(1 + 2 * f) for f in frames),
+                 "abraham.lwrist", tag="SCROLL ")
+    for f in frames:
+        g = got[str(1 + 2 * f)]
+        x, _, z = g["loc"]
+        wx, _, wz = g["joints"]["abraham.lwrist"]
+        assert abs(x - wx) < 2e-3 and abs(z - wz) < 2e-3, f
+    # trailing: the ribbon, turned as the trace has it (angle 0: the
+    # ribbon streams out to +x behind a figure running to -x)
+    last = got[str(1 + 2 * frames[-1])]
+    assert last["shapes"] == {"roll": False, "sheet": False,
+                              "ribbon": True}

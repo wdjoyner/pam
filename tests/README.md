@@ -2,14 +2,17 @@
 
 Regression tests for *PAM: The Road to Blender*: the Milestone 1 baseline,
 the vertical slice, the Milestone 2 timeline, the Milestone 3 constraints
-and choreography routines, and Stage 4a of Milestone 4 (stateful props and
-the continuity ledger).
+and choreography routines, and Stages 4a and 4b of Milestone 4 (stateful
+props, the continuity ledger, and the scroll, a text-bearing prop).
 None of them writes a video, and none writes into the repository.
 
 ```bash
 python -m pytest             # all tests (about five minutes)
 python -m pytest -k prop_states   # Milestone 4: the ledger and the knife's
                                   # completion test (no rendering, 3 seconds)
+python -m pytest -k scroll        # Stage 4b: the scroll, its text, and its
+                                  # completion test (the first file needs
+                                  # no renderer and takes a second)
 python -m pytest -k choreography  # Milestone 3, with its completion test
 python -m pytest -k golden   # golden-trace comparison only
 python -m pytest -k validate # validator only (a few seconds)
@@ -28,7 +31,8 @@ something extra and are skipped without it:
 | File | What it checks |
 |---|---|
 | `test_golden_traces.py` | A fresh `pam_trace.py` trace of each fixture matches the stored one within 0.002. One comparison covers scaling, locomotion, poses, prop attachment and handoff, camera moves, and speech bubbles. |
-| `test_blender_build.py` | `trace2blender.py` builds a `.blend` from a stored golden trace without error; in the built scene a constrained hand stays on the wrist it holds, including a wrist that moves, and the contacts of the Scene 2 routines hold (the pull, the offered hand, the pop). Stateful props: the knife's handle and blade are built once each and are where the trace has them before and after the break; a hand held on a prop is on it in Blender, also on a prop the builder moves (a door set on the floor); a stateful phone gets its screens. |
+| `test_scroll.py` | Milestone 4, Stage 4b, without a renderer. The scroll's machine; writing, crossing out and replacing text, and what an op may not do; text and shape changing independently; text shown letter by letter and a line through a phrase growing from its left end; the validator on scroll steps, also in timed blocks; the ledger carrying the text and its revisions; and the six-scene project, with the completion test for the scroll (below). |
+| `test_blender_build.py` | `trace2blender.py` builds a `.blend` from a stored golden trace without error; in the built scene a constrained hand stays on the wrist it holds, including a wrist that moves, and the contacts of the Scene 2 routines hold (the pull, the offered hand, the pop). Stateful props: the knife's handle and blade are built once each and are where the trace has them before and after the break; a hand held on a prop is on it in Blender, also on a prop the builder moves (a door set on the floor); a stateful phone gets its screens. The scroll: its roll, sheet and ribbon each shown in its state, its text letter by letter and the lines through struck text as long as the trace has them, on the same frames, and its grip in Abraham's hand. |
 | `test_blender_mouth.py` | Talking mouths in the Blender export: shown only while the character's bubble is showing, kept with `--no-bubbles`, removed by `--no-mouths`. |
 | `test_timeline.py` | The 15 fps frame clock: a duration in `frames` lasts exactly that many frames, sequences and beats land on their frames, and legacy screenplays are not touched. |
 | `test_timeline_blocks.py` | Timed `parallel` blocks (Milestone 2): overlapping moves start and end on their frames and keep their easing, a line of dialogue and a camera cut land on their frames, walks take exactly their frames, constraints start and end inside a block, repeated runs are identical, a block is exact at 30 fps, and ordinary `parallel` blocks and `say` lines are not touched. |
@@ -36,7 +40,7 @@ something extra and are skipped without it:
 | `test_constraints.py` | The two-bone solver, `joint_to_joint` and `root_lock`, release on a set frame, the fall and the comic hold, the `sampled` trace piece, and the same gag at other character scales. |
 | `test_choreography.py` | Milestone 3. `joint_to_point` and `joint_to_prop` (a hand on a point, a foot planted, a hand that follows a moving prop, a hand on a wrist that is itself held). How a routine's `frames` are shared over its phases. The Scene 2 routines `pull_immovable`, `cork_pop_up` and `mismatched_hug`: phases on their frames, a routine as a step of a timed block, and what each gag must show. The roadmap's completion test (below). |
 | `test_prop_states.py` | Milestone 4, Stage 4a, without a renderer. The prop state machines (the knife, the phone, an item's own, and doors, lids and the Governor as machines of the same kind); what a `prop_transition` may and may not do; the validator on stateful props, also in timed blocks; the continuity ledger file (written, read by the next scene, overrides reported, nothing rewritten when nothing changed); and the six-scene project, with the roadmap's completion test for the knife (below). |
-| `test_prop_trace.py` | The same things as the player plays them: prop identities and `prop_state_changed` events in the trace, where every part is on every frame of the knife break, a transition as a step of a timed block, a hand held on a part of the knife, the phone's display changing while the phone stays put (and the reverse), the blade stuck in the altar, the ledger written by playing equal to the one written by validating, and doors, a lid and the Governor through `prop_transition`. |
+| `test_prop_trace.py` | The same things as the player plays them: prop identities and `prop_state_changed` events in the trace, where every part is on every frame of the knife break, a transition as a step of a timed block, a hand held on a part of the knife, the phone's display changing while the phone stays put (and the reverse), the blade stuck in the altar, the ledger written by playing equal to the one written by validating, and doors, a lid and the Governor through `prop_transition`. The scroll: its text in the trace on every frame of every step that writes or crosses out, exactly as `prop_states.text_row` shows it; its steps in timed blocks; its grip in the hand on every frame, also while Abraham runs; its shape in each state; and in the project, the trace and the ledger agreeing at the end of every scene. |
 | `test_validate.py` | The JSON validator and the `pam-validate` command, including what they report for each fixture. |
 | `test_action_specs.py` | `pam/action_specs.py` lists exactly the actions `pam_player.py` dispatches. |
 | `test_fountain2pam_warnings.py` | `fountain2pam.py --warnings-json`, and that the validator reports the same `# REVIEW` comments. |
@@ -45,7 +49,7 @@ something extra and are skipped without it:
 
 ## Fixtures and golden traces
 
-The fixtures are seven screenplays in the repository root:
+The fixtures are eight screenplays in the repository root:
 
 - `screenplay_alice-meets-bob.json`
 - `lucy-meets-lenny2_pam.json`
@@ -63,8 +67,13 @@ The fixtures are seven screenplays in the repository root:
   handle with a `joint_to_prop` constraint, the handle comes away and the
   blade drops into the bowl inside a timed parallel block, and Abraham
   gathers the pieces and drops them into the satchel)
+- `abe-isaac_scroll-revision.json` (Milestone 4, Stage 4b: the scroll.
+  Abraham takes it from his belt, unrolls it, writes the line with a quill
+  while he moves, turns its period into a question mark, crosses out THE
+  KNIFE? and writes HIS SON. while Isaac says a line, and lets it trail as
+  he runs; three of these are steps of timed parallel blocks)
 
-`projects/abe-isaac/` is a seventh kind of fixture: six scenes and a sidecar
+`projects/abe-isaac/` is another kind of fixture: six scenes and a sidecar
 with a `continuity` block. The tests always work on a private copy of it,
 since validating or playing a scene writes to the ledger.
 
@@ -206,6 +215,44 @@ on, draws the knife from it, drops the pieces into it, and in Scene 4 takes
 both out before he puts the blade back. The satchel is carried in the ledger
 with the knife and the phone.
 
+## The Stage 4b completion test (the scroll)
+
+The task's completion test reads: *without rendering, the scroll has its
+expected state, text and location at the end of every scene.* It is
+`test_scroll_completion` in `test_scroll.py`, and like the knife's it
+imports nothing that draws.
+
+The six scenes are validated in order and the ledger is compared with a
+table taken from Draft 3 of the script with the scroll-continuity edits
+(writing-guides pull request 10):
+
+| Scene | State | Where | What it says |
+|---|---|---|---|
+| 1 | `rolled` | in Abraham's belt (right hip) | GENESIS / B'RESHIT; AND ABRAHAM RAISED THE KNIFE? |
+| 2 to 5 | `rolled` | in Abraham's belt | the same |
+| 6 | `trailing` | held by Abraham (left wrist) | GENESIS / B'RESHIT; AND ABRAHAM RAISED HIS SON. |
+
+It also checks the number of revisions in each scene (two after Scene 1,
+three after Scene 6), and that the ledger has exactly one scroll and the
+validator found nothing misplaced. Two more tests check the revisions:
+each carries the scene it was made in from scene to scene, and every
+change inside Scenes 1 and 6 comes in the script's order. The page at the
+end still shows the struck words (THE KNIFE, the period, the question
+mark) with HIS SON. after them.
+
+Draft 3 did not say what the scroll says or where it is in four places:
+whether the question mark replaces the period, where the scroll is from
+Scene 1 to Scene 5 (in the satchel or in his hands), that he takes it
+from somewhere in Scene 6, and who holds it as it trails. The proposed
+script edits (a pull request in `writing-guides`) answer all four, and
+the scenes follow them. `test_the_project_needs_the_script_edits` shows
+what happens with the other reading of the question mark (`KNIFE.?`):
+Scene 6 cannot cross out THE KNIFE?.
+
+One choice is blocking, not the script's: the quill lives in the
+satchel (Scene 6 "pulls a quill from the satchel"); Abraham takes it out
+to write in Scene 1 and in Scene 6 and puts it back each time.
+
 ## Findings recorded while building the baseline
 
 **Updaters in dry-run mode (Milestone 1, task 7).** Manim does advance
@@ -258,6 +305,36 @@ validator accepts it.
   difference at each angle (up to 0.016 units).
 - *The elevator's doors slide inside its own outline*, so the prop's box in
   the trace never showed them opening. Its state does now.
+
+**The scroll (Milestone 4, Stage 4b).** Four things turned up.
+
+- *Text is redrawn between plays, like a display.* Writing over `frames`
+  is one play per frame, as a climbing viewer count already was.
+- *A prop whose shape changes must not be followed by its bounding box.*
+  Rolled, open and trailing, the scroll's box is in three different
+  places relative to the hand. The scroll is kept on its attachment by its
+  grip (its near roller), the tracer records the grip as its position, and
+  the Blender model is built from the grip, so the hold offset Blender
+  uses does not change when the scroll unrolls in the hand.
+- *A prop that had not yet arrived on its attachment traveled from where
+  it was built (fixed).* A prop attached to a character is put on its
+  attachment on the first frame played after the character is on stage.
+  If the very next step moved the prop over some frames, the move began
+  from where the prop was built (the middle of the stage), and the trace
+  had no record of its first attachment. This was Stage 4a behavior, for
+  every stateful prop. A prop that is about to travel is now put on its
+  attachment first, and so is what it is attached to (the quill in the
+  satchel on Abraham's hip). No golden trace changed with the fix: in the
+  seven fixtures before this stage no prop moves in that situation.
+  `test_a_prop_moved_right_after_its_holder_appears_starts_on_its_attachment`
+  in `test_prop_trace.py` checks it.
+- *Fonts.* Installing the TeX fonts needed to rebuild
+  `pam-reference-book.pdf` (Debian's `texlive-fonts-extra`) also installs
+  `fonts-croscore`, and fontconfig then gives Cousine instead of Liberation
+  Mono for "Courier New". Its metrics are the same, so the text probe still
+  passes and the comparison stays strict, but the glyph outlines in the
+  traces differ and two legacy golden traces fail. Check
+  `fc-match "Courier New"` before recording or comparing golden traces.
 
 The README's "Stateful props" examples named `open_doors` and `close_doors`
 as actions. Those are methods of the prop; the actions are `elevator_open`

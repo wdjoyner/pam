@@ -121,6 +121,25 @@
         "pam_version": "1.0.1",
         "recorded": "2026-11-19"
       }
+    },
+    "abe-isaac_scroll-revision.json": {
+      "golden": "abe-isaac_scroll-revision.trace.json",
+      "fixture_sha256": "113953e2762ea566fa17eec2d1702320be8c17492d74c023c9329d2ed22d3ab6",
+      "trace_version": 5,
+      "hooks_version": 2,
+      "duration": 9.8,
+      "cast": [
+        "isaac",
+        "abraham"
+      ],
+      "plays": 128,
+      "pieces": 36,
+      "recorded_at": {
+        "commit": "b480d821c995330f079f3d1f0da10d8d6a0be4ac",
+        "tracked_files_modified": true,
+        "pam_version": "1.0.1",
+        "recorded": "2026-11-19"
+      }
     }
   },
   "reference": {

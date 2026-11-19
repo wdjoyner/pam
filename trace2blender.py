@@ -92,7 +92,12 @@ joint at the offset Manim had it; on or in another prop it shares that
 prop's place in depth and its lift onto the floor; hidden, it is not
 shown.  A turn ("angles") turns it in the picture plane.  A phone with
 a state shows its screen: the red LIVE button, the LIVE badge, the
-viewer count as it climbs, and a comment.
+viewer count as it climbs, and a comment.  A scroll is built from its
+model, with its grip at the prop's position: a roll, the open sheet
+between its rollers, or the trailing ribbon, each shown in its state;
+its text is set in the same columns as in Manim, written letter by
+letter, with a line through crossed-out text that grows as it does in
+the trace.
 
 A hand held on a prop (constraint type joint_to_prop).  The trace holds
 the hand where Manim drew it, on the prop as Manim placed it.  Blender
@@ -2303,7 +2308,7 @@ BACK_TYPES = {"door": WALL_Y - 0.06, "pocket_door": WALL_Y - 0.06,
 
 # Parts of stateful props that have a 3D model (the trace says which
 # in a prop object's "model").
-MODEL_KINDS = ("knife_handle", "knife_blade")
+MODEL_KINDS = ("knife_handle", "knife_blade", "scroll")
 ATTACH_FRONT = 0.05          # a prop on another sits this far in front
 BLADE_THICK, HANDLE_THICK = 0.012, 0.035
 
@@ -2443,6 +2448,8 @@ class PropPlan:
             bottom = rec["initial"][1] - rec["initial"][3] / 2
         self.bottom = bottom
         fz = _floor_at(sched, self.t_vis if self.t_vis is not None else 0.0)
+        if k == "scroll":
+            fz = None       # placed by its grip, which is not its bottom
         if fz is not None:
             gap = fz - bottom
             if self.type in FLOOR_TYPES or k in ("desk", "table", "door",
@@ -3257,6 +3264,229 @@ class PropBuilder:
             made.append(ob)
         return made
 
+    # ── a scroll (text-bearing; trace "prop_states" ... "text") ─────────
+    def text_rows(self, rec):
+        """[(t, row)] of what a text-bearing prop shows, from the
+        trace's "prop_states"; a row is {"state", "lines"} (see
+        pam/prop_states.text_row)."""
+        fps = float(self.T.get("fps", 15))
+        for ps in self.T.get("prop_states") or ():
+            if ps.get("object") == rec["id"]:
+                return [(f / fps, row) for f, row in ps.get("text") or ()]
+        return []
+
+    def build_scroll(self, plan, root, tag, rows):
+        """A scroll from its model (props_carried.SCROLL): rolled, open
+        (unrolled or edited), or trailing, each shown in its state; and
+        its text, set in the same columns as in Manim, written letter
+        by letter and crossed out as the trace has it.  The origin is
+        the grip, where the trace puts the prop."""
+        bpy = self.bpy
+        m = plan.rec.get("model") or {}
+        col = m.get("colors") or {}
+        W, H = m.get("width", 0.70), m.get("height", 0.34)
+        rod, over = m.get("rod", 0.026), m.get("rod_over", 0.05)
+        knob = m.get("knob", 0.022)
+        thick = 0.006
+        wood = self.mat("scroll wood", hex_rgba(col.get("wood", "#7a4e2a")),
+                        roughness=0.6)
+        knb = self.mat("scroll knob", hex_rgba(col.get("knob", "#5c3a1e")),
+                       roughness=0.5)
+        sheet = self.mat("scroll sheet", hex_rgba(col.get("sheet",
+                                                          "#efe2bf")),
+                         roughness=0.8)
+        roll_m = self.mat("scroll roll", hex_rgba(col.get("roll",
+                                                          "#e2d1a4")),
+                          roughness=0.8)
+        tie = self.mat("scroll tie", hex_rgba(col.get("tie", "#9c2a22")),
+                       roughness=0.6)
+        ink = self.mat("scroll ink", hex_rgba(col.get("ink", "#2b1d12")),
+                       roughness=0.9)
+
+        def roller(name, x, z=0.0):
+            out = [self.obj(name, _cyl_mesh(bpy, name, rod / 2,
+                                            z - H / 2 - over,
+                                            z + H / 2 + over, x, 0), root,
+                            wood)]
+            for sgn in (-1, 1):
+                zc = z + sgn * (H / 2 + over)
+                out.append(self.obj(name + ".knob", _cyl_mesh(
+                    bpy, name + ".knob", knob, zc - knob, zc + knob, x, 0),
+                    root, knb))
+            return out
+
+        def wave(x):
+            u = x - W
+            if u <= 0:
+                return 0.0
+            lam = m.get("wavelength", 0.5)
+            return m.get("wave", 0.05) * min(1.0, u / lam) * \
+                math.sin(2 * math.pi * u / lam)
+
+        def is_open(r):
+            return r.get("state") in ("unrolled", "edited", "trailing")
+
+        made = []
+        # rolled
+        L, D = m.get("roll_len", 0.34), m.get("roll_dia", 0.075)
+        rolled = [self.obj(tag + ".roll", _cyl_mesh(
+            bpy, tag + ".roll", D / 2, -L / 2, L / 2, 0, 0), root, roll_m),
+            self.obj(tag + ".tie", _cyl_mesh(
+                bpy, tag + ".tie", D / 2 * 1.04, -0.009, 0.009, 0, 0), root,
+                tie),
+            self.obj(tag + ".rod", _cyl_mesh(
+                bpy, tag + ".rod", rod / 3, -L / 2 - over, L / 2 + over, 0,
+                0), root, wood)]
+        for sgn in (-1, 1):
+            zc = sgn * (L / 2 + over)
+            rolled.append(self.obj(tag + ".roll_knob", _cyl_mesh(
+                bpy, tag + ".roll_knob", knob, zc - knob, zc + knob, 0, 0),
+                root, knb))
+        self.show_when(rolled, rows, lambda r: r.get("state") == "rolled",
+                       plan.rec)
+        made += rolled
+        # open: the sheet between two rollers
+        opened = [self.obj(tag + ".sheet", _box_mesh(
+            bpy, tag + ".sheet", W - rod, thick, H, (W / 2, 0, 0)), root,
+            sheet)]
+        opened += roller(tag + ".roller_near", 0.0)
+        opened += roller(tag + ".roller_far", W)
+        self.show_when(opened, rows, lambda r: r.get("state") in (
+            "unrolled", "edited"), plan.rec)
+        made += opened
+        # trailing: the ribbon, flat under the text and waving beyond
+        Lr = m.get("ribbon", 1.30)
+        xs = [rod / 2 + i * 0.02 for i in range(int((Lr - rod / 2) / 0.02))]
+        xs.append(Lr)
+        verts, faces = [], []
+        for x in xs:
+            for z in (-H / 2, H / 2):
+                for y in (-thick / 2, thick / 2):
+                    verts.append((x, y, z + wave(x)))
+        for i in range(len(xs) - 1):
+            a, b = 4 * i, 4 * (i + 1)
+            faces += [(a, b, b + 2, a + 2), (a + 1, a + 3, b + 3, b + 1),
+                      (a, a + 1, b + 1, b), (a + 2, b + 2, b + 3, a + 3)]
+        faces += [(0, 2, 3, 1), (4 * (len(xs) - 1), 4 * (len(xs) - 1) + 1,
+                                 4 * (len(xs) - 1) + 3,
+                                 4 * (len(xs) - 1) + 2)]
+        me = bpy.data.meshes.new(tag + ".ribbon")
+        me.from_pydata(verts, [], faces)
+        me.update()
+        trailing = [self.obj(tag + ".ribbon", me, root, sheet)]
+        trailing += roller(tag + ".ribbon_near", 0.0)
+        trailing += roller(tag + ".ribbon_far", Lr, wave(Lr))
+        self.show_when(trailing, rows, lambda r: r.get("state") ==
+                       "trailing", plan.rec)
+        made += trailing
+        made += self.build_scroll_text(plan, root, tag, rows, m, ink,
+                                       is_open, thick)
+        return made
+
+    def build_scroll_text(self, plan, root, tag, rows, m, ink, is_open,
+                          thick):
+        """The scroll's text: one text object for every run (and every
+        stage of writing it) the trace shows, and one bar for every
+        line through struck text, scaled as far as it has been drawn."""
+        bpy = self.bpy
+        if self.font is None:
+            self.font = _font(bpy) or False
+        adv, _ = _font_metrics(bpy, self.font or None)
+        rows_n, cw0 = int(m.get("rows", 7)), m.get("cell_w", 0.0143)
+        x0, b0, lh = m.get("text_x", 0.05), m.get("baseline0", 0.1),\
+            m.get("line_h", 0.034)
+        cols = m.get("cols", 42)
+        front = -thick / 2 - 0.002
+        texts, bars = {}, {}
+
+        def layout(runs):
+            width = max([r["at"] + len(r["text"]) for r in runs] + [0])
+            return min(1.0, cols / width) if width else 1.0
+
+        for _, row in rows:
+            for j, runs in enumerate((row.get("lines") or [])[-rows_n:]):
+                f = layout(runs)
+                for r in runs:
+                    n = r.get("shown", len(r["text"]))
+                    body = r["text"][:n].rstrip()
+                    if body.strip():
+                        texts.setdefault((j, r["at"], body, f), None)
+                    if r.get("struck") is not None:
+                        bars.setdefault((j, r["at"], len(r["text"]), f),
+                                        None)
+        made = []
+        for key in sorted(texts, key=str):
+            j, at, body, f = key
+            cw = cw0 * f
+            name = f"{tag}.text.{len(made)}"
+            cu = bpy.data.curves.new(name, "FONT")
+            if self.font:
+                cu.font = self.font
+            # leading spaces keep their columns
+            cu.body = body
+            cu.align_x = "LEFT"
+            cu.align_y = "BOTTOM_BASELINE"
+            cu.size = cw / adv
+            ob = self.obj(name, cu, root, ink)
+            ob.rotation_euler = (math.pi / 2, 0, 0)
+            ob.location = (x0 + at * cw, front, b0 - j * lh)
+
+            def test(row, key=key):
+                if not is_open(row):
+                    return False
+                lines = (row.get("lines") or [])[-rows_n:]
+                if key[0] >= len(lines):
+                    return False
+                runs = lines[key[0]]
+                if layout(runs) != key[3]:
+                    return False
+                return any(r["at"] == key[1] and r["text"][:r.get(
+                    "shown", len(r["text"]))].rstrip() == key[2]
+                    for r in runs)
+
+            self.show_when([ob], rows, test, plan.rec)
+            texts[key] = ob
+            made.append(ob)
+        fps = self.opt.fps
+        for key in sorted(bars, key=str):
+            j, at, n, f = key
+            cw = cw0 * f
+            name = f"{tag}.strike.{len(made)}"
+            ob = self.obj(name, _box_mesh(bpy, name, n * cw, 0.001,
+                                          0.08 * cw, (n * cw / 2, 0, 0)),
+                          root, ink)
+            ob.location = (x0 + at * cw, front - 0.001,
+                           b0 - j * lh + m.get("strike_y", 0.55) * cw)
+
+            def frac(row, key=key):
+                if not is_open(row):
+                    return 0.0
+                lines = (row.get("lines") or [])[-rows_n:]
+                if key[0] >= len(lines) or layout(lines[key[0]]) != key[3]:
+                    return 0.0
+                for r in lines[key[0]]:
+                    if r["at"] == key[1] and len(r["text"]) == key[2] \
+                            and r.get("struck") is not None:
+                        return float(r.get("strike") or 0.0)
+                return 0.0
+
+            self.show_when([ob], rows, lambda r, frac=frac: frac(r) > 0,
+                           plan.rec)
+            last = None
+            for t, row in rows:
+                a = max(frac(row), 1e-3)
+                if a != last:
+                    ob.scale = (a, 1.0, 1.0)
+                    ob.keyframe_insert("scale", frame=frame_of(t, fps))
+                    last = a
+            if ob.animation_data and ob.animation_data.action:
+                for fc in _id_fcurves(ob):
+                    if fc.data_path == "scale":
+                        for kp in fc.keyframe_points:
+                            kp.interpolation = "CONSTANT"
+            made.append(ob)
+        return made
+
     def build_contacts(self, plans, roots):
         """An empty on the prop for every hand held on one (constraint
         type joint_to_prop): "contact.<id>", at the held point."""
@@ -3546,6 +3776,8 @@ class PropBuilder:
                 parts = self.build_knife_handle(plan, body, tag)
             elif k == "knife_blade":
                 parts = self.build_knife_blade(plan, body, tag)
+            elif k == "scroll":
+                parts = []      # shapes and text come with its state
             elif k == "phone" and (rows or turn is not None):
                 parts = self.build_phone(plan, body, tag)
             elif k in ("desk", "table"):
@@ -3601,6 +3833,10 @@ class PropBuilder:
             if rows:
                 # the screens come and go with the phone's state
                 parts += self.build_phone_display(plan, body, tag, rows)
+            if k == "scroll":
+                # its shape and its text come and go with its state
+                parts += self.build_scroll(plan, body, tag,
+                                           self.text_rows(rec))
             stats[tag] = {"kind": k, "keys": len(keys.f),
                           "holds": len(rec.get("holds", [])),
                           "dz": round(plan.dz, 3)}
