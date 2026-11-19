@@ -1,0 +1,47 @@
+[
+  {"action": "set_background", "color": "#a9c8e6"},
+  {"action": "cast", "characters": {
+    "isaac": {
+      "figure_type": "human", "build": "broad", "gender": "male",
+      "pose": "standing_front",
+      "scale": {"sy": 0.8, "sx": 0.92, "anchor": "lankle"},
+      "offset": [1.6, 0, 0],
+      "torso_color": "#b3261e",
+      "shoe_color": "#5a3b22",
+      "style": {"head_label": "Isaac",
+                "edge_color": "#b07d48", "edge_width": 4.0,
+                "node_color": "#a67c52", "node_stroke": "#e0bc94",
+                "head_color": "#c69c6d", "head_stroke": "#5a3b22",
+                "highlight_color": "#e0bc94"}
+    },
+    "abraham": {
+      "figure_type": "human", "build": "narrow", "gender": "male",
+      "pose": "standing_side",
+      "scale": {"sy": 0.48, "sx": 0.48, "anchor": "lankle"},
+      "offset": [-0.28, 0, 0],
+      "torso_color": "#3d5a80",
+      "shoe_color": "#5a3b22",
+      "style": {"head_label": "Abe",
+                "edge_color": "#b07d48", "edge_width": 4.0,
+                "node_color": "#a67c52", "node_stroke": "#e0bc94",
+                "head_color": "#c69c6d", "head_stroke": "#5a3b22",
+                "highlight_color": "#e0bc94"}
+    }
+  }},
+  {"action": "fade_in", "who": "isaac", "rt": 0.2},
+  {"action": "fade_in", "who": "abraham", "rt": 0.2},
+  {"action": "sequence", "id": "s02_wrist_pull", "do": [
+    {"action": "constrain", "id": "isaac_root", "type": "root_lock", "who": "isaac"},
+    {"action": "constrain", "id": "grip", "type": "joint_to_joint",
+     "who": "abraham", "joint": "rwrist",
+     "target": "isaac", "target_joint": "lwrist", "blend": 6},
+    {"action": "wait", "frames": 6, "beat": "grab"},
+    {"action": "wait", "frames": 6, "beat": "nothing_moves"},
+    {"action": "morph", "who": "abraham", "pose": "pull_lean", "frames": 12, "beat": "pull"},
+    {"action": "wait", "frames": 6, "beat": "strain"},
+    {"action": "release", "id": "grip"},
+    {"action": "slip_on_back", "who": "abraham", "frames": 4, "beat": "slip"},
+    {"action": "wait", "frames": 9, "beat": "comic_hold"}
+  ]},
+  {"action": "wait", "t": 0.4}
+]

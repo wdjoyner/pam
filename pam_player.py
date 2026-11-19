@@ -563,6 +563,8 @@ from pam.poses import DOG_JOINTS, DOG_STANDING
 from pam.props import build_prop, resolve_position
 from pam.actions import ACTION_REGISTRY, _resolve_speaker
 from pam import hooks as _pam_hooks
+from pam import timeline as _pam_timeline
+from pam import constraints as _pam_constraints
 
 
 BG_COLOR    = "#0a0e1a"
@@ -2296,6 +2298,11 @@ class PAMPlayer(MovingCameraScene):
         # Scene definitions take priority on collision; no-op if absent.
         actions = _merge_sidecar(actions, script_path)
 
+        # ── timeline: expand sequences, convert "frames" to seconds ──────
+        # Returns the same list, untouched, unless the screenplay uses
+        # the new syntax (sequence / constrain / release / frames).
+        actions = _pam_timeline.expand(actions)
+
         # ── in-scene audio cues (v0.9.21, backburner item 7) ─────────────
         # Populated by {"action": "audio", "defaults": {...}} blocks;
         # consulted for every dispatched step (see the hook in the main
@@ -3217,6 +3224,38 @@ class PAMPlayer(MovingCameraScene):
 
             act = step["action"]
 
+            # ── timeline: sequences and contact constraints ──────────────
+            # See pam/timeline.py and pam/constraints.py.  None of this
+            # runs for a screenplay without the new syntax.
+            _tl = getattr(self, "_pam_timeline", None)
+            if _tl is not None and _tl.stack:
+                _tl.note_step(step)
+            if act in ("sequence", "_sequence_begin", "_sequence_end",
+                       "constrain", "release"):
+                if act == "_sequence_begin":
+                    _pam_timeline.get(self).begin(step.get("id"))
+                elif act == "_sequence_end":
+                    _mgr = _pam_constraints.get(self)
+                    for _c in list(_mgr.active):
+                        if getattr(_c, "sequence", None) == step.get("id"):
+                            _mgr.release(_c.id)
+                    _pam_timeline.get(self).end(step.get("id"))
+                elif act == "constrain":
+                    _c = _pam_constraints.build(step, _get_fig)
+                    if _c is not None:
+                        _seq = _pam_timeline.get(self).stack
+                        _c.sequence = _seq[-1]["id"] if _seq else None
+                        _pam_constraints.get(self).add(_c)
+                elif act == "release":
+                    if _pam_constraints.get(self).release(
+                            step.get("id")) is None:
+                        print(f"PAMPlayer: release — no active constraint "
+                              f"'{step.get('id')}', skipping.")
+                else:
+                    print("PAMPlayer: 'sequence' must be a top-level step "
+                          "with a 'do' list and no '_comment'; skipping.")
+                continue
+
             # ── in-scene audio cues (v0.9.21, backburner item 7) ─────────
             # The "audio" block registers action-type defaults; every
             # other step gets its cue (per-step "sound" key or the
@@ -3254,7 +3293,13 @@ class PAMPlayer(MovingCameraScene):
                     continue
 
                 if pause > 0:
-                    self.wait(pause)
+                    if "_frames" in step:
+                        # a wait given in frames (pam/timeline.py) is
+                        # stepped frame by frame so that it lasts
+                        # exactly that many frames
+                        self.wait(pause, frozen_frame=False)
+                    else:
+                        self.wait(pause)
                 continue
 
             # ── cast ─────────────────────────────────────────────────────

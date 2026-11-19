@@ -1395,6 +1395,40 @@ GRIP_BEHIND = {
 }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  PULL LEAN  (side view — leaning back hard against something immovable)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  Faces +x, like every side pose.  The back foot (lankle) stays where it
+#  is in STANDING_SIDE so the figure does not slide when it morphs into
+#  the lean; the front foot is braced forward, the hips are low and far
+#  back, and the trunk leans away from the thing being pulled.
+#
+#  The right (near) arm reaches forward.  It is normally held on its
+#  target by a joint_to_joint constraint (pam/constraints.py), which
+#  re-solves the elbow and wrist; the coordinates here are only where the
+#  arm goes when nothing holds it.  The left arm is flung back for
+#  balance.
+
+PULL_LEAN = {
+    "head":      _v(-1.55,  2.30),
+    "neck":      _v(-1.38,  1.65),
+    "lshoulder": _v(-1.30,  1.10),
+    "rshoulder": _v(-1.00,  1.14),
+    "torso":     _v(-0.95,  0.18),
+    "lelbow":    _v(-1.95,  0.62),
+    "relbow":    _v(-0.20,  1.10),
+    "lwrist":    _v(-2.45,  1.05),
+    "rwrist":    _v( 0.62,  1.06),
+    "lhip":      _v(-0.70, -0.78),
+    "rhip":      _v(-0.70, -0.78),
+    "lknee":     _v(-0.18, -1.62),
+    "rknee":     _v( 0.22, -1.46),
+    "lankle":    _v(-0.07, -2.60),
+    "rankle":    _v( 0.70, -2.60),
+}
+
+
 POSES = {
     # standing
     "standing_front": STANDING_FRONT,
@@ -1465,6 +1499,8 @@ POSES = {
     "stumble":        STUMBLE,
     "fall_catch":     FALL_CATCH,
     "on_hands_knees": ON_HANDS_KNEES,
+    # pulling against something immovable (see pam/constraints.py)
+    "pull_lean":      PULL_LEAN,
     # dodge
     "dodge_r":        DODGE_R,
     "dodge_l":        DODGE_L,
