@@ -1649,7 +1649,7 @@ The full scene is `abe-isaac_wrist-pull_slice.json`; render it with `./pam-rende
 
 A scene that uses any of this is traced as **trace version 5**: it adds `"fps": 15`, whole-frame `f0`/`f1` on every piece, the sequences with their beats, the constraint intervals, and a `sampled` piece holding the constrained limb's joints on every frame. `trace2blender.py` keys those samples directly, so the hand stays on the wrist in Blender. Other scenes are still written as version 4, unchanged.
 
-The modules are `pam/timeline.py`, `pam/constraints.py`, and `pam/choreography.py`; each starts with a description of what it does and why.
+The modules are `pam/timeline.py`, `pam/constraints.py`, and `pam/choreography.py`; each starts with a description of what it does and why. The key-by-key reference for all of this, and for the timed parallel blocks below, is section 9 of `pam-player_manual.md`.
 
 ### Timed parallel blocks: overlapping action on the frame clock
 

@@ -9,6 +9,8 @@ The key architectural point is this:
 **`pam_player.py` does not define its own argparse-style command-line flags.**
 You run it through **Manim’s CLI**, and you control PAM-specific behavior mainly with **environment variables**.
 
+This manual describes the player as of PAM 1.0.1, including the frame clock, sequences, timed parallel blocks and contact constraints added for the Blender roadmap (section 9). Module docstrings in `pam/timeline.py` and `pam/constraints.py` hold the design notes; the README has worked examples.
+
 ---
 
 ## 1. How to run it
@@ -36,8 +38,10 @@ PAM_SCRIPT=my_scene.json PAM_SHOW_CLOCK=1 manim -pql pam_player.py PAMPlayer
 ### Disable camera mode
 
 ```bash
-PAM_CAMERA_MODE=0 PAM_SCRIPT=my_scene.json manim -pql pam_player.py PAMPlayer
+PAM_CAMERA_MODE= PAM_SCRIPT=my_scene.json manim -pql pam_player.py PAMPlayer
 ```
+
+Set the variable to nothing, as shown. `PAM_CAMERA_MODE=0` leaves camera mode on (see section 3).
 
 ### Supply an explicit prompts JSON for camera-mode
 
@@ -127,7 +131,8 @@ Because the code uses Python `bool()` on the environment string, **any non-empty
 
 - `PAM_CAMERA_MODE=1` → on
 - `PAM_CAMERA_MODE=true` → on
-- `PAM_CAMERA_MODE=0` → **also truthy in pure Python terms** unless you explicitly rely on the code path/documented intent
+- `PAM_CAMERA_MODE=0` → **also on**, because the string `"0"` is truthy
+- `PAM_CAMERA_MODE=` (set to nothing) → off
 
 The documentation intends `0` to mean off, but the implementation uses `bool(string)` rather than a strict parser. If you want this behavior to be completely robust, the code would ideally parse values explicitly.
 
@@ -226,7 +231,7 @@ PAM_SCRIPT=scene.json manim -pqh pam_player.py PAMPlayer
 ### Debug a screenplay with camera disabled
 
 ```bash
-PAM_CAMERA_MODE=0 PAM_SCRIPT=scene.json manim -pql pam_player.py PAMPlayer
+PAM_CAMERA_MODE= PAM_SCRIPT=scene.json manim -pql pam_player.py PAMPlayer
 ```
 
 ---
@@ -344,6 +349,7 @@ A synchronization marker used by camera mode.
 - `_shot_meta` — optional inline shot metadata
 - `bg_color` — optional background color override
 - `zone` — optional spatial zone name
+- `at`, `frames` — only inside a timed `parallel` block (section 9): the frame the camera cuts on, and, for a move, how many frames it takes
 
 ### What it does
 Depending on the `move` field in shot metadata, the player may:
@@ -422,13 +428,18 @@ Character speech bubble.
 - `who` — speaker
 - `text` — required dialogue text
 - `hold` — bubble hold time, default 1.2
+- `rt_in`, `rt_out` — fade-in and fade-out times, defaults 0.4 and 0.3
 - `font_size` — default 20
 - `side` — bubble side, default `right`
 - `style` — `normal`, `os`, or `phone`
+- `persist` — keep the bubble until `clear_bubble` / `clear_all_bubbles`
+- `duration` — keep the bubble for this many seconds, then let it expire
+- `frames`, `frames_in`, `frames_out` — length of the whole line, and of its fades, in frames at 15 per second (section 9)
 
 ### Notes
 - consumes any deferred camera move so the camera can move together with the bubble fade-in
 - `style="os"` uses the off-screen/phone bubble variant
+- a `say` with `frames` lasts exactly that many frames, fades included, and can be a step of a timed `parallel` block, where it overlaps other action; a `say` without `frames` plays as it always has
 
 ---
 
@@ -769,13 +780,132 @@ Play multiple actions at once.
 - locomotion plans such as `walk_to`, `run_to`, and `trot_to` via interleaving
 
 ### Limitations
-`say` is **not** parallel-safe. Although the module docstring once listed it as such, `say` is absent from `_PARALLEL_OK` and its handler ignores `collect_anims` — it always fires sequentially via its own `self.play()` call. Place `say` outside any `parallel` block.
+In an ordinary `parallel` block every step shares the block's one run time, and `say` is **not** parallel-safe: its handler ignores `collect_anims` and always fires sequentially via its own `self.play()` call.
 
-Other multi-step choreography (`wave`, `sit_down`, `stand_up`, `carry`) also degrades to sequential execution.
+To overlap dialogue with movement, or to start steps on different frames, make the block a **timed** one (section 9) by giving its steps `at` and `frames`. A block without those keys plays exactly as described here.
+
+Other multi-step choreography (`wave`, `sit_down`, `stand_up`, `carry`) degrades to sequential execution in an ordinary block and is not allowed in a timed one.
 
 ---
 
-## 9. Actions delegated through `ACTION_REGISTRY`
+## 9. The timeline: frames, sequences, timed parallel blocks, constraints
+
+All of this is opt-in. A screenplay that uses none of the keys and actions below is loaded and played exactly as before.
+
+## The frame clock and `frames`
+
+The timeline counts in frames at **15 per second**, the frame rate of `manim -ql` (which `pam-render` uses by default). Manim's 30 and 60 fps qualities are whole multiples of it, so a length in frames is exact at every quality.
+
+`"frames": n` gives a step's length in frames. Use it in place of the action's seconds key (`rt`, `t`, `hold`), not with it; if both are present the frames win and `pam-validate` warns.
+
+```json
+{"action": "morph", "who": "abraham", "pose": "pull_lean", "frames": 12}
+{"action": "wait", "frames": 9, "beat": "comic_hold"}
+```
+
+At the top level and in a `sequence`, `frames` is understood by `wait`, `morph`, `turn`, `scale`, `slip_on_back`, `fade_out`, `say`, and a timed `parallel` block. More actions accept it inside a timed block (below).
+
+## `sequence`
+
+A named run of steps on the frame clock.
+
+### Keys
+- `id` — name used in the console report and the trace
+- `do` — the steps, played in order exactly as at the top level
+
+### Notes
+- the console reports the frames the sequence ran on, and any step that did not take the frames it asked for
+- `"beat": "name"` on a step names the frame it starts on; beats are reported and written to the trace
+- constraints started in a sequence end with it
+
+## Timed `parallel` blocks
+
+A `parallel` block is timed when the block has `frames`, or when any step in its `do` list has `at`, `frames`, `frames_in` or `frames_out`, is a `sequence`, or is a camera marker. Each step then starts on its own frame and lasts its own number of frames.
+
+```json
+{"action": "parallel", "id": "s02_overlap", "frames": 84, "do": [
+  {"action": "sequence", "id": "abraham_arrives", "do": [
+    {"action": "walk_to", "who": "abraham", "x": 0.8, "frames": 30, "beat": "walk_in"},
+    {"action": "morph", "who": "abraham", "pose": "look_up_point", "frames": 6}
+  ]},
+  {"action": "turn", "who": "isaac", "pose": "standing_side", "at": 6, "frames": 9},
+  {"action": "say", "who": "isaac", "text": "You walked all this way?", "at": 12, "frames": 30},
+  {"_subscene_marker": "s02_overlap_medium", "at": 30,
+   "_shot_meta": {"framing": "medium", "subject": "isaac", "move": "static"}},
+  {"action": "wait", "at": 75, "frames": 9, "beat": "comic_hold"}
+]}
+```
+
+### Keys on the block
+- `do` — the steps
+- `id` — name used in the console report and the trace
+- `frames` — the block lasts exactly this long; what is left after its last step is stillness. Without it the block ends when its last step ends
+- `rt` — default length, in seconds, of a step that gives none (default 0.4, which is 6 frames)
+- `rt_per_kf` — default seconds per keyframe of a walk, run or trot (default 0.20, which is 3 frames)
+
+### Keys on a step
+- `at` — the frame, counted from the start of the block, on which the step starts (default 0). Only for steps written directly in the block
+- `frames` — the step's length. Without it the step's seconds key is used, then the block's `rt`
+- `beat` — names the frame the step starts on
+
+### What a step may be
+
+| Step | What it does in a timed block |
+|---|---|
+| `morph`, `turn`, `scale`, `slip_on_back`, `fade_out` | one move over the step's frames |
+| `walk_to`, `run_to`, `trot_to` | with `frames`, the whole move takes exactly that long; without, each keyframe takes 3 frames and the length depends on the distance |
+| `say` | the bubble fades in, holds, and fades out as three timed pieces. `frames` is the whole line, `frames_in` and `frames_out` the fades (defaults 6 and 5). With `persist` there is no fade-out. Human, alien and dog characters |
+| `wait` | stillness; with a `sound` key and no length, a sound effect on an exact frame |
+| `constrain`, `release` | the contact starts or ends on that frame |
+| `_subscene_marker` | a camera cut on that frame; with `frames`, or an animated `move` (`push`, `pull`, `pan-follow`, `drift`, `zoom`), the camera travels for that long |
+| `sequence` | a track: its steps follow one another, the first starting on the sequence's `at`. Use one per actor |
+
+### Limitations
+- Actions that play several animations of their own cannot be steps of a timed block: `wave`, `nod`, `shake_head`, `shrug`, `carry`, `sit_down`, `stand_up`, `rotate`, `prop_say`, and the camera moves `pan-up`, `pan-down`, `descend`, `push-into`. The player skips such a step with a message; `pam-validate` reports it as an error. Put it before or after the block.
+- A `parallel` block cannot be a step of a timed block, and a `sequence` cannot be nested in a `sequence` there.
+- If two steps move the same figure on the same frames, the one written later wins on those frames.
+- A bubble shown by `say` stays where it appeared. For a character who talks while walking, use `persist`.
+- `depth` on a walk is ignored, as in an ordinary `parallel` block.
+
+### Notes
+- Seconds inside a timed block are rounded to the nearest whole frame, halves up, and never to less than one frame (0.3 s is 5 frames). `pam-validate` lists every value that was rounded.
+- A step's `sound`, and its character's `sfx`, starts on the frame the step starts.
+- Within one frame the order is fixed: steps that end on it are finished first, then steps that start on it are started, both in the order they are written. Two renders of the same screenplay are identical frame for frame.
+- The console lists the frames every step ran on.
+
+## `constrain`
+
+Start a contact constraint between figures. See `pam/constraints.py` for the solver's rules.
+
+### Keys
+- `id` — name used by `release` and in reports (required)
+- `type` — `joint_to_joint` or `root_lock`
+- `who` — the figure that yields
+- `joint` — the wrist or ankle that is held on the target (`root_lock`: the joint that stays put, default `lankle`)
+- `target`, `target_joint` — the other figure and the joint the hand stays on (`joint_to_joint`)
+- `blend` — frames the hand takes to reach the target (default 0: at once)
+- `frames` — release by itself after this many frames
+- `bend` — `keep` (default), `up` or `down`: which way the elbow or knee bends
+
+### Notes
+- `joint_to_joint` solves the elbow or knee on every frame; bone lengths do not change and the joint never flips side
+- if the target is out of reach the limb straightens toward it, and the shortfall is reported
+- `root_lock` keeps a figure where it stands, whatever else tries to move it
+
+## `release`
+
+End a constraint on the current frame.
+
+### Keys
+- `id` — the constraint to end
+
+## Checking a screenplay first
+
+`pam-validate scene.json` checks all of the above without rendering. `pam-validate scene.json --frames` also lists every duration in the screenplay that is not a whole number of frames at 15 fps, with the value it rounds to.
+
+---
+
+## 10. Actions delegated through `ACTION_REGISTRY`
 
 Many core animation verbs are not implemented inline in `pam_player.py`; they are handed off to `pam.actions.ACTION_REGISTRY`.
 
@@ -802,7 +932,7 @@ For the manual, it is worth stating that **the player is both a dispatcher and a
 
 ---
 
-## 10. Camera metadata reference
+## 11. Camera metadata reference
 
 When camera mode is active, the player consumes `shot_meta` dictionaries.
 
@@ -846,7 +976,7 @@ Usually:
 
 ---
 
-## 11. Extra camera parameters for special move types
+## 12. Extra camera parameters for special move types
 
 ## `pan-up`
 
@@ -893,15 +1023,16 @@ Uses normal framing and subject plus built-in timing.
 
 ---
 
-## 12. What `pam_player.py` does not do
+## 13. What `pam_player.py` does not do
 
 It is important to document the negative space too.
 
 `pam_player.py` does **not**:
 
 - define a traditional `argparse` CLI
-- convert Fountain directly
-- export Blender scenes
+- convert Fountain directly (`fountain2pam.py` does)
+- export Blender scenes (`pam_trace.py` records a trace of the performance, and `trace2blender.py` builds the `.blend` from it)
+- validate a screenplay (`pam-validate` does, without rendering)
 - define every action implementation inline
 - own Manim’s quality flags or output options
 
@@ -909,7 +1040,7 @@ Those responsibilities belong to other parts of the PAM toolchain.
 
 ---
 
-## 13. Practical troubleshooting notes
+## 14. Practical troubleshooting notes
 
 ## If nothing renders
 Check these first:
@@ -943,7 +1074,7 @@ Common causes:
 
 ---
 
-## 14. Best documentation wording for the CLI section
+## 15. Best documentation wording for the CLI section
 
 If you want a compact, precise statement for the final README, use this:
 
@@ -951,7 +1082,7 @@ If you want a compact, precise statement for the final README, use this:
 
 ---
 
-## 15. Minimal operator reference card
+## 16. Minimal operator reference card
 
 ```bash
 # Default screenplay.json
@@ -972,7 +1103,7 @@ PAM_SCRIPT=scene.json manim -pqh pam_player.py PAMPlayer
 
 ---
 
-## 16. Bottom line
+## 17. Bottom line
 
 For users, the most important distinction is:
 
