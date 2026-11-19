@@ -1,0 +1,77 @@
+[
+ {
+  "action": "set_background",
+  "color": "#a9c8e6"
+ },
+ {
+  "action": "props",
+  "rt": 0.2,
+  "items": {
+   "altar": {
+    "type": "altar",
+    "x": 1.6,
+    "y": -2.6
+   },
+   "rock": {
+    "type": "rock",
+    "x": -3.2,
+    "y": -2.6,
+    "width": 0.5,
+    "height": 0.45
+   }
+  }
+ },
+ {
+  "action": "fade_in",
+  "who": "isaac",
+  "rt": 0.2
+ },
+ {
+  "action": "fade_in",
+  "who": "abraham",
+  "rt": 0.2
+ },
+ {
+  "action": "prop_transition",
+  "prop": "knife.handle",
+  "frames": 9,
+  "beat": "handle_down",
+  "attached": {
+   "to": null,
+   "x": -2.2,
+   "y": -2.57,
+   "angle": 0
+  }
+ },
+ {
+  "action": "wait",
+  "frames": 9
+ },
+ {
+  "action": "prop_transition",
+  "prop": "phone",
+  "frames": 9,
+  "beat": "isaac_recovers_phone",
+  "display": {
+   "comment": null
+  },
+  "attached": {
+   "to": "isaac",
+   "joint": "rwrist",
+   "by": "bottom"
+  }
+ },
+ {
+  "action": "prop_transition",
+  "prop": "phone",
+  "display": {
+   "viewers": 900
+  },
+  "frames": 20,
+  "beat": "count_climbs_again"
+ },
+ {
+  "action": "wait",
+  "frames": 9
+ }
+]

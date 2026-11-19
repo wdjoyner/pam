@@ -564,6 +564,7 @@ from pam.props import build_prop, resolve_position
 from pam.actions import ACTION_REGISTRY, _resolve_speaker
 from pam import hooks as _pam_hooks
 from pam import timeline as _pam_timeline
+from pam import prop_states as _pam_prop_states
 from pam import constraints as _pam_constraints
 from pam import choreography as _pam_choreography
 
@@ -1458,7 +1459,8 @@ def _apply_prop_rescale(prop, depth_scale: float) -> None:
 def _build_prop_items(items: dict, registry: PropRegistry,
                       scene, rt: float = 0.5,
                       depth_cfg: "_DepthConfig | None" = None,
-                      cast: dict | None = None) -> None:
+                      cast: dict | None = None,
+                      states=None) -> None:
     """
     Build and register a batch of prop specs, respecting parent order.
 
@@ -1481,6 +1483,10 @@ def _build_prop_items(items: dict, registry: PropRegistry,
                entry that also declares "depth", the cast entry's
                depth/rescale wins; a mismatch is warned once (2.5D
                step 6). None (the default) skips this check entirely.
+    states   : the scene's prop-state manager (pam/prop_states.py), or
+               None when the screenplay has no stateful prop.  A
+               stateful prop is handed to it; it then decides whether
+               the prop is shown, and where.
     """
     if depth_cfg is None:
         depth_cfg = _DepthConfig()
@@ -1529,6 +1535,14 @@ def _build_prop_items(items: dict, registry: PropRegistry,
         if hasattr(prop, "set_z_index"):
             prop.set_z_index(_d)   # D3: world layer bands by depth
         registry.add(pname, prop)
+        # the parts of a composite prop are props in their own right
+        for _part, _pmob in (getattr(prop, "pam_parts", None) or {}).items():
+            registry.add(f"{pname}.{_part}", _pmob)
+        if states is not None and states.wants(pname, items[pname]):
+            # a stateful prop: its state and attachment decide whether
+            # it is on stage (pam/prop_states.py)
+            if not states.register(pname, prop, items[pname]):
+                continue
         if hidden:
             # Register the prop (so parents/children can resolve it) but
             # keep it invisible until a spawn_prop action reveals it.
@@ -2006,6 +2020,10 @@ class _SoundCues:
 # Only declaration blocks are honoured; any other action type found in
 # a sidecar is ignored with a warning — a sidecar declares the world,
 # it does not animate it.
+#
+# One more block lives in the same file: "continuity", the ledger of
+# what state each prop is in at the end of every scene.  It is read and
+# written by pam/prop_states.py, not merged here.
 
 _SIDECAR_ACTIONS = ("cast", "faces", "scene_props", "props")
 
@@ -2057,6 +2075,8 @@ def _merge_sidecar(actions: list, script_path: str) -> list:
 
     for block in sidecar:
         a = block.get("action")
+        if a == _pam_prop_states.CONTINUITY:
+            continue    # the continuity ledger: see pam/prop_states.py
         if a not in _SIDECAR_ACTIONS:
             if a is not None:
                 ignored_types.add(a)
@@ -2100,6 +2120,13 @@ def _merge_sidecar(actions: list, script_path: str) -> list:
           f"{n_chars} character(s), {n_faces} face(s), "
           f"{n_props} prop(s){_ov}.")
     return actions
+
+
+# Existing actions that change a prop pam/prop_states.py may be
+# following: its state (doors, a lid, the Governor) or where it is.
+_PROP_LEGACY_ACTIONS = (frozenset(_pam_prop_states.LEGACY_STATE_ACTIONS)
+                        | frozenset(_pam_prop_states.LEGACY_ATTACH_ACTIONS)
+                        | {"prop_color", "reparent_prop", "remove_prop"})
 
 
 class PAMPlayer(MovingCameraScene):
@@ -2299,6 +2326,23 @@ class PAMPlayer(MovingCameraScene):
         # Scene definitions take priority on collision; no-op if absent.
         actions = _merge_sidecar(actions, script_path)
 
+        # ── stateful props and the continuity ledger ─────────────────────
+        # See pam/prop_states.py.  When the sidecar has a "continuity"
+        # block that lists this scene, the props it carries from scene
+        # to scene are declared here, opening as the scene before left
+        # them.  Nothing happens for any other screenplay.
+        actions, _n_continuity, _continuity = \
+            _pam_prop_states.with_continuity(actions, script_path)
+        _states_on = (_continuity is not None
+                      or _pam_prop_states.uses_states(actions))
+        if _continuity is not None:
+            for _lv, _, _msg in _continuity.ledger.problems:
+                print(f"PAMPlayer: continuity ledger — {_msg}.")
+            print(f"PAMPlayer: continuity ledger — scene "
+                  f"'{_continuity.scene}' opens from "
+                  f"'{_continuity.source}' "
+                  f"({len(_continuity.opening)} prop(s)).")
+
         # ── timeline: expand sequences, convert "frames" to seconds ──────
         # Returns the same list, untouched, unless the screenplay uses
         # the new syntax (sequence / constrain / release / frames).
@@ -2392,10 +2436,10 @@ class PAMPlayer(MovingCameraScene):
         # later step's list index down by one relative to the
         # screenplay file — the warning registry compensates so its
         # array_index values match what the author sees in the JSON.
-        _step_index_offset = 0
+        _step_index_offset = -_n_continuity
         if actions and actions[0].get("action") == "title":
             td = actions.pop(0)
-            _step_index_offset = 1
+            _step_index_offset += 1
             title_mob = (
                 Text(
                     td.get("text", "PAM"), font="Courier New",
@@ -3203,6 +3247,90 @@ class PAMPlayer(MovingCameraScene):
                 mob = getattr(mob, "group", None)   # governor, dog
             return mob
 
+        # ── stateful props (pam/prop_states.py) ──────────────────────────
+        def _prop_names() -> dict:
+            """Every live prop and scene object, with its type."""
+            out = {n: getattr(m, "pam_type", None)
+                   for n, m in props.items()
+                   if getattr(m, "pam_dog", None) is None}
+            for n, entry in _scene_objects.items():
+                out.setdefault(n, getattr(entry.get("mob"), "pam_type",
+                                          None))
+            return out
+
+        def _prop_states():
+            """The scene's prop-state manager, created on first use."""
+            mgr = _pam_prop_states.get(self)
+            if mgr is None:
+                mgr = _pam_prop_states.StateManager(
+                    self, _get_fig, _tl_prop, cast, names=_prop_names)
+                mgr.continuity = _continuity
+                mgr.declared = _pam_prop_states.scan_declarations(actions)
+                self._pam_prop_states = mgr
+            return mgr
+
+        _states = _prop_states() if _states_on else None
+
+        def _prop_transition_now(step: dict) -> None:
+            """A prop_transition that takes no time."""
+            mgr = _prop_states()
+            ch = mgr.read(step)
+            if not ch.ok or not ch.changed:
+                return
+            bound = (mgr.world.machine(ch.prop) or {}).get("bound")
+            mgr.begin(ch, timed=False)
+            if bound and "state" in ch.changed:
+                # doors, a lid, the Governor: the prop's own method
+                # plays the change, as its own action always has
+                mgr.enter_bound(ch.prop, ch.to_state,
+                                step.get("run_time", step.get("rt", 0.6)))
+
+        def _tl_prop_step(step: dict, info: dict, block):
+            """A prop_transition as a step of a timed block: the state
+            changes on the frame it starts; a move, and a number that
+            climbs, take the step's frames."""
+            Phase = _pam_timeline.Phase
+            mgr = _prop_states()
+            ch = mgr.read(step)
+            if not ch.ok:
+                return None
+            end_sfx = None
+            if not block.quiet:
+                end_sfx = _tl_sound(step, "prop_transition")
+            n = int(info["frames"] or 0)
+            if not ch.changed:
+                return {"phases": [Phase(n)] if n else [], "end": end_sfx}
+            bound = (mgr.world.machine(ch.prop) or {}).get("bound")
+            if bound and "state" in ch.changed:
+                n = max(n, 1)
+                col = _pam_prop_states.Collector(self)
+                mgr.begin(ch, timed=True)
+                mgr.enter_bound(ch.prop, ch.to_state,
+                                _pam_timeline.frames_to_seconds(n),
+                                scene=col)
+                anims = list(col.anims)
+                return {"phases": [Phase(n, lambda: anims)],
+                        "end": end_sfx}
+            moving = mgr.begin(ch, timed=True)
+            if n <= 0:
+                return {"phases": [], "end": end_sfx}
+            travel = _pam_prop_states.travel_animation
+            if "display" not in ch.changed:
+                return {"phases": [Phase(
+                    n, (lambda: [travel(mgr, moving)]) if moving else None,
+                    after=lambda: mgr.finish(ch, moving))],
+                    "end": end_sfx}
+            # A display may only be redrawn between two plays, so a
+            # number that climbs is one play per frame.
+            phases = []
+            for k in range(n):
+                phases.append(Phase(
+                    1,
+                    (lambda k=k: [travel(mgr, moving, k / n, (k + 1) / n)])
+                    if moving else None,
+                    after=(lambda k=k: mgr.show_ramp(ch, k + 1, n, moving))))
+            return {"phases": phases, "end": end_sfx}
+
         def _tl_constrain(step: dict) -> None:
             _c = _pam_constraints.build(step, _get_fig, _tl_prop)
             if _c is not None:
@@ -3458,6 +3586,8 @@ class PAMPlayer(MovingCameraScene):
                 return started
             if kind == "loco":
                 return _tl_loco(step, info)
+            if kind == "prop":
+                return _tl_prop_step(step, info, block)
             if kind != "anim":
                 return None
             # a single-move action: ask its handler for the animations
@@ -3527,6 +3657,7 @@ class PAMPlayer(MovingCameraScene):
                 _init_frame.move_to(np.array([0.0, -0.5, 0]))
 
         # ── main dispatch loop ───────────────────────────────────────────
+        _legacy_prop_step = None    # see "stateful props" in the loop
         for _step_idx, step in enumerate(actions):
             # v0.9.23 (item 6 Option C): keep the structured warning
             # registry's cursor pointing at the step being executed, so
@@ -3590,6 +3721,18 @@ class PAMPlayer(MovingCameraScene):
                 continue
 
             act = step["action"]
+
+            # ── stateful props: existing actions that move one ───────────
+            # (pam/prop_states.py; only when the screenplay has stateful
+            # props.)  The action that just ended is entered in the
+            # books, and a prop this action is about to move is let go.
+            if _states is not None:
+                if _legacy_prop_step is not None:
+                    _states.note_legacy(_legacy_prop_step)
+                    _legacy_prop_step = None
+                if act in _PROP_LEGACY_ACTIONS:
+                    _states.before_legacy(step)
+                    _legacy_prop_step = step
 
             # ── timeline: sequences and contact constraints ──────────────
             # See pam/timeline.py and pam/constraints.py.  None of this
@@ -3836,7 +3979,8 @@ class PAMPlayer(MovingCameraScene):
             if act == "scene_props":
                 _build_prop_items(step.get("items", {}), props, self,
                                   rt=step.get("rt", 0.5),
-                                  depth_cfg=_depth_cfg, cast=cast)
+                                  depth_cfg=_depth_cfg, cast=cast,
+                                  states=_states)
                 continue
 
             # ── scene_objects ────────────────────────────────────────────
@@ -3900,7 +4044,21 @@ class PAMPlayer(MovingCameraScene):
             if act == "props":
                 _build_prop_items(step.get("items", {}), props, self,
                                   rt=step.get("rt", 0.5),
-                                  depth_cfg=_depth_cfg, cast=cast)
+                                  depth_cfg=_depth_cfg, cast=cast,
+                                  states=_states)
+                continue
+
+            # ── prop_transition ──────────────────────────────────────────
+            # Put a prop in a state, move it (or its parts) to a new
+            # attachment, or change what its display shows.  See
+            # pam/prop_states.py for the keys.  A transition that takes
+            # time ("frames") is played by the timeline's block runner,
+            # further down; this is the one that happens at once.
+            if act == "prop_transition" and \
+                    not _pam_prop_states.is_timed_transition(step):
+                if step.get("beat") and not (_tl is not None and _tl.stack):
+                    _pam_timeline.get(self).note_beat(step["beat"], 0)
+                _prop_transition_now(step)
                 continue
 
             # ── reparent_prop ────────────────────────────────────────────
@@ -3944,6 +4102,11 @@ class PAMPlayer(MovingCameraScene):
                     else:
                         self.remove(prop)   # instant, no animation
                     del props[pname]
+                    # a composite prop goes with its parts
+                    for _part in (getattr(prop, "pam_parts", None) or {}):
+                        props._store.pop(f"{pname}.{_part}", None)
+                    if _states is not None:
+                        _states.forget(pname)
                     # Path C (v0.9.14): symmetric counterpart to step C's
                     # dual-entry on spawn_prop and step B's dual-entry on
                     # cast fade_in.  When a dual-registered dog is
@@ -4067,6 +4230,11 @@ class PAMPlayer(MovingCameraScene):
                     else:
                         for m in doomed:
                             self.remove(m)
+
+                # Stateful props leave the stage with the rest; their
+                # state stays in the books (pam/prop_states.py).
+                if _states is not None:
+                    _states.clear_stage()
 
                 # Background back to the player default.
                 self.camera.background_color = BG_COLOR
@@ -4365,6 +4533,12 @@ class PAMPlayer(MovingCameraScene):
                         prop.pam_attach_type = "head"
 
                 props.add(pname, prop)
+                for _part, _pmob in (getattr(prop, "pam_parts", None)
+                                     or {}).items():
+                    props.add(f"{pname}.{_part}", _pmob)
+                if _states is not None and _states.wants(pname, step):
+                    if not _states.register(pname, prop, step):
+                        continue
                 self.play(FadeIn(prop), run_time=rt)
                 continue
 
@@ -5369,7 +5543,8 @@ class PAMPlayer(MovingCameraScene):
                     (act == "parallel"
                      and _pam_timeline.is_timed_parallel(step))
                     or (act == "say" and _pam_timeline.is_timed_say(step))
-                    or _pam_timeline.is_routine(step)):
+                    or _pam_timeline.is_routine(step)
+                    or _pam_prop_states.is_timed_transition(step)):
                 # a beat on the step itself: inside a sequence it has
                 # been noted already (note_step, above)
                 if step.get("beat") and not (_tl is not None and _tl.stack):
@@ -5381,7 +5556,8 @@ class PAMPlayer(MovingCameraScene):
                     _tl_run({"action": "parallel",
                              "id": (f"say_{step.get('who')}" if act == "say"
                                     else step.get("id")
-                                    or f"{act}_{step.get('who')}"),
+                                    or f"{act}_"
+                                       f"{step.get('who') or step.get('prop')}"),
                              "do": [{k: v for k, v in step.items()
                                      if k not in ("at", "beat")}]},
                             quiet=True)
@@ -5605,6 +5781,16 @@ class PAMPlayer(MovingCameraScene):
         # v0.9.23 (item 18): a final step's end-triggered sfx has no
         # next iteration to flush it — flush here.
         _flush_end_sfx()
+
+        # ── stateful props: close the books ──────────────────────────────
+        # The last action is entered, the props are checked (no part
+        # lost, none attached to something that is not there), and the
+        # scene's closing entry goes into the continuity ledger.
+        _states = _pam_prop_states.get(self)
+        if _states is not None:
+            if _legacy_prop_step is not None:
+                _states.note_legacy(_legacy_prop_step)
+            _states.close()
 
         # ── clean up title, clock, and persistent caption ──────────────────
         if pcap_mob:

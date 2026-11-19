@@ -1,0 +1,39 @@
+[
+ {
+  "action": "set_background",
+  "color": "#a9c8e6"
+ },
+ {
+  "action": "fade_in",
+  "who": "isaac",
+  "rt": 0.2
+ },
+ {
+  "action": "fade_in",
+  "who": "abraham",
+  "rt": 0.2
+ },
+ {
+  "action": "parallel",
+  "id": "s03_climb",
+  "do": [
+   {
+    "action": "walk_to",
+    "who": "isaac",
+    "x": 2.4,
+    "frames": 24
+   },
+   {
+    "action": "walk_to",
+    "who": "abraham",
+    "x": 0.2,
+    "at": 6,
+    "frames": 30
+   }
+  ]
+ },
+ {
+  "action": "wait",
+  "frames": 9
+ }
+]

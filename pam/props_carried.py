@@ -2,9 +2,21 @@
 PAM props_carried.py
 ~~~~~~~~~~~~~~~~~~~~
 Props carried or held by characters: hat, briefcase, folder, phone (all
-styles), audio_video_bug, backpack, laptop.
+styles), audio_video_bug, backpack, laptop, knife (with its parts
+knife_handle and knife_blade), satchel.
 
 version 0.9.8
+
+Stateful props (Milestone 4, Stage 4a)
+--------------------------------------
+``knife``   a composite prop: a handle and a blade that are two props
+            from the start (``knife.handle``, ``knife.blade``).  Its
+            states (intact, broken, blade_carried, blade_embedded) are
+            in ``pam/prop_states.py``.
+``phone``   the cellphone has a display.  ``group.pam_draw_display``
+            redraws its screen for a state (standby, recording, live)
+            and its display fields (viewers, comment).  A phone that no
+            step puts in a state is drawn exactly as before.
 """
 
 from __future__ import annotations
@@ -12,7 +24,7 @@ import numpy as np
 from manim import *
 from pam.props_core import (
     PROP_DEFAULTS, _attach_pam_attrs, _apply_attrs,
-    resolve_position, _make_label,
+    resolve_position, _make_label, compose_parts,
 )
 
 
@@ -329,6 +341,10 @@ def build_phone(name: str, x=0.0, y=0.0,
 
     group = VGroup(*parts)
     group.pam_phone_style = style   # queryable by player / actions
+    if style == "cellphone":
+        # the display (pam/prop_states.py): nothing is drawn until a
+        # step puts the phone in a state
+        group.pam_draw_display = _phone_display(group, body, screen)
 
     _apply_attrs(group, attrs or {})
     return _attach_pam_attrs(
@@ -337,6 +353,294 @@ def build_phone(name: str, x=0.0, y=0.0,
         attachments=attachments,
         parent=parent, attach=attach, attrs=attrs,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  PHONE DISPLAY  (what a cellphone's screen shows, by state)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#   standby          recording            live
+#   ┌───────┐        ┌───────┐            ┌───────┐
+#   │       │        │       │            │ [LIVE]│  ← red badge
+#   │ (dim) │        │       │            │  128  │  ← viewer count
+#   │       │        │ (LIVE)│  ← big     │ IS IT │  ← comment
+#   └───────┘        └───────┘    red     └───────┘
+#                                 button
+#
+# Sizes are fractions of the phone body, measured on the body as it is
+# drawn, so the display follows a phone that is scaled, rescaled by
+# depth, or turned.
+
+PHONE_SCREENS = ("standby", "record_button", "live")
+_PHONE_RED = "#e02020"
+
+
+def _wrap_words(text: str, width: int = 10) -> list:
+    """Split *text* into lines of at most *width* characters, breaking
+    at spaces (a longer word gets a line of its own)."""
+    lines, cur = [], ""
+    for word in str(text).split():
+        if cur and len(cur) + 1 + len(word) > width:
+            lines.append(cur)
+            cur = word
+        else:
+            cur = (cur + " " + word).strip()
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def _phone_display(group, body, screen):
+    """Return ``draw(screen_name, display)`` for a cellphone.
+
+    ``screen_name`` is one of ``PHONE_SCREENS``; ``display`` holds the
+    fields ``viewers`` (a whole number) and ``comment`` (text or None).
+    Each call replaces what the screen showed before.  Call it between
+    two plays, not in the middle of one: Manim decides at the start of
+    a play which mobjects it draws.
+    """
+    font = PROP_DEFAULTS["label_font"]
+
+    def _fit(mob, w, h):
+        if mob.width > 1e-9 and mob.height > 1e-9:
+            mob.scale(min(w / mob.width, h / mob.height))
+        return mob
+
+    def draw(screen_name, display):
+        old = getattr(group, "pam_display_ui", None)
+        if old is not None:
+            group.remove(old)
+            group.pam_display_ui = None
+        on = screen_name in ("record_button", "live")
+        screen.set_fill(opacity=0.45 if on else 0.15)
+        if not on:
+            return None
+        # the body as it is drawn now: size, center and turn
+        v = body.get_vertices()
+        w = float(np.linalg.norm(v[0] - v[1]))
+        h = float(np.linalg.norm(v[1] - v[2]))
+        ang = float(np.arctan2(v[0][1] - v[1][1], v[0][0] - v[1][0]))
+        k = w / 0.22
+        ui = VGroup()
+        if screen_name == "record_button":
+            button = Circle(radius=0.050 * k, color=WHITE,
+                            fill_color=_PHONE_RED, fill_opacity=1.0,
+                            stroke_width=1.5)
+            button.move_to(np.array([0, -0.26 * h, 0]))
+            label = _fit(Text("LIVE", font=font, color=WHITE,
+                              weight=BOLD), 0.070 * k, 0.030 * k)
+            label.move_to(button.get_center())
+            ui.add(button, label)
+        else:
+            badge = RoundedRectangle(
+                width=0.105 * k, height=0.042 * k, corner_radius=0.008 * k,
+                color=_PHONE_RED, fill_color=_PHONE_RED, fill_opacity=1.0,
+                stroke_width=0.5)
+            badge.move_to(np.array([0, 0.27 * h, 0]))
+            label = _fit(Text("LIVE", font=font, color=WHITE,
+                              weight=BOLD), 0.075 * k, 0.026 * k)
+            label.move_to(badge.get_center())
+            ui.add(badge, label)
+            count = _fit(Text(f"{int(display.get('viewers') or 0):,}",
+                              font=font, color=WHITE),
+                         0.150 * k, 0.050 * k)
+            count.move_to(np.array([0, 0.08 * h, 0]))
+            ui.add(count)
+            comment = display.get("comment")
+            if comment:
+                lines = _wrap_words(comment)[:4]
+                text = _fit(Text("\n".join(lines), font=font,
+                                 color="#ffe08a", line_spacing=0.8),
+                            0.150 * k, 0.090 * k)
+                text.move_to(np.array([0, -0.20 * h, 0]))
+                ui.add(text)
+        # drawn upright about the origin; now onto the body
+        ui.rotate(ang, about_point=ORIGIN)
+        ui.shift(body.get_center())
+        try:
+            ui.set_z_index(group.z_index)
+        except Exception:
+            pass
+        group.add(ui)
+        group.pam_display_ui = ui
+        return ui
+
+    return draw
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  KNIFE  (composite prop: a wooden handle and a separate blade)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#   ┌────────┐◣━━━━━━━━━━━━━━━━◤
+#   │ handle │      blade       >     ← angle 0: blade points to +x
+#   └────────┘◥━━━━━━━━━━━━━━━━◣
+#
+# The two parts are props in their own right from the start, registered
+# as "<name>.handle" and "<name>.blade".  The knife group draws nothing
+# of its own.  Whether the parts move together is the knife's state
+# (pam/prop_states.py); they never reattach once apart.
+
+KNIFE_HANDLE = dict(length=0.16, width=0.055)
+KNIFE_BLADE = dict(length=0.26, width=0.066)
+# part centers from the knife's center (also in prop_states.MACHINES)
+KNIFE_OFFSETS = {"handle": (-0.13, 0.0), "blade": (0.08, 0.0)}
+
+
+def build_knife_handle(name: str, x=0.0, y=0.0, color=None,
+                       parent=None, attach=None, attrs=None,
+                       prop_registry=None, **kwargs) -> VGroup:
+    """Build a knife handle: a short wooden grip, lying along x.
+
+    Parameters
+    ----------
+    name   : registry name.
+    x, y   : center of the handle.
+    color  : wood color.  Default ``"#8b5a2b"``.
+    attrs  : visual overrides (``"scale"``, ``"inclination"``).
+    """
+    c = color or "#8b5a2b"
+    L, W = KNIFE_HANDLE["length"], KNIFE_HANDLE["width"]
+    grip = RoundedRectangle(
+        width=L, height=W, corner_radius=W * 0.3, color=c,
+        fill_color="#6b4423", fill_opacity=1.0,
+        stroke_width=PROP_DEFAULTS["stroke_width"],
+    ).move_to(np.array([x, y, 0]))
+    rivets = [Dot(np.array([x + dx, y, 0]), radius=0.008, color="#d8c9a8")
+              for dx in (-L * 0.22, L * 0.22)]
+    group = VGroup(grip, *rivets)
+    group.pam_model = {"kind": "knife_handle", "length": L, "width": W}
+    _apply_attrs(group, attrs or {})
+    return _attach_pam_attrs(
+        group, name, "knife_handle", x, y, surface_y=y + W / 2,
+        attachments={"centre": np.array([x, y, 0]),
+                     "surface": np.array([x, y + W / 2, 0])},
+        parent=parent, attach=attach, attrs=attrs)
+
+
+def build_knife_blade(name: str, x=0.0, y=0.0, color=None,
+                      parent=None, attach=None, attrs=None,
+                      prop_registry=None, **kwargs) -> VGroup:
+    """Build a knife blade: a battered steel blade whose point is at +x.
+
+    Parameters
+    ----------
+    name   : registry name.
+    x, y   : center of the blade's bounding box.
+    color  : steel color.  Default ``"#c8ccd0"``.
+    attrs  : visual overrides (``"scale"``, ``"inclination"``).
+    """
+    c = color or "#c8ccd0"
+    L, W = KNIFE_BLADE["length"], KNIFE_BLADE["width"]
+    h, w = L / 2, W / 2
+    pts = [(-h, -w), (-h, w), (h * 0.45, w * 0.9), (h, 0.0),
+           (h * 0.45, -w * 0.9)]
+    steel = Polygon(*[np.array([x + px, y + py, 0]) for px, py in pts],
+                    color=c, fill_color="#9aa0a6", fill_opacity=1.0,
+                    stroke_width=PROP_DEFAULTS["stroke_width"])
+    # two nicks in the edge: the knife has seen better days
+    nicks = [Line(np.array([x + dx, y - w, 0]),
+                  np.array([x + dx + 0.012, y - w + 0.02, 0]),
+                  color="#5d6368", stroke_width=1.5)
+             for dx in (-h * 0.35, h * 0.1)]
+    group = VGroup(steel, *nicks)
+    group.pam_model = {"kind": "knife_blade", "length": L, "width": W}
+    _apply_attrs(group, attrs or {})
+    return _attach_pam_attrs(
+        group, name, "knife_blade", x, y, surface_y=y + w,
+        attachments={"centre": np.array([x, y, 0]),
+                     "surface": np.array([x, y + w, 0]),
+                     "tip": np.array([x + h, y, 0])},
+        parent=parent, attach=attach, attrs=attrs)
+
+
+def build_knife(name: str, x=0.0, y=0.0, color=None, blade_color=None,
+                parent=None, attach=None, attrs=None,
+                prop_registry=None, **kwargs) -> VGroup:
+    """Build a knife: a composite prop of a handle and a blade.
+
+    Parameters
+    ----------
+    name        : registry name.  The parts are ``"<name>.handle"`` and
+                  ``"<name>.blade"``.
+    x, y        : center of the whole knife.
+    color       : handle (wood) color.
+    blade_color : blade (steel) color.
+    attrs       : visual overrides (``"scale"``, ``"inclination"``).
+
+    Returns a VGroup with ``.pam_composite`` and ``.pam_parts``
+    (``{"handle": VGroup, "blade": VGroup}``); see
+    ``props_core.compose_parts``.  States, transitions and attachments
+    are in ``pam/prop_states.py``::
+
+        {"action": "props", "items": {"knife": {"type": "knife",
+            "attached": {"to": "abraham", "joint": "rwrist",
+                         "by": "blade"}}}}
+        {"action": "prop_transition", "prop": "knife", "to": "broken",
+         "parts": {"handle": {"attached": {"to": "isaac"}},
+                   "blade": {"attached": {"to": "bowl", "mode": "in"}}}}
+    """
+    hx, hy = KNIFE_OFFSETS["handle"]
+    bx, by = KNIFE_OFFSETS["blade"]
+    handle = build_knife_handle(f"{name}.handle", x + hx, y + hy,
+                                color=color)
+    blade = build_knife_blade(f"{name}.blade", x + bx, y + by,
+                              color=blade_color)
+    group = VGroup(handle, blade)
+    _apply_attrs(group, attrs or {})
+    return compose_parts(group, name, "knife", x, y,
+                         {"handle": handle, "blade": blade},
+                         parent=parent, attach=attach, attrs=attrs)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SATCHEL  (shoulder bag: things go in it and come out of it)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_satchel(name: str, x=0.0, y=0.0, color=None, label=None,
+                  parent=None, attach=None, attrs=None,
+                  prop_registry=None, **kwargs) -> VGroup:
+    """Build a small leather satchel with a flap and a shoulder strap.
+
+    Parameters
+    ----------
+    name   : registry name.
+    x, y   : center of the bag's body.
+    color  : leather color.  Default ``"#7a5230"``.
+    attrs  : visual overrides (``"scale"``, ``"inclination"``).
+
+    Attachment points: ``"centre"``, ``"surface"`` (the top of the body,
+    where things go in), ``"floor"``.
+    """
+    c = color or "#7a5230"
+    W, H = 0.34, 0.26
+    body = RoundedRectangle(
+        width=W, height=H, corner_radius=0.05, color=c,
+        fill_color="#5c3d22", fill_opacity=1.0,
+        stroke_width=PROP_DEFAULTS["stroke_width"],
+    ).move_to(np.array([x, y, 0]))
+    flap = Polygon(
+        np.array([x - W / 2, y + H / 2 - 0.02, 0]),
+        np.array([x + W / 2, y + H / 2 - 0.02, 0]),
+        np.array([x + W / 2 - 0.04, y + 0.01, 0]),
+        np.array([x - W / 2 + 0.04, y + 0.01, 0]),
+        color=c, fill_color="#6b4728", fill_opacity=1.0, stroke_width=1.5)
+    clasp = Dot(np.array([x, y + 0.01, 0]), radius=0.016, color="#d8b25a")
+    strap = ArcBetweenPoints(
+        np.array([x - W / 2 + 0.03, y + H / 2, 0]),
+        np.array([x + W / 2 - 0.03, y + H / 2, 0]),
+        angle=-PI * 0.9, color=c, stroke_width=2.5)
+    parts = [strap, body, flap, clasp]
+    if label:
+        parts.append(_make_label(label, x, y - H / 2 - 0.08))
+    group = VGroup(*parts)
+    _apply_attrs(group, attrs or {})
+    return _attach_pam_attrs(
+        group, name, "satchel", x, y, surface_y=y + H / 2,
+        attachments={"centre": np.array([x, y, 0]),
+                     "surface": np.array([x, y + H / 2, 0]),
+                     "floor": np.array([x, y - H / 2, 0])},
+        parent=parent, attach=attach, attrs=attrs)
 
 def build_briefcase(name: str, x=0.0, y=0.0,
                     color=None, label=None,

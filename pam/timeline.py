@@ -89,6 +89,9 @@ list, and the validator and the player both read it):
 * ``wait``: stillness, usually with a ``beat``; with a ``sound`` key and
   no duration it is a sound effect on an exact frame;
 * ``constrain`` and ``release``: a contact starts or ends on that frame;
+* ``prop_transition`` (``pam/prop_states.py``): a prop changes state on
+  that frame; with ``frames`` its move to a new attachment, or a number
+  on its display that climbs, takes that long;
 * a choreography routine (``pull_immovable``, ``cork_pop_up``,
   ``mismatched_hug``; see ``pam/choreography.py``): its phases follow
   one another, each a set number of frames;
@@ -194,7 +197,8 @@ DEFAULT_SECONDS_KEY = "rt"
 # Actions for which ``frames`` is understood at the top level and in a
 # sequence.  ``say`` and ``parallel`` are played by the block runner
 # below; ``constrain`` reads its own ``frames``.
-FRAME_ACTIONS = (frozenset(SECONDS_KEY) | {"constrain", "parallel"}
+FRAME_ACTIONS = (frozenset(SECONDS_KEY) | {"constrain", "parallel",
+                                           "prop_transition"}
                  | _specs.TIMELINE_ROUTINES)
 
 # Keys that only the timeline understands.  A step that carries one is
@@ -299,6 +303,13 @@ def is_routine(step) -> bool:
             and "_comment" not in step and "_hint" not in step)
 
 
+def is_prop_transition(step) -> bool:
+    """True for a ``prop_transition`` step (``pam/prop_states.py``)."""
+    return (isinstance(step, dict)
+            and step.get("action") == "prop_transition"
+            and "_comment" not in step and "_hint" not in step)
+
+
 def routine_layout(step):
     """The phases of a routine step and their lengths in frames.
 
@@ -382,7 +393,8 @@ def is_timed_parallel(step) -> bool:
         if not isinstance(sub, dict):
             continue
         if _is_marker(sub) or sub.get("action") == "sequence" \
-                or any(k in sub for k in TIMED_KEYS) or is_routine(sub):
+                or any(k in sub for k in TIMED_KEYS) or is_routine(sub) \
+                or is_prop_transition(sub):
             return True
     return False
 
@@ -398,7 +410,8 @@ def uses_timeline(actions) -> bool:
         subs = s.get("do")
         if not isinstance(subs, list):
             return False
-        return any(_step(x) or _is_marker(x) for x in subs)
+        return any(_step(x) or _is_marker(x) or is_prop_transition(x)
+                   for x in subs)
     return isinstance(actions, list) and any(_step(s) for s in actions)
 
 
@@ -410,7 +423,8 @@ def _convert_frames(step: dict) -> dict:
         return step             # constrain reads its own "frames"
     if act == "parallel" and not is_timed_parallel(step):
         return step             # an ordinary parallel block
-    if act == "parallel" or is_timed_say(step) or is_routine(step):
+    if act == "parallel" or is_timed_say(step) or is_routine(step) \
+            or is_prop_transition(step):
         # played by the block runner, which reads the frame keys itself
         n = describe(step).get("frames")
         return step if n is None else {**step, "_frames": n}
@@ -500,8 +514,8 @@ def describe(step, block=None, meta=None) -> dict:
 
     ``kind``      ``"anim"``, ``"loco"``, ``"say"``, ``"wait"``,
                   ``"instant"`` (constrain, release), ``"camera"``,
-                  ``"routine"``, ``"sequence"``, ``"parallel"`` or
-                  ``"unsupported"``
+                  ``"routine"``, ``"prop"`` (prop_transition),
+                  ``"sequence"``, ``"parallel"`` or ``"unsupported"``
     ``frames``    its length in frames; None when that is known only
                   when it plays (a walk without ``frames``)
     ``rounded``   [(key, seconds, frames)] for every duration given in
@@ -600,6 +614,13 @@ def describe(step, block=None, meta=None) -> dict:
 
     if act in ("constrain", "release"):
         out["kind"], out["frames"] = "instant", 0
+        return out
+
+    if act == "prop_transition":
+        # the state changes on the step's first frame; "frames" is how
+        # long a move, or a climbing number, takes (pam/prop_states.py)
+        out["kind"] = "prop"
+        out["frames"] = frames if frames is not None else 0
         return out
 
     if act == "wait":

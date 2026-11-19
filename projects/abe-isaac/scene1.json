@@ -1,0 +1,21 @@
+[
+ {
+  "action": "set_background",
+  "color": "#a9c8e6"
+ },
+ {
+  "action": "fade_in",
+  "who": "abraham",
+  "rt": 0.2
+ },
+ {
+  "action": "wait",
+  "frames": 15,
+  "beat": "writes"
+ },
+ {
+  "action": "fade_out",
+  "who": "abraham",
+  "rt": 0.2
+ }
+]

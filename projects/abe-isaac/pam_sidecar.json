@@ -1,0 +1,474 @@
+[
+  {
+    "action": "cast",
+    "characters": {
+      "isaac": {
+        "figure_type": "human",
+        "build": "broad",
+        "gender": "male",
+        "pose": "standing_front",
+        "scale": {
+          "sy": 0.8,
+          "sx": 0.92,
+          "anchor": "lankle"
+        },
+        "offset": [
+          1.0,
+          0,
+          0
+        ],
+        "torso_color": "#b3261e",
+        "shoe_color": "#5a3b22",
+        "style": {
+          "head_label": "Isaac",
+          "edge_color": "#b07d48",
+          "edge_width": 4.0,
+          "node_color": "#a67c52",
+          "node_stroke": "#e0bc94",
+          "head_color": "#c69c6d",
+          "head_stroke": "#5a3b22",
+          "highlight_color": "#e0bc94"
+        }
+      },
+      "abraham": {
+        "figure_type": "human",
+        "build": "narrow",
+        "gender": "male",
+        "pose": "standing_side",
+        "scale": {
+          "sy": 0.48,
+          "sx": 0.48,
+          "anchor": "lankle"
+        },
+        "offset": [
+          -1.2,
+          0,
+          0
+        ],
+        "torso_color": "#3d5a80",
+        "shoe_color": "#5a3b22",
+        "style": {
+          "head_label": "Abe",
+          "edge_color": "#b07d48",
+          "edge_width": 4.0,
+          "node_color": "#a67c52",
+          "node_stroke": "#e0bc94",
+          "head_color": "#c69c6d",
+          "head_stroke": "#5a3b22",
+          "highlight_color": "#e0bc94"
+        }
+      }
+    }
+  },
+  {
+    "action": "continuity",
+    "scenes": [
+      "scene1",
+      "scene2",
+      "scene3",
+      "scene4",
+      "scene5",
+      "scene6"
+    ],
+    "props": {
+      "satchel": {
+        "type": "satchel",
+        "attached": {
+          "to": "abraham",
+          "joint": "lhip",
+          "offset": [
+            0.0,
+            -0.12
+          ]
+        }
+      },
+      "knife": {
+        "type": "knife",
+        "attached": {
+          "to": "satchel",
+          "mode": "in",
+          "hidden": true
+        }
+      },
+      "phone": {
+        "type": "phone",
+        "attached": {
+          "to": "isaac",
+          "joint": "rwrist",
+          "by": "bottom",
+          "hidden": true
+        }
+      }
+    },
+    "ledger": {
+      "scene1": {
+        "opens_from": "initial",
+        "props": {
+          "satchel": {
+            "type": "satchel",
+            "attached": {
+              "to": "abraham",
+              "kind": "character",
+              "joint": "lhip",
+              "mode": "held",
+              "offset": [
+                0.0,
+                -0.12
+              ]
+            }
+          },
+          "knife": {
+            "type": "knife",
+            "state": "intact",
+            "attached": {
+              "to": "satchel",
+              "kind": "prop",
+              "mode": "in",
+              "hidden": true
+            },
+            "parts": {
+              "handle": {
+                "type": "knife_handle",
+                "attached": {
+                  "to": "knife",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              },
+              "blade": {
+                "type": "knife_blade",
+                "attached": {
+                  "to": "knife",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              }
+            }
+          },
+          "phone": {
+            "type": "phone",
+            "state": "standby",
+            "attached": {
+              "to": "isaac",
+              "kind": "character",
+              "joint": "rwrist",
+              "mode": "held",
+              "by": "bottom",
+              "hidden": true
+            },
+            "display": {
+              "viewers": 0,
+              "comment": null
+            }
+          }
+        }
+      },
+      "scene2": {
+        "opens_from": "scene1",
+        "props": {
+          "satchel": {
+            "type": "satchel",
+            "attached": {
+              "to": "abraham",
+              "kind": "character",
+              "joint": "lhip",
+              "mode": "held",
+              "offset": [
+                0.0,
+                -0.12
+              ]
+            }
+          },
+          "knife": {
+            "type": "knife",
+            "state": "broken",
+            "parts": {
+              "handle": {
+                "type": "knife_handle",
+                "attached": {
+                  "to": "satchel",
+                  "kind": "prop",
+                  "mode": "in",
+                  "angle": 180.0,
+                  "hidden": true
+                }
+              },
+              "blade": {
+                "type": "knife_blade",
+                "attached": {
+                  "to": "satchel",
+                  "kind": "prop",
+                  "mode": "in",
+                  "angle": 180.0,
+                  "hidden": true
+                }
+              }
+            }
+          },
+          "phone": {
+            "type": "phone",
+            "state": "standby",
+            "attached": {
+              "to": "isaac",
+              "kind": "character",
+              "joint": "rhip",
+              "mode": "held",
+              "hidden": true
+            },
+            "display": {
+              "viewers": 0,
+              "comment": null
+            }
+          }
+        }
+      },
+      "scene3": {
+        "opens_from": "scene2",
+        "props": {
+          "satchel": {
+            "type": "satchel",
+            "attached": {
+              "to": "abraham",
+              "kind": "character",
+              "joint": "lhip",
+              "mode": "held",
+              "offset": [
+                0.0,
+                -0.12
+              ]
+            }
+          },
+          "knife": {
+            "type": "knife",
+            "state": "broken",
+            "parts": {
+              "handle": {
+                "type": "knife_handle",
+                "attached": {
+                  "to": "satchel",
+                  "kind": "prop",
+                  "mode": "in",
+                  "angle": 180.0,
+                  "hidden": true
+                }
+              },
+              "blade": {
+                "type": "knife_blade",
+                "attached": {
+                  "to": "satchel",
+                  "kind": "prop",
+                  "mode": "in",
+                  "angle": 180.0,
+                  "hidden": true
+                }
+              }
+            }
+          },
+          "phone": {
+            "type": "phone",
+            "state": "standby",
+            "attached": {
+              "to": "isaac",
+              "kind": "character",
+              "joint": "rhip",
+              "mode": "held",
+              "hidden": true
+            },
+            "display": {
+              "viewers": 0,
+              "comment": null
+            }
+          }
+        }
+      },
+      "scene4": {
+        "opens_from": "scene3",
+        "props": {
+          "satchel": {
+            "type": "satchel",
+            "attached": {
+              "to": "abraham",
+              "kind": "character",
+              "joint": "lhip",
+              "mode": "held",
+              "offset": [
+                0.0,
+                -0.12
+              ]
+            }
+          },
+          "knife": {
+            "type": "knife",
+            "state": "blade_carried",
+            "parts": {
+              "handle": {
+                "type": "knife_handle",
+                "attached": {
+                  "to": "abraham",
+                  "kind": "character",
+                  "joint": "rwrist",
+                  "mode": "held",
+                  "angle": 180.0
+                }
+              },
+              "blade": {
+                "type": "knife_blade",
+                "attached": {
+                  "to": "satchel",
+                  "kind": "prop",
+                  "mode": "in",
+                  "angle": 180.0,
+                  "hidden": true
+                }
+              }
+            }
+          },
+          "phone": {
+            "type": "phone",
+            "state": "recording",
+            "attached": {
+              "to": "abraham",
+              "kind": "character",
+              "joint": "lwrist",
+              "mode": "held",
+              "by": "bottom"
+            },
+            "display": {
+              "viewers": 0,
+              "comment": null
+            }
+          }
+        }
+      },
+      "scene5": {
+        "opens_from": "scene4",
+        "props": {
+          "satchel": {
+            "type": "satchel",
+            "attached": {
+              "to": null,
+              "kind": "world",
+              "x": -1.25,
+              "y": -2.47,
+              "mode": "free"
+            }
+          },
+          "knife": {
+            "type": "knife",
+            "state": "blade_embedded",
+            "parts": {
+              "handle": {
+                "type": "knife_handle",
+                "attached": {
+                  "to": "abraham",
+                  "kind": "character",
+                  "joint": "rwrist",
+                  "mode": "held",
+                  "angle": 180.0
+                }
+              },
+              "blade": {
+                "type": "knife_blade",
+                "attached": {
+                  "to": "altar",
+                  "kind": "prop",
+                  "point": [
+                    -0.2998,
+                    0.176
+                  ],
+                  "mode": "embedded",
+                  "by": "bottom",
+                  "offset": [
+                    0.0,
+                    -0.08
+                  ],
+                  "angle": 270.0
+                }
+              }
+            }
+          },
+          "phone": {
+            "type": "phone",
+            "state": "live",
+            "attached": {
+              "to": "rock",
+              "kind": "prop",
+              "point": "top",
+              "mode": "on",
+              "by": "bottom"
+            },
+            "display": {
+              "viewers": 480,
+              "comment": "IS THAT A REAL KNIFE"
+            }
+          }
+        }
+      },
+      "scene6": {
+        "opens_from": "scene5",
+        "props": {
+          "satchel": {
+            "type": "satchel",
+            "attached": {
+              "to": null,
+              "kind": "world",
+              "x": -1.25,
+              "y": -2.47,
+              "mode": "free"
+            }
+          },
+          "knife": {
+            "type": "knife",
+            "state": "blade_embedded",
+            "parts": {
+              "handle": {
+                "type": "knife_handle",
+                "attached": {
+                  "to": null,
+                  "kind": "world",
+                  "x": -2.2,
+                  "y": -2.57,
+                  "mode": "free",
+                  "angle": 0.0
+                }
+              },
+              "blade": {
+                "type": "knife_blade",
+                "attached": {
+                  "to": "altar",
+                  "kind": "prop",
+                  "point": [
+                    -0.2998,
+                    0.176
+                  ],
+                  "mode": "embedded",
+                  "by": "bottom",
+                  "offset": [
+                    0.0,
+                    -0.08
+                  ],
+                  "angle": 270.0
+                }
+              }
+            }
+          },
+          "phone": {
+            "type": "phone",
+            "state": "live",
+            "attached": {
+              "to": "isaac",
+              "kind": "character",
+              "joint": "rwrist",
+              "mode": "held",
+              "by": "bottom"
+            },
+            "display": {
+              "viewers": 900,
+              "comment": null
+            }
+          }
+        }
+      }
+    }
+  }
+]

@@ -2,9 +2,23 @@
 PAM props_environment.py
 ~~~~~~~~~~~~~~~~~~~~~~~~
 Background and environment props: dodecahedron, building, sun, moon,
-solar_panel, wire, backdrop, tv_monitor, avatar_pod.
+solar_panel, wire, backdrop, tv_monitor, avatar_pod, crosswalk, rock,
+altar, bowl.
 
 version 0.9.8
+
+Props with a state
+------------------
+The avatar pod's lid (``is_open``, ``open_lid``, ``close_lid``) and the
+Governor's color state (``gold``, ``amber``, ``dark``) are state
+machines of ``pam/prop_states.py`` (``lid`` and ``governor``), bound to
+the attribute and the methods the props have always had: ::
+
+    {"action": "prop_transition", "prop": "pod", "to": "open"}
+
+does what ``open_lid`` does, through the same method.  ``rock``,
+``altar`` and ``bowl`` are plain things for other props to rest on, go
+into, or stick in.
 """
 
 from __future__ import annotations
@@ -1417,3 +1431,142 @@ def build_crosswalk(
         },
         parent=parent, attach=attach, attrs=attrs,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  ROCK, ALTAR, BOWL  (plain things other props rest on, go into, stick in)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _stone(cx, base_y, w, h, color, fill, seed=0):
+    """An irregular stone outline standing on *base_y*."""
+    # eight points around an ellipse, nudged by a fixed pattern so that
+    # no two renders differ
+    nudge = [0.00, 0.10, -0.06, 0.08, 0.02, -0.08, 0.06, -0.04]
+    pts = []
+    for i in range(8):
+        a = PI + i * TAU / 8                # start at the left, clockwise
+        r = 1.0 + nudge[(i + seed) % 8]
+        px = cx + (w / 2) * r * np.cos(a)
+        py = base_y + h / 2 - (h / 2) * r * np.sin(a)
+        pts.append(np.array([px, max(py, base_y), 0]))
+    return Polygon(*pts, color=color, fill_color=fill, fill_opacity=1.0,
+                   stroke_width=PROP_DEFAULTS["stroke_width"])
+
+
+def build_rock(name: str, x=0.0, y=-2.6, width=0.6, height=0.4,
+               color=None, label=None,
+               parent=None, attach=None, attrs=None,
+               prop_registry=None, **kwargs) -> VGroup:
+    """Build a rock standing on the ground.
+
+    Parameters
+    ----------
+    name          : registry name.
+    x             : center x.
+    y             : ground level under the rock.  Default ``-2.6``.
+    width, height : overall size.
+    color         : outline color.  Default ``"#8a8478"``.
+
+    Attachment points: ``"surface"`` (the top), ``"centre"``, ``"floor"``.
+    """
+    c = color or "#8a8478"
+    stone = _stone(x, y, width, height, c, "#5f5a52")
+    parts = [stone]
+    if label:
+        parts.append(_make_label(label, x, y + height + 0.12))
+    group = VGroup(*parts)
+    _apply_attrs(group, attrs or {})
+    top = float(stone.get_top()[1])
+    return _attach_pam_attrs(
+        group, name, "rock", x, y, surface_y=top,
+        attachments={"surface": np.array([x, top, 0]),
+                     "centre": np.array([x, y + height / 2, 0]),
+                     "floor": np.array([x, y, 0])},
+        parent=parent, attach=attach, attrs=attrs)
+
+
+def build_altar(name: str, x=0.0, y=-2.6, width=1.8, height=0.55,
+                color=None, label=None,
+                parent=None, attach=None, attrs=None,
+                prop_registry=None, **kwargs) -> VGroup:
+    """Build a low altar of three stones, with a gap between the first
+    two (wide enough for a blade to stick in).
+
+    Parameters
+    ----------
+    name          : registry name.
+    x             : center x.
+    y             : ground level.  Default ``-2.6``.
+    width, height : overall size.
+    color         : outline color.  Default ``"#8a8478"``.
+
+    Attachment points: ``"surface"`` (the top, at the center), ``"gap"``
+    (the top of the gap between the first two stones), ``"centre"``,
+    ``"floor"``.  ``group.pam_gap`` is ``[dx, dy]`` of the gap from the
+    center of the altar's bounding box, for an attachment's ``point``.
+    """
+    c = color or "#8a8478"
+    gap = 0.05
+    w = (width - 2 * gap) / 3
+    stones, cx = [], x - width / 2 + w / 2
+    for i, hf in enumerate((0.92, 1.0, 0.86)):
+        stones.append(_stone(cx, y, w, height * hf, c, "#5f5a52", seed=i * 3))
+        cx += w + gap
+    parts = list(stones)
+    if label:
+        parts.append(_make_label(label, x, y + height + 0.12))
+    group = VGroup(*parts)
+    _apply_attrs(group, attrs or {})
+    top = max(float(s.get_top()[1]) for s in stones)
+    gap_x = x - width / 2 + w + gap / 2
+    gap_y = y + height * 0.80
+    center = group.get_center()
+    group.pam_gap = [float(gap_x - center[0]), float(gap_y - center[1])]
+    return _attach_pam_attrs(
+        group, name, "altar", x, y, surface_y=top,
+        attachments={"surface": np.array([x, top, 0]),
+                     "gap": np.array([gap_x, gap_y, 0]),
+                     "centre": np.array([x, y + height / 2, 0]),
+                     "floor": np.array([x, y, 0])},
+        parent=parent, attach=attach, attrs=attrs)
+
+
+def build_bowl(name: str, x=0.0, y=-2.6, width=0.5, height=0.2,
+               color=None, label=None,
+               parent=None, attach=None, attrs=None,
+               prop_registry=None, **kwargs) -> VGroup:
+    """Build a wooden bowl standing on *y*.
+
+    Parameters
+    ----------
+    name          : registry name.
+    x             : center x.
+    y             : what the bowl stands on.  Default ``-2.6`` (floor).
+    width, height : overall size.
+    color         : wood color.  Default ``"#8b5a2b"``.
+
+    Attachment points: ``"surface"`` (the rim, at the center),
+    ``"centre"``, ``"floor"``.
+    """
+    c = color or "#8b5a2b"
+    rim_y = y + height
+    body = ArcPolygon(
+        np.array([x - width / 2, rim_y, 0]),
+        np.array([x + width / 2, rim_y, 0]),
+        arc_config=[{"angle": 0.0}, {"angle": -PI * 0.85}],
+        color=c, fill_color="#6b4423", fill_opacity=1.0,
+        stroke_width=PROP_DEFAULTS["stroke_width"])
+    foot = Line(np.array([x - width * 0.18, y, 0]),
+                np.array([x + width * 0.18, y, 0]), color=c,
+                stroke_width=3.0)
+    parts = [foot, body]
+    if label:
+        parts.append(_make_label(label, x, rim_y + 0.12))
+    group = VGroup(*parts)
+    _apply_attrs(group, attrs or {})
+    return _attach_pam_attrs(
+        group, name, "bowl", x, y, surface_y=rim_y,
+        attachments={"surface": np.array([x, rim_y, 0]),
+                     "centre": np.array([x, y + height / 2, 0]),
+                     "floor": np.array([x, y, 0])},
+        parent=parent, attach=attach, attrs=attrs)

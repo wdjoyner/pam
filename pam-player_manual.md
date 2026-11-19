@@ -788,7 +788,7 @@ Other multi-step choreography (`wave`, `sit_down`, `stand_up`, `carry`) degrades
 
 ---
 
-## 9. The timeline: frames, sequences, timed parallel blocks, constraints, choreography routines
+## 9. The timeline: frames, sequences, timed parallel blocks, constraints, choreography routines, stateful props
 
 All of this is opt-in. A screenplay that uses none of the keys and actions below is loaded and played exactly as before.
 
@@ -803,7 +803,7 @@ The timeline counts in frames at **15 per second**, the frame rate of `manim -ql
 {"action": "wait", "frames": 9, "beat": "comic_hold"}
 ```
 
-At the top level and in a `sequence`, `frames` is understood by `wait`, `morph`, `turn`, `scale`, `slip_on_back`, `fade_out`, `say`, the choreography routines (`pull_immovable`, `cork_pop_up`, `mismatched_hug`), and a timed `parallel` block. More actions accept it inside a timed block (below).
+At the top level and in a `sequence`, `frames` is understood by `wait`, `morph`, `turn`, `scale`, `slip_on_back`, `fade_out`, `say`, the choreography routines (`pull_immovable`, `cork_pop_up`, `mismatched_hug`), `prop_transition`, and a timed `parallel` block. More actions accept it inside a timed block (below).
 
 ## `sequence`
 
@@ -820,7 +820,7 @@ A named run of steps on the frame clock.
 
 ## Timed `parallel` blocks
 
-A `parallel` block is timed when the block has `frames`, or when any step in its `do` list has `at`, `frames`, `frames_in` or `frames_out`, is a `sequence`, is a camera marker, or is a choreography routine. Each step then starts on its own frame and lasts its own number of frames.
+A `parallel` block is timed when the block has `frames`, or when any step in its `do` list has `at`, `frames`, `frames_in` or `frames_out`, is a `sequence`, is a camera marker, is a choreography routine, or is a `prop_transition`. Each step then starts on its own frame and lasts its own number of frames.
 
 ```json
 {"action": "parallel", "id": "s02_overlap", "frames": 84, "do": [
@@ -857,6 +857,7 @@ A `parallel` block is timed when the block has `frames`, or when any step in its
 | `say` | the bubble fades in, holds, and fades out as three timed pieces. `frames` is the whole line, `frames_in` and `frames_out` the fades (defaults 6 and 5). With `persist` there is no fade-out. Human, alien and dog characters |
 | `wait` | stillness; with a `sound` key and no length, a sound effect on an exact frame |
 | `constrain`, `release` | the contact starts or ends on that frame |
+| `prop_transition` | a prop changes state on that frame; with `frames`, its move to a new attachment, or a number on its display that climbs, takes that long (see "Stateful props" below) |
 | `pull_immovable`, `cork_pop_up`, `mismatched_hug` | a choreography routine (below): its phases follow one another, each a set number of frames; `frames` is the whole routine |
 | `_subscene_marker` | a camera cut on that frame; with `frames`, or an animated `move` (`push`, `pull`, `pan-follow`, `drift`, `zoom`), the camera travels for that long |
 | `sequence` | a track: its steps follow one another, the first starting on the sequence's `at`. Use one per actor |
@@ -864,6 +865,7 @@ A `parallel` block is timed when the block has `frames`, or when any step in its
 ### Limitations
 - Actions that play several animations of their own cannot be steps of a timed block: `wave`, `nod`, `shake_head`, `shrug`, `carry`, `sit_down`, `stand_up`, `rotate`, `prop_say`, and the camera moves `pan-up`, `pan-down`, `descend`, `push-into`. The player skips such a step with a message; `pam-validate` reports it as an error. Put it before or after the block.
 - A `parallel` block cannot be a step of a timed block, and a `sequence` cannot be nested in a `sequence` there.
+- Two `prop_transition` steps must not change the same prop on the same frames; `pam-validate` reports an error. Put them in one `sequence`.
 - Two steps must not move the same figure on the same frames. `morph`, `turn`, `scale`, `slip_on_back`, the walks and runs, and the choreography routines each set the figure's whole pose on every frame they run, so two of them at once make the figure jump: the one written later wins while they overlap, and the other takes over again when it ends. The player plays it anyway; `pam-validate` reports an error. Put the two steps in one `sequence`. A contact constraint is the exception: it repositions one limb on purpose and may run under any move.
 - A step owns the frames from its first up to, not including, the frame it ends on: a 12-frame step that starts on frame 6 owns frames 6 through 17. A step that starts on frame 18 only touches it and is fine.
 - A block's `frames` is a promise. If its steps need more, the player plays them to the end and says how far it ran over, and `pam-validate` reports an error, because every later beat would be that much late.
@@ -1018,6 +1020,155 @@ PAMPlayer: mismatched_hug 'hug' (abraham -> isaac) ran frames 97-127; arm 0.8648
 - the contacts are ordinary constraints, so the four rules of the solver apply. A routine that cannot reach says so and plays anyway
 - a routine sets the whole pose of the figures it moves (`who`; for `cork_pop_up` also `target`), so no other step may move them on the same frames: `pam-validate` reports an error
 - `abe-isaac_scene2-gags.json` plays all four routines, two of them inside timed blocks
+
+## Stateful props
+
+A stateful prop has a state (`intact`, `broken`, ...), may be made of parts, may have a display, and is kept on an attachment: a character's joint, another prop, or a place on the stage. One action changes all of it, `prop_transition`. The module is `pam/prop_states.py`; its first page is the full reference.
+
+A prop is stateful when its item says so (any of the keys `state`, `attached`, `parts`, `display`, `states`), when it is a composite type (`knife`, `composite_prop`), when a `prop_transition` names it, or when the continuity ledger carries it. Every other prop is built and played as before.
+
+```json
+{"action": "props", "items": {
+  "bowl":  {"type": "bowl", "x": -0.55},
+  "knife": {"type": "knife",
+            "attached": {"to": "abraham", "joint": "lhip", "hidden": true}},
+  "phone": {"type": "phone",
+            "attached": {"to": "isaac", "joint": "rwrist", "by": "bottom"}}}}
+```
+
+### Keys of a stateful prop item
+- `state` — the state it starts in (default: the machine's first state)
+- `attached` — where it starts (an attachment, below). Not the older `attach` key, which names a point on a `parent` and keeps its meaning
+- `display` — starting values of its display fields
+- `parts` — `{part: {"attached": {...}}}`: where the parts of a composite prop start when they are apart
+- `states`, `initial_state`, `transitions` — a machine of the item's own (see `composite_prop`)
+
+### Machines
+
+| Prop type | States | Notes |
+|---|---|---|
+| `knife` | `intact`, `broken`, `blade_carried`, `blade_embedded` | composite: parts `handle` and `blade`. Nothing leads back to `intact`. `blade_carried` needs the blade's attachment mode `in` or `held`; `blade_embedded` needs `embedded` |
+| `phone`, `cellphone`, `smartphone` | `standby`, `recording`, `live` | display fields `viewers` (a whole number) and `comment` (text or null) |
+| `pocket_door`, `elevator` | `closed`, `open` | the state is the prop's `is_open`; entering it calls `open_doors` / `close_doors` |
+| `avatar_pod`, `pod` | `closed`, `open` | `is_open`; `open_lid` / `close_lid` |
+| `dodecahedron` (the Governor) | `gold`, `amber`, `dark` | the Governor's own state; `set_state` |
+
+The last three rows are the props that already had a state. `elevator_open`, `elevator_close`, `open_lid`, `close_lid` and `prop_color` work as before and go through the same machine, so `{"action": "prop_transition", "prop": "lift", "to": "open"}` and `{"action": "elevator_open", "who": "lift"}` do the same thing.
+
+## `prop_transition`
+
+Put a prop in a state, move it or its parts to new attachments, change what its display shows, or any of these at once.
+
+```json
+{"action": "prop_transition", "prop": "knife",
+ "attached": {"to": "abraham", "joint": "rwrist", "by": "blade", "angle": 180}}
+
+{"action": "prop_transition", "prop": "knife", "to": "broken", "frames": 6,
+ "parts": {"handle": {"attached": {"to": "isaac", "joint": "lwrist"}},
+           "blade":  {"attached": {"to": "bowl", "point": "top", "mode": "in"},
+                      "rate": "rush_into"}}}
+
+{"action": "prop_transition", "prop": "phone", "to": "live", "display": {"viewers": 3}}
+{"action": "prop_transition", "prop": "phone", "display": {"viewers": 240}, "frames": 30}
+```
+
+### Keys
+- `prop` — the prop, or one part of a composite prop written `prop.part` (`knife.blade`)
+- `to` — the state to enter. Optional: a step may only move the prop or only change its display
+- `attached` — where the prop (or the named part) goes
+- `parts` — composite props: `{part: {"attached": {...}, "rate": ...}}`
+- `display` — new values of display fields
+- `frames` — how long the move, and a number that climbs, take (default 0: at once). The state changes on the first frame
+- `rate` — easing of the move: `smooth` (default), `linear`, `rush_into` (a fall), `rush_from`
+- `at`, `beat`, `sound` — as for any step of a timed block
+- `rt` or `run_time` — doors, lids and the Governor only, outside a timed block: the length of the prop's own animation in seconds (default 0.6)
+
+### An attachment
+- `to` — a character, a prop or scene object, or `null` (at rest on the stage)
+- `joint` — on a character: the joint the prop stays on (default `rwrist`)
+- `point` — on a prop: where, as for `joint_to_prop`: `center` (default), `top`, `bottom`, `left`, `right`, or `[dx, dy]` from its center
+- `by` — which place of the moved prop sits there: one of the same names, or a part of a composite prop (`"by": "blade"`). Default `center`
+- `offset` — `[dx, dy]` added to the target
+- `x`, `y` — with `"to": null`: where on the stage (default: where it is)
+- `angle` — the prop's orientation in degrees, counterclockwise (default: as it is). The knife's blade points to +x at 0
+- `mode` — what kind of attachment: `held` (default on a character), `on` (default on a prop), `in`, `embedded`, `free` (default at rest)
+- `hidden` — `true`: out of sight (in a satchel, in a pocket). The prop is not drawn, and is still there
+
+### Notes
+- an attachment is kept on every frame: the prop goes where the hand or the parent prop goes, also when the hand is held by a contact constraint
+- a prop attached to a character who has not faded in yet, or to a prop that is not on stage, is not drawn until they are
+- while a composite prop is in one piece its parts move with it, and a part cannot be attached by itself; once the pieces are apart the whole cannot be moved, only its parts. When it comes apart, a part the step does not mention stays where the whole was
+- the state changes only along the machine's transitions; a step that asks for anything else is skipped with a message, and `pam-validate` reports it as an error
+- with `frames`, a `prop_transition` runs on the frame clock wherever it stands: at the top level, in a `sequence`, or as a step of a timed `parallel` block
+- a number on a display climbs evenly over the step's frames, one value per frame; anything else on the display (a comment) is new from the first frame
+- in a timed block a door, lid or Governor transition needs `frames`
+- `reparent_prop`, `move_prop` and the hand-off actions (`pick_up`, `grab`, `hand_to`, `put_down`, `place_on`, `stick_to`, ...) keep their behavior. On a prop that is being kept on an attachment they let go of it first, and the new place is entered in the books
+- the console reports every change with its frame:
+
+```text
+PAMPlayer: prop 'knife' intact -> broken; knife.handle held by isaac (lwrist); knife.blade in bowl on frame 66, over 6 frames.
+```
+
+## The `knife`
+
+A composite prop: `knife.handle` and `knife.blade` are two props from the start, registered under those names, so a camera subject, a `joint_to_prop` constraint or an attachment can name either. The knife itself draws nothing of its own, so nothing is ever drawn twice, and the two parts are the same two props before and after it breaks. `"type": "knife_handle"` and `"type": "knife_blade"` can also be declared by themselves.
+
+`composite_prop` builds a composite from the parts its item lists, with a machine of its own:
+
+```json
+"sword": {"type": "composite_prop", "initial_state": "whole",
+          "parts": {"hilt": {"type": "knife_handle", "offset": [-0.13, 0]},
+                    "edge": {"type": "knife_blade", "offset": [0.08, 0]}},
+          "states": {"whole": {"connected": true}, "snapped": {"connected": false}}}
+```
+
+## The `phone`
+
+A cellphone's screen shows its state: dim in `standby`, a red LIVE button in `recording`, and in `live` a LIVE badge, the viewer count and a comment. The display and the phone's place are independent: a step may change one and leave the other.
+
+New plain props that the Abraham and Isaac scenes use, for other props to go into, rest on or stick in: `satchel`, `bowl`, `rock`, `altar` (three stones; `[-0.30, 0.18]` from its center is the gap between the first two).
+
+## The continuity ledger
+
+The ledger records, for each prop a film carries from scene to scene, its state, its parts and what each is attached to at the end of every scene. It is a `continuity` block in the project's cast-and-props sidecar (`pam_sidecar.json` next to the scenes, or `PAM_SIDECAR`):
+
+```json
+[
+  {"action": "cast", "characters": {"abraham": {...}, "isaac": {...}}},
+  {"action": "continuity",
+   "scenes": ["scene1", "scene2", "scene3", "scene4", "scene5", "scene6"],
+   "props": {
+     "knife": {"type": "knife",
+               "attached": {"to": "abraham", "joint": "lhip", "hidden": true}},
+     "phone": {"type": "phone",
+               "attached": {"to": "isaac", "joint": "rwrist", "hidden": true}}},
+   "ledger": {"scene1": {...}, "scene2": {...}}}
+]
+```
+
+### Keys of the `continuity` block
+- `scenes` — the scenes in playing order, by file name without `.json`
+- `props` — the props whose state carries over, as they are before the first scene
+- `ledger` — written by PAM: one closing entry per scene
+
+### How it works
+- a scene listed in `scenes` opens with every one of those props as the scene before left it. They are declared for the scene automatically; a prop the scene declares itself keeps the scene's item
+- playing a scene (`pam-render`, `pam_trace.py`) and validating it (`pam-validate`) both write its closing entry, with the same code. The file is rewritten only when an entry changes, and an entry holds no date, so validating a finished film again leaves the file as it is
+- a scene may state a carried prop's `state`, `attached`, `parts` or `display` itself. Where that differs from the ledger it is an override: allowed, and reported by `pam-validate` as a `ledger-override` warning, every time
+- `pam-validate` reports an error when a carried prop is attached to something the scene does not have, at the start or at the end of the scene, and when a composite prop has lost a part. A scene with errors does not write its entry, and an entry it wrote earlier is removed
+- if the scene before has no entry yet, the nearest earlier one is used and `pam-validate` warns (`ledger-missing`)
+- a scene that the block does not list, and any screenplay without such a sidecar, has no ledger
+
+```bash
+./pam-validate --project projects/abe-isaac   # every scene, in order, no rendering
+./pam-validate scene3.json                    # one scene; writes its entry
+./pam-validate scene3.json --no-ledger        # reads the ledger, writes nothing
+```
+
+`projects/abe-isaac` holds six scenes that take the knife and the phone through *Abraham and Isaac, Revisited*; `abe-isaac_knife-break.json` is the Scene 2 break by itself.
+
+### In the trace and in Blender
+A scene with stateful props is traced as version 5. `"prop_states"` names each such prop, the prop objects it is made of, its state from each frame on and what its display shows; `"prop_events"` lists every change (`prop_state_changed`) with its frame. `trace2blender.py` builds each part once, keeps it on its attachment, turns it, hides it, and gives the phone its screens. A hand held on a prop (`joint_to_prop`) is moved to where Blender puts the prop, and an empty named `contact.<id>` marks the held point.
 
 ## Checking a screenplay first
 
