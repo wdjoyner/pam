@@ -71,11 +71,22 @@
       "scene6"
     ],
     "props": {
-      "knife": {
-        "type": "knife",
+      "satchel": {
+        "type": "satchel",
         "attached": {
           "to": "abraham",
           "joint": "lhip",
+          "offset": [
+            0.0,
+            -0.12
+          ]
+        }
+      },
+      "knife": {
+        "type": "knife",
+        "attached": {
+          "to": "satchel",
+          "mode": "in",
           "hidden": true
         }
       },
@@ -93,14 +104,26 @@
       "scene1": {
         "opens_from": "initial",
         "props": {
-          "knife": {
-            "type": "knife",
-            "state": "intact",
+          "satchel": {
+            "type": "satchel",
             "attached": {
               "to": "abraham",
               "kind": "character",
               "joint": "lhip",
               "mode": "held",
+              "offset": [
+                0.0,
+                -0.12
+              ]
+            }
+          },
+          "knife": {
+            "type": "knife",
+            "state": "intact",
+            "attached": {
+              "to": "satchel",
+              "kind": "prop",
+              "mode": "in",
               "hidden": true
             },
             "parts": {
@@ -143,6 +166,19 @@
       "scene2": {
         "opens_from": "scene1",
         "props": {
+          "satchel": {
+            "type": "satchel",
+            "attached": {
+              "to": "abraham",
+              "kind": "character",
+              "joint": "lhip",
+              "mode": "held",
+              "offset": [
+                0.0,
+                -0.12
+              ]
+            }
+          },
           "knife": {
             "type": "knife",
             "state": "broken",
@@ -150,21 +186,21 @@
               "handle": {
                 "type": "knife_handle",
                 "attached": {
-                  "to": "abraham",
-                  "kind": "character",
-                  "joint": "rwrist",
-                  "mode": "held",
-                  "angle": 180.0
+                  "to": "satchel",
+                  "kind": "prop",
+                  "mode": "in",
+                  "angle": 180.0,
+                  "hidden": true
                 }
               },
               "blade": {
                 "type": "knife_blade",
                 "attached": {
-                  "to": "abraham",
-                  "kind": "character",
-                  "joint": "lwrist",
-                  "mode": "held",
-                  "angle": 180.0
+                  "to": "satchel",
+                  "kind": "prop",
+                  "mode": "in",
+                  "angle": 180.0,
+                  "hidden": true
                 }
               }
             }
@@ -189,6 +225,19 @@
       "scene3": {
         "opens_from": "scene2",
         "props": {
+          "satchel": {
+            "type": "satchel",
+            "attached": {
+              "to": "abraham",
+              "kind": "character",
+              "joint": "lhip",
+              "mode": "held",
+              "offset": [
+                0.0,
+                -0.12
+              ]
+            }
+          },
           "knife": {
             "type": "knife",
             "state": "broken",
@@ -199,6 +248,7 @@
                   "to": "satchel",
                   "kind": "prop",
                   "mode": "in",
+                  "angle": 180.0,
                   "hidden": true
                 }
               },
@@ -208,6 +258,7 @@
                   "to": "satchel",
                   "kind": "prop",
                   "mode": "in",
+                  "angle": 180.0,
                   "hidden": true
                 }
               }
@@ -228,49 +279,24 @@
               "comment": null
             }
           }
-        },
-        "overrides": [
-          {
-            "prop": "knife",
-            "part": "handle",
-            "what": "attached",
-            "ledger": {
-              "to": "abraham",
-              "kind": "character",
-              "joint": "rwrist",
-              "mode": "held",
-              "angle": 180.0
-            },
-            "scene": {
-              "to": "satchel",
-              "kind": "prop",
-              "mode": "in",
-              "hidden": true
-            }
-          },
-          {
-            "prop": "knife",
-            "part": "blade",
-            "what": "attached",
-            "ledger": {
-              "to": "abraham",
-              "kind": "character",
-              "joint": "lwrist",
-              "mode": "held",
-              "angle": 180.0
-            },
-            "scene": {
-              "to": "satchel",
-              "kind": "prop",
-              "mode": "in",
-              "hidden": true
-            }
-          }
-        ]
+        }
       },
       "scene4": {
         "opens_from": "scene3",
         "props": {
+          "satchel": {
+            "type": "satchel",
+            "attached": {
+              "to": "abraham",
+              "kind": "character",
+              "joint": "lhip",
+              "mode": "held",
+              "offset": [
+                0.0,
+                -0.12
+              ]
+            }
+          },
           "knife": {
             "type": "knife",
             "state": "blade_carried",
@@ -281,7 +307,8 @@
                   "to": "abraham",
                   "kind": "character",
                   "joint": "rwrist",
-                  "mode": "held"
+                  "mode": "held",
+                  "angle": 180.0
                 }
               },
               "blade": {
@@ -290,6 +317,7 @@
                   "to": "satchel",
                   "kind": "prop",
                   "mode": "in",
+                  "angle": 180.0,
                   "hidden": true
                 }
               }
@@ -315,6 +343,16 @@
       "scene5": {
         "opens_from": "scene4",
         "props": {
+          "satchel": {
+            "type": "satchel",
+            "attached": {
+              "to": null,
+              "kind": "world",
+              "x": -1.25,
+              "y": -2.47,
+              "mode": "free"
+            }
+          },
           "knife": {
             "type": "knife",
             "state": "blade_embedded",
@@ -325,7 +363,8 @@
                   "to": "abraham",
                   "kind": "character",
                   "joint": "rwrist",
-                  "mode": "held"
+                  "mode": "held",
+                  "angle": 180.0
                 }
               },
               "blade": {
@@ -368,6 +407,16 @@
       "scene6": {
         "opens_from": "scene5",
         "props": {
+          "satchel": {
+            "type": "satchel",
+            "attached": {
+              "to": null,
+              "kind": "world",
+              "x": -1.25,
+              "y": -2.47,
+              "mode": "free"
+            }
+          },
           "knife": {
             "type": "knife",
             "state": "blade_embedded",

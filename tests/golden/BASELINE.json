@@ -105,18 +105,18 @@
     },
     "abe-isaac_knife-break.json": {
       "golden": "abe-isaac_knife-break.trace.json",
-      "fixture_sha256": "2d4215271a274435e49573ac82cde92144a6235625136e81539cc7076cbd061d",
+      "fixture_sha256": "08403e7593d31fda3ac75a9a520801f97a93d37153d1aaccf4cb7616e3051d73",
       "trace_version": 5,
       "hooks_version": 2,
-      "duration": 8.2,
+      "duration": 9.0,
       "cast": [
         "isaac",
         "abraham"
       ],
-      "plays": 83,
+      "plays": 91,
       "pieces": 18,
       "recorded_at": {
-        "commit": "a4fa19a279ee9305477469c820e11342bfcb1cb0",
+        "commit": "30b1d855b1a3161e129b28483e2f81b9644e9a7a",
         "tracked_files_modified": true,
         "pam_version": "1.0.1",
         "recorded": "2026-11-19"

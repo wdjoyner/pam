@@ -616,15 +616,15 @@ SCENES = ["scene1", "scene2", "scene3", "scene4", "scene5", "scene6"]
 # (writing-guides, shorts/abe-and-isaac/script.fountain):
 #   scene: (state, handle, blade), an attachment as (to, mode, hidden)
 KNIFE = {
-    # 1  not yet seen; Abraham has it on him
+    # 1  not yet seen: in one piece, in Abraham's satchel
     "scene1": ("intact", ("knife", "joined", False),
                ("knife", "joined", False)),
-    # 2  "Abraham gathers the two pieces of the knife and hurries after"
-    "scene2": ("broken", ("abraham", "held", False),
-               ("abraham", "held", False)),
+    # 2  "Abraham drops the two pieces of the knife into his satchel"
+    "scene2": ("broken", ("satchel", "in", True), ("satchel", "in", True)),
     # 3  "a satchel holding the two pieces of the knife"
     "scene3": ("broken", ("satchel", "in", True), ("satchel", "in", True)),
-    # 4  "drops the blade into his satchel and keeps the wooden handle"
+    # 4  "takes the two pieces of the knife out of his satchel, drops
+    #    the blade back in, and keeps the wooden handle"
     "scene4": ("blade_carried", ("abraham", "held", False),
                ("satchel", "in", True)),
     # 5  "sticks point-first in a gap between two stones"; he still
@@ -727,22 +727,26 @@ def test_knife_goes_through_the_script_inside_each_scene(project):
 
     assert trail("scene1") == []
     assert trail("scene2") == [
-        # "Abraham displays a battered knife."
+        # "Abraham draws a battered knife from his satchel."
         (None, {"knife": ("abraham", "held")}),
         # "The handle comes away in Isaac's fingers.  The blade drops
         #  into a wooden bowl"
         ("broken", {"handle": ("isaac", "held"), "blade": ("bowl", "in")}),
         # Isaac puts the handle down with it
         (None, {"handle": ("bowl", "in")}),
-        # "Abraham gathers the two pieces of the knife"
+        # "Abraham drops the two pieces of the knife into his satchel":
+        # he picks them up ...
         (None, {"handle": ("abraham", "held"),
                 "blade": ("abraham", "held")}),
+        # ... and in they go
+        (None, {"handle": ("satchel", "in"), "blade": ("satchel", "in")}),
     ]
     assert trail("scene3") == []
     assert trail("scene4") == [
+        # "takes the two pieces of the knife out of his satchel,"
         (None, {"handle": ("abraham", "held"),
                 "blade": ("abraham", "held")}),
-        # "Abraham drops the blade into his satchel and keeps the handle"
+        # "drops the blade back in, and keeps the wooden handle"
         ("blade_carried", {"blade": ("satchel", "in")}),
     ]
     assert trail("scene5") == [
@@ -769,20 +773,27 @@ def test_phone_state_and_location_in_every_scene(project):
         "IS THAT A REAL KNIFE"
 
 
-def test_the_only_overrides_are_the_two_the_script_asks_for(project):
-    """Scene 2 ends with the pieces in Abraham's hands; Scene 3 opens
-    with them in his satchel.  Nothing else departs from the ledger."""
+def test_no_scene_overrides_the_ledger(project):
+    """The script says where the knife and the phone are at every scene
+    change, so every scene opens exactly as the one before left it.
+    (What an override looks like is in
+    test_every_explicit_override_is_reported.)"""
     _, reports = project
-    found = {sid: [f.message for f in r.findings
-                   if f.code == "ledger-override"]
-             for sid, r in reports.items()}
-    assert [sid for sid, msgs in found.items() if msgs] == ["scene3"]
-    assert len(found["scene3"]) == 2
-    for part, msg in zip(("handle", "blade"), found["scene3"]):
-        assert f"'knife.{part}' opens this scene in satchel, hidden" in msg
-        assert "the ledger (from 'scene2') has it held by abraham" in msg
     for sid, r in reports.items():
-        assert {f.code for f in r.warnings} <= {"ledger-override"}, sid
+        assert r.warnings == [], (sid, r.format())
+        assert "overrides" not in r.ledger["entry"], sid
+
+
+def test_the_whole_knife_is_in_the_satchel_before_it_is_drawn(project):
+    root, _ = project
+    ledger = json.loads((root / "pam_sidecar.json").read_text())[-1]["ledger"]
+    assert _where(ledger["scene1"]["props"]["knife"]["attached"]) == \
+        ("satchel", "in", True)
+    # the satchel is carried in the ledger too: on Abraham until it
+    # slips from his shoulder in Scene 5
+    where = [_where(ledger[s]["props"]["satchel"]["attached"])[0]
+             for s in SCENES]
+    assert where == ["abraham"] * 4 + [None, None]
 
 
 def test_walking_the_project_again_changes_nothing(project):
@@ -812,23 +823,21 @@ def test_a_scene_validated_out_of_order_is_caught(tmp_path):
     side.write_text(json.dumps(blocks))
     report = validate_file(root / "scene4.json")
     assert "ledger-missing" in codes(report)
-    # scene 4 takes the pieces out of a satchel they were never put in:
-    # from the film's opening state the knife is still in one piece
+    # scene 4 takes two pieces out of the satchel; from the film's
+    # opening state the knife in there is still in one piece
     assert not report.ok
 
 
 def test_breaking_the_continuity_is_caught(tmp_path):
-    """Leave the blade in the bowl at the end of Scene 2 and Scene 4
-    (which has no bowl) cannot open."""
+    """Leave the blade in the bowl at the end of Scene 2 and Scenes 3
+    and 4 (which have no bowl) cannot open."""
     root = tt.copy_project(tmp_path / "p")
     s2 = json.loads((root / "scene2.json").read_text())
     seq = next(s for s in s2 if s.get("action") == "sequence")
-    gather = next(s for s in seq["do"] if s.get("beat") == "gather")
-    del gather["parts"]["blade"]
+    for beat in ("gather", "into_satchel"):
+        step = next(s for s in seq["do"] if s.get("beat") == beat)
+        del step["parts"]["blade"]
     (root / "scene2.json").write_text(json.dumps(s2))
-    s3 = json.loads((root / "scene3.json").read_text())
-    del s3[1]["items"]["knife"]             # and no override in Scene 3
-    (root / "scene3.json").write_text(json.dumps(s3))
     reports = {r.ledger["scene"]: r for r in validate_project(root)}
     assert reports["scene2"].ok
     for sid in ("scene3", "scene4"):
@@ -849,10 +858,18 @@ def test_cli_walks_a_project(tmp_path):
         capture_output=True, text=True, env=tt._env(), cwd=tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert proc.stdout.count("continuity ledger: scene") == 6
-    assert proc.stdout.count("[ledger-override]") == 2
+    assert "[ledger-override]" not in proc.stdout
     assert "scene 'scene6' opens from 'scene5'" in proc.stdout
-    proc = subprocess.run(
-        [sys.executable, "-W", "ignore", str(tt.REPO / "pam_validate.py"),
-         "--project", str(root), "--strict"],
-        capture_output=True, text=True, env=tt._env(), cwd=tmp_path)
-    assert proc.returncode == 1, "--strict makes the overrides fail"
+    # an override is a warning: --strict makes it fail the run
+    s3 = json.loads((root / "scene3.json").read_text())
+    s3.insert(1, {"action": "props", "items": {"knife": {
+        "type": "knife", "state": "blade_carried"}}})
+    (root / "scene3.json").write_text(json.dumps(s3))
+    for flags, code in (((), 0), (("--strict",), 1)):
+        proc = subprocess.run(
+            [sys.executable, "-W", "ignore",
+             str(tt.REPO / "pam_validate.py"), "--project", str(root),
+             *flags], capture_output=True, text=True, env=tt._env(),
+            cwd=tmp_path)
+        assert proc.stdout.count("[ledger-override]") == 1
+        assert proc.returncode == code, flags

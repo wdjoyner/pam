@@ -270,14 +270,14 @@ def test_knife_parts_are_where_the_trace_has_them_in_blender(knife_blend):
     broot = f"prop.knife.blade.{blade['id']}"
     ev = {e["changed"][0] + str(i): e["f"]
           for i, e in enumerate(T["prop_events"]) if e["prop"] == "knife"}
-    shown, brk, down, gather = sorted(ev.values())
-    end = round(T["duration"] * 15)
+    shown, brk, down, gather, stow = sorted(ev.values())
+    end = stow                  # gathered, just before they go in
 
     def bf(f):                  # Blender frame of a trace frame
         return 1 + f * fps // 15
 
     asks = []
-    for f in (shown - 2, shown + 3, brk + 8, down + 8, end):
+    for f in (shown - 2, shown + 3, brk + 8, down + 8, end, stow + 8):
         asks += [f"{hroot}@{bf(f)}", f"{broot}@{bf(f)}"]
     for f in (shown + 3, end):
         asks += [f"abraham.rwrist@{bf(f)}", f"abraham.lwrist@{bf(f)}"]
@@ -292,9 +292,11 @@ def test_knife_parts_are_where_the_trace_has_them_in_blender(knife_blend):
     def dist(p, q):
         return ((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2) ** 0.5
 
-    # hidden on Abraham until he shows it
-    assert got[f"{hroot}@{bf(shown - 2)}"]["hidden"]
-    assert got[f"{broot}@{bf(shown - 2)}"]["hidden"]
+    # out of sight in the satchel until he draws it, and again once
+    # the pieces are dropped back in
+    for f in (shown - 2, stow + 8):
+        assert got[f"{hroot}@{bf(f)}"]["hidden"], f
+        assert got[f"{broot}@{bf(f)}"]["hidden"], f
     for f in (shown + 3, brk + 8, down + 8, end):
         assert not got[f"{hroot}@{bf(f)}"]["hidden"], f
         assert not got[f"{broot}@{bf(f)}"]["hidden"], f

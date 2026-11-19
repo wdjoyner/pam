@@ -4,42 +4,6 @@
   "color": "#a9c8e6"
  },
  {
-  "action": "props",
-  "rt": 0.2,
-  "items": {
-   "satchel": {
-    "type": "satchel",
-    "attached": {
-     "to": "abraham",
-     "joint": "lhip",
-     "offset": [
-      0.0,
-      -0.12
-     ]
-    }
-   },
-   "knife": {
-    "type": "knife",
-    "parts": {
-     "handle": {
-      "attached": {
-       "to": "satchel",
-       "mode": "in",
-       "hidden": true
-      }
-     },
-     "blade": {
-      "attached": {
-       "to": "satchel",
-       "mode": "in",
-       "hidden": true
-      }
-     }
-    }
-   }
-  }
- },
- {
   "action": "fade_in",
   "who": "isaac",
   "rt": 0.2

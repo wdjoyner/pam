@@ -59,7 +59,8 @@ def test_trace_carries_prop_identities(knife):
     trace, _ = knife
     assert trace["trace_version"] == 5
     names = [p["name"] for p in trace["prop_objects"]]
-    assert sorted(names) == ["bowl", "knife.blade", "knife.handle", "phone"]
+    assert sorted(names) == ["bowl", "knife.blade", "knife.handle", "phone",
+                             "satchel"]
     assert len(set(names)) == len(names), "no prop object is there twice"
     assert "knife" not in names, "the composite has no geometry of its own"
     ks = tt.prop_state(trace, "knife")
@@ -78,12 +79,13 @@ def test_trace_carries_prop_identities(knife):
 def test_trace_carries_the_transition_events(knife):
     trace, _ = knife
     events = _events(trace, "knife")
-    assert [e["event"] for e in events] == ["prop_state_changed"] * 4
+    assert [e["event"] for e in events] == ["prop_state_changed"] * 5
     assert [e["changed"] for e in events] == [
-        ["attached"], ["state", "attached"], ["attached"], ["attached"]]
+        ["attached"], ["state", "attached"], ["attached"], ["attached"],
+        ["attached"]]
     assert [e["f"] for e in events] == [
         _beat(trace, b) for b in ("display", "break", "handle_down",
-                                  "gather")]
+                                  "gather", "into_satchel")]
     brk = events[1]
     assert (brk["from"], brk["to"], brk["frames"]) == ("intact", "broken", 6)
     assert set(brk["attached"]) == {"knife.handle", "knife.blade"}
@@ -110,15 +112,23 @@ def test_break_is_a_step_of_a_timed_block_on_its_frames(knife):
     assert spans[("say", "isaac")] == (18, 30)
 
 
-def test_no_piece_disappears_once_the_knife_is_out(knife):
+def test_no_piece_disappears_while_the_knife_is_out(knife):
+    """Out of sight in the satchel before it is drawn and after the
+    pieces are dropped back in; on stage on every frame between."""
     trace, _ = knife
     shown = _beat(trace, "display")
+    stowed = _beat(trace, "into_satchel") + 6
     last = round(trace["duration"] * 15)
     for part in ("knife.handle", "knife.blade"):
         rec = tt.prop_object(trace, part)
-        assert not tt.prop_visible(rec, shown - 1), "hidden on Abraham"
-        for f in range(shown, last + 1):
+        assert not tt.prop_visible(rec, shown - 1), "in the satchel"
+        for f in range(shown, stowed):
             assert tt.prop_visible(rec, f), f"{part} is gone on frame {f}"
+        for f in range(stowed + 1, last + 1):
+            assert not tt.prop_visible(rec, f), "back in the satchel"
+        assert rec["attachments"][-1][1] == {
+            "to": "satchel", "kind": "prop", "mode": "in", "angle": 180.0,
+            "hidden": True}
 
 
 def test_every_piece_is_where_the_script_puts_it(knife):
@@ -156,9 +166,13 @@ def test_every_piece_is_where_the_script_puts_it(knife):
     # the handle follows Isaac's hand while his arm comes down
     assert dist(isaac[brk + 6]["lwrist"], isaac[brk + 9]["lwrist"]) > 0.05
     # gathered: one piece in each of Abraham's hands
-    end = round(trace["duration"] * 15)
+    end = _beat(trace, "into_satchel")
     assert dist(at(handle, end), abe[end]["rwrist"]) < 2e-3
     assert dist(at(blade, end), abe[end]["lwrist"]) < 2e-3
+    # and then both into the satchel on his hip
+    satchel = tt.prop_box(trace, tt.prop_object(trace, "satchel"), end + 6)
+    for rec in (handle, blade):
+        assert dist(at(rec, end + 6), satchel[:2]) < 2e-3
 
 
 def test_isaac_takes_it_by_the_handle(knife):
@@ -197,11 +211,14 @@ def test_holds_tell_blender_who_has_each_piece(knife):
     assert handle["holds"][1]["offset"] == pytest.approx([0, 0], abs=2e-3)
     # attachments, in order, for each piece
     assert [(a["to"], a["mode"]) for _, a in handle["attachments"]] == [
-        ("abraham", "held"), ("abraham", "held"), ("isaac", "held"),
-        ("bowl", "in"), ("abraham", "held")]
+        ("satchel", "in"), ("abraham", "held"), ("isaac", "held"),
+        ("bowl", "in"), ("abraham", "held"), ("satchel", "in")]
     assert [(a["to"], a["mode"]) for _, a in blade["attachments"]] == [
-        ("abraham", "held"), ("abraham", "held"), ("bowl", "in"),
-        ("abraham", "held")]
+        ("satchel", "in"), ("abraham", "held"), ("bowl", "in"),
+        ("abraham", "held"), ("satchel", "in")]
+    # the satchel rides on Abraham's hip the whole time
+    (hold,) = tt.prop_object(trace, "satchel")["holds"]
+    assert (hold["char"], hold["joints"]) == ("abraham", ["lhip"])
 
 
 def test_the_knife_is_turned_and_the_turn_is_in_the_trace(knife):

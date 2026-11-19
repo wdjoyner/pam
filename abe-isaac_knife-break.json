@@ -73,11 +73,22 @@
     "x": -0.55,
     "y": -2.6
    },
-   "knife": {
-    "type": "knife",
+   "satchel": {
+    "type": "satchel",
     "attached": {
      "to": "abraham",
      "joint": "lhip",
+     "offset": [
+      0.0,
+      -0.12
+     ]
+    }
+   },
+   "knife": {
+    "type": "knife",
+    "attached": {
+     "to": "satchel",
+     "mode": "in",
      "hidden": true
     }
    },
@@ -248,6 +259,32 @@
        "to": "abraham",
        "joint": "lwrist",
        "angle": 180
+      }
+     }
+    }
+   },
+   {
+    "action": "wait",
+    "frames": 6
+   },
+   {
+    "action": "prop_transition",
+    "prop": "knife",
+    "frames": 6,
+    "beat": "into_satchel",
+    "parts": {
+     "handle": {
+      "attached": {
+       "to": "satchel",
+       "mode": "in",
+       "hidden": true
+      }
+     },
+     "blade": {
+      "attached": {
+       "to": "satchel",
+       "mode": "in",
+       "hidden": true
       }
      }
     }

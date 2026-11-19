@@ -191,6 +191,32 @@
    },
    {
     "action": "wait",
+    "frames": 6
+   },
+   {
+    "action": "prop_transition",
+    "prop": "knife",
+    "frames": 6,
+    "beat": "into_satchel",
+    "parts": {
+     "handle": {
+      "attached": {
+       "to": "satchel",
+       "mode": "in",
+       "hidden": true
+      }
+     },
+     "blade": {
+      "attached": {
+       "to": "satchel",
+       "mode": "in",
+       "hidden": true
+      }
+     }
+    }
+   },
+   {
+    "action": "wait",
     "frames": 9,
     "beat": "hold"
    }

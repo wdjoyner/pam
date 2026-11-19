@@ -59,9 +59,10 @@ The fixtures are seven screenplays in the repository root:
   `cork_pop_up` and `mismatched_hug`; the last two run inside timed parallel
   blocks, under dialogue and camera cuts)
 - `abe-isaac_knife-break.json` (Milestone 4, Stage 4a: the breakaway knife of
-  Scene 2. Abraham shows the knife, Isaac takes it by the handle with a
-  `joint_to_prop` constraint, the handle comes away and the blade drops into
-  the bowl inside a timed parallel block, and Abraham gathers the pieces)
+  Scene 2. Abraham draws the knife from his satchel, Isaac takes it by the
+  handle with a `joint_to_prop` constraint, the handle comes away and the
+  blade drops into the bowl inside a timed parallel block, and Abraham
+  gathers the pieces and drops them into the satchel)
 
 `projects/abe-isaac/` is a seventh kind of fixture: six scenes and a sidecar
 with a `continuity` block. The tests always work on a private copy of it,
@@ -174,8 +175,8 @@ ledger and compares it with a table taken from Draft 3 of the script
 
 | Scene | Knife | Handle | Blade | Phone |
 |---|---|---|---|---|
-| 1 | `intact` | joined; on Abraham, out of sight | joined | `standby`, with Isaac, out of sight |
-| 2 | `broken` | held by Abraham | held by Abraham | `standby`, with Isaac, out of sight |
+| 1 | `intact` | joined; the knife is in the satchel | joined | `standby`, with Isaac, out of sight |
+| 2 | `broken` | in the satchel | in the satchel | `standby`, with Isaac, out of sight |
 | 3 | `broken` | in the satchel | in the satchel | `standby`, with Isaac, out of sight |
 | 4 | `blade_carried` | held by Abraham | in the satchel | `recording`, held by Abraham |
 | 5 | `blade_embedded` | held by Abraham | embedded in the altar | `live`, on its rock, 480 viewers |
@@ -192,14 +193,18 @@ trace has a piece twice, and each piece is drawn at the end of a scene
 exactly when the ledger says it is not hidden.
 
 Three choices in those scenes are blocking decisions, not the script's:
-Isaac puts the handle in the bowl before Abraham gathers the pieces; Isaac
-pockets his phone as he leaves the cave; and in Scene 4 Abraham takes both
-pieces out of the satchel before he drops the blade back in (the script has
-them in the satchel at the end of Scene 3 and the blade going *into* it in
-Scene 4). The one place the scenes override the ledger is the script's own:
-Scene 2 ends with the pieces in Abraham's hands and Scene 3 opens with them
-in his satchel. The validator reports those two overrides, and a test checks
-that they are the only ones.
+Isaac puts the handle in the bowl before Abraham picks the pieces up; Isaac
+pockets his phone as he leaves the cave; and Abraham holds the knife by the
+blade, handle toward Isaac.
+
+No scene overrides the ledger, and a test checks that. Building these scenes
+showed two places where Draft 3 did not say where the knife was (the pieces
+in Abraham's hands at the end of Scene 2 and in a satchel at the start of
+Scene 3; both in the satchel at the end of Scene 3 and the blade going *into*
+it in Scene 4). The script was edited: Abraham has the satchel from Scene 2
+on, draws the knife from it, drops the pieces into it, and in Scene 4 takes
+both out before he puts the blade back. The satchel is carried in the ledger
+with the knife and the phone.
 
 ## Findings recorded while building the baseline
 

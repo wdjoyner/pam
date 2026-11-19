@@ -8,7 +8,7 @@ phone do everything Draft 3 of the script has them do.
 
 | File | What it holds |
 |---|---|
-| `pam_sidecar.json` | the cast, and the `continuity` block: the scenes in order, the props that carry over (`knife`, `phone`), and the ledger PAM writes |
+| `pam_sidecar.json` | the cast, and the `continuity` block: the scenes in order, the props that carry over (`satchel`, `knife`, `phone`), and the ledger PAM writes |
 | `scene1.json` ... `scene6.json` | the scenes |
 
 ```bash
@@ -21,10 +21,8 @@ Validating or playing a scene writes its closing entry into
 `pam_sidecar.json`. The entries in the repository are the ones these
 scenes produce, so doing either leaves the file unchanged.
 
-`./pam-validate --project` reports two `ledger-override` warnings, in
-Scene 3: the script ends Scene 2 with the two pieces of the knife in
-Abraham's hands and opens Scene 3 with them in his satchel, and the
-scene says so.
+No scene overrides the ledger: each opens exactly as the one before
+left it, and `./pam-validate --project` reports no warnings.
 
 The knife and the phone at the end of each scene are tabulated in
 `tests/README.md` ("The Milestone 4 completion test").
