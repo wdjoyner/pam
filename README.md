@@ -1613,7 +1613,7 @@ Checklist:
 5. add a small screenplay test case;
 6. document the key.
 
-### Timeline and contact constraints (first version)
+### Timeline and contact constraints
 
 This is the vertical slice of the Blender roadmap: one gag, Abraham's failed pull on Isaac's wrist, taken through every layer. It is opt-in. A screenplay that uses none of the syntax below plays and traces exactly as before.
 
@@ -1642,12 +1642,60 @@ The full scene is `abe-isaac_wrist-pull_slice.json`; render it with `./pam-rende
 | `"beat": "name"` | Names a step of a sequence. Beats and their frames are reported and written to the trace. |
 | `constrain`, type `joint_to_joint` | Keeps `who`'s wrist or ankle (`joint`) on `target`'s `target_joint`. The elbow or knee is solved each frame; bone lengths do not change and the joint never flips side. `blend` is the number of frames the hand takes to get there. If the target is out of reach the limb straightens toward it, and the shortfall is reported. |
 | `constrain`, type `root_lock` | Keeps `who` where it stands, whatever else tries to move it. |
+| `constrain`, type `joint_to_prop` | Keeps `who`'s wrist or ankle on a prop (`prop`), at `point`: `center`, `top`, `bottom`, `left`, `right`, or `[dx, dy]` from its center. The prop is measured as drawn on every frame, so the hand follows it when it moves. |
+| `constrain`, type `joint_to_point` | Keeps `who`'s wrist or ankle on a fixed stage position, `"point": [x, y]`, while the rest of the body moves. |
 | `"frames": n` on `constrain` | Releases the constraint by itself after `n` frames, even in the middle of a step. |
 | `release` | Ends the constraint with that `id` on the current frame. |
 | `slip_on_back` | The feet shoot out and the figure lands flat on its back, on the ground its feet were standing on. Works at any character scale. |
+| `pull_immovable`, `cork_pop_up`, `mismatched_hug` | Choreography routines for two figures; see the next section. |
 | pose `pull_lean` | Leaning back hard against something immovable. |
 
 A scene that uses any of this is traced as **trace version 5**: it adds `"fps": 15`, whole-frame `f0`/`f1` on every piece, the sequences with their beats, the constraint intervals, and a `sampled` piece holding the constrained limb's joints on every frame. `trace2blender.py` keys those samples directly, so the hand stays on the wrist in Blender. Other scenes are still written as version 4, unchanged.
+
+### Choreography routines
+
+Milestone 3 of the Blender roadmap. A routine is an action that works out its own blocking from the figures as they stand, so a physical gag survives a change of character size or position without being re-blocked. Every position is measured from the figures' resolved joints (after body scale, depth rescale and rotation) on the frame the routine starts; no routine contains a stage coordinate.
+
+```json
+{"action": "sequence", "id": "s02_pull", "do": [
+  {"action": "pull_immovable", "id": "pull", "who": "abraham", "target": "isaac",
+   "frames_reach": 6, "frames_pull": 12, "frames_strain": 12},
+  {"action": "slip_on_back", "who": "abraham", "frames": 4, "beat": "slip"},
+  {"action": "wait", "frames": 9, "beat": "comic_hold"}
+]},
+{"action": "parallel", "id": "s02_cork", "frames": 42, "do": [
+  {"action": "cork_pop_up", "id": "cork", "who": "isaac", "target": "abraham", "at": 3},
+  {"action": "say", "who": "isaac", "text": "Up you get.", "at": 0, "frames": 18},
+  {"_subscene_marker": "s02_cork_medium", "at": 15,
+   "_shot_meta": {"framing": "medium", "subject": "abraham", "move": "static"}}
+]},
+{"action": "mismatched_hug", "id": "hug", "who": "abraham", "target": "isaac"}
+```
+
+The full scene is `abe-isaac_scene2-gags.json`; render it with `./pam-render --script abe-isaac_scene2-gags.json`.
+
+| Routine | What happens | What it measures |
+|---|---|---|
+| `pull_immovable` | `who` takes hold of `target`, leans back until his arm is taut, and heaves. `target` is root-locked. Phases: `reach` 6, `pull` 12, `strain` 12 frames. | `who`'s arm and the joint he grips. He stands where the full lean leaves the arm just short of straight. If the nearest wrist is out of his reach he takes the knee, then the ankle. |
+| `slip_on_back` | The feet shoot out and the figure lands flat on its back. | Leg length (for the slide) and the ground under the feet. |
+| `cork_pop_up` | `who` bends and offers a hand to `target`, who is lying down; `target` takes it and is pulled onto his feet and off the ground. Phases: `offer` 6, `accept` 6, `pop` 3, `land` 2, `hold` 9. | Both arms. The hand is offered where `target` can reach it; `who` bends only as far as his own arm needs. The hop grows if `who` is very tall. |
+| `mismatched_hug` | `who` steps in and throws his arms around `target`. Phases: `approach` 6, `reach` 6, `squeeze` 12, `release` 6. | `target`'s width at the height of `who`'s shoulders, against `who`'s arm. Arms that are too short straighten and stop short, and the shortfall is reported. |
+
+| Key | Meaning |
+|---|---|
+| `who`, `target` | The two figures. |
+| `id` | Names the routine in reports, its beats (`<id>.<phase>`) and its constraints (`<id>.grip`, ...). Default `<action>_<who>`. |
+| `"frames": n` | The whole routine lasts `n` frames, shared over the phases in proportion to their defaults. |
+| `"frames_<phase>": n` | One phase lasts `n` frames (`"frames_strain": 20`); `0` skips it. |
+| `joint`, `target_joint` | `pull_immovable`, `cork_pop_up`: the hand that is used, and what it takes hold of. Chosen from the figures when omitted. |
+| `cycles` | `pull_immovable`, `mismatched_hug`: number of heaves or squeezes (default 2). |
+| `release` | `pull_immovable`, `mismatched_hug`: `false` keeps the contact after the routine, until a `release` step. |
+| `lock` | `pull_immovable`: `false` leaves `target` free to move. |
+| `hop`, `pose` | `cork_pop_up`: how high `target` leaves the ground (fraction of his leg length, default 0.25), and the pose he lands in (default `standing_side`). |
+
+A routine can stand at the top level, in a `sequence`, or in a timed `parallel` block with `at`. Its contacts are ordinary constraints, so the solver's rules hold: bones keep their length, an elbow or knee never flips, and a target out of reach is reported, not an error. The trace lists each routine with its frames, its phases and what it measured (`"routines"`), and `trace2blender.py` plays the result with nothing to solve.
+
+The roadmap's completion test is automated in `tests/test_choreography.py`: the scene is traced again with Isaac's scale raised from 1.15 to 1.30, and every gag must still read on the same frames, with no elbow or knee flipping.
 
 The modules are `pam/timeline.py`, `pam/constraints.py`, and `pam/choreography.py`; each starts with a description of what it does and why. The key-by-key reference for all of this, and for the timed parallel blocks below, is section 9 of `pam-player_manual.md`.
 
@@ -1719,7 +1767,7 @@ In the trace (version 5), a timed block is recorded frame by frame, so `trace2bl
 ./pam-validate my_scene.json --frames        # also list durations that are not whole frames
 ```
 
-It rejects unknown actions, invalid joint names, negative durations, frame counts that are not whole numbers, malformed constraints, steps of a timed parallel block that cannot run on the frame clock, and references to characters or props that do not exist at that step (never defined, defined later, or already removed). It also reports, as warnings, things the player passes over in silence: unresolved `# REVIEW` and `# PATCH` comments from `fountain2pam.py`, and action steps that carry a `_comment` (the player skips those entirely). The exit status is `0` when every file is valid and `1` otherwise.
+It rejects unknown actions, invalid joint names, negative durations, frame counts that are not whole numbers, malformed constraints, choreography routines without their two figures, steps of a timed parallel block that cannot run on the frame clock, and references to characters or props that do not exist at that step (never defined, defined later, or already removed). It also reports, as warnings, things the player passes over in silence: unresolved `# REVIEW` and `# PATCH` comments from `fountain2pam.py`, and action steps that carry a `_comment` (the player skips those entirely). The exit status is `0` when every file is valid and `1` otherwise.
 
 The valid action names and the checked keys are listed in `pam/action_specs.py`. A new handler in `pam/actions.py` needs no change there; a new action dispatched inline in `pam_player.py` must be added to `PLAYER_ACTIONS`, and a test fails until it is.
 
@@ -1732,7 +1780,7 @@ python -m pytest            # everything, about two minutes
 python -m pytest -k golden  # only the golden-trace comparison
 ```
 
-The tests trace five fixture screenplays with `pam_trace.py` and compare the result with stored golden traces, so a change to motion, timing, camera, or props shows up without rendering a video. See `tests/README.md` for what is covered and for when and how to record new golden traces.
+The tests trace six fixture screenplays with `pam_trace.py` and compare the result with stored golden traces, so a change to motion, timing, camera, or props shows up without rendering a video. See `tests/README.md` for what is covered and for when and how to record new golden traces.
 
 ---
 

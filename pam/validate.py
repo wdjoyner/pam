@@ -11,8 +11,12 @@ Errors (the screenplay is rejected)
     * references to characters or props that do not exist at that step
       (including ``trot_to`` aimed at anything but a dog);
     * a ``frames`` or ``blend`` count that is not a whole number, and a
-      ``constrain`` step with no ``id``, an unknown ``type``, or a joint
-      that does not end a limb;
+      ``constrain`` step with no ``id``, an unknown ``type``, a joint
+      that does not end a limb, or (``joint_to_prop``,
+      ``joint_to_point``) a bad ``point``;
+    * a choreography routine (``pull_immovable``, ``cork_pop_up``,
+      ``mismatched_hug``) without its ``who`` and ``target``, or with
+      the same character as both;
     * steps the player cannot read at all (not an object, or no
       ``"action"`` key and no annotation key).
 
@@ -24,6 +28,9 @@ Warnings (reported, not rejected unless ``strict``)
     * a step with both ``frames`` and its duration in seconds, ``frames``
       on an action that cannot be timed that way yet, and a ``release``
       of a constraint that is not in force;
+    * on a choreography routine: a ``frames_<phase>`` key that names no
+      phase of it, a ``frames`` too short for its phases, and keys it
+      does not use;
     * in a timed ``parallel`` block (see ``pam/timeline.py``): a duration
       in seconds that is not a whole number of frames, with the number
       of frames it is rounded to; two steps that move the same figure
@@ -182,7 +189,10 @@ class _Validator:
 
     def check_frames(self, step, act, index, path, timed=False):
         """*timed*: the step is a step of a timed parallel block."""
-        for key in specs.FRAME_KEYS:
+        keys = specs.FRAME_KEYS
+        if act in specs.TIMELINE_ROUTINES:
+            keys = keys | specs.routine_phase_keys()
+        for key in keys:
             if key not in step or step[key] is None:
                 continue
             v = step[key]
@@ -315,9 +325,11 @@ class _Validator:
                 end = None
             else:
                 end = start + d["frames"]
-            if d["kind"] in ("anim", "loco"):
+            if d["kind"] in ("anim", "loco", "routine"):
                 who = sub.get("who") or sub.get("prop")
                 names = who if isinstance(who, list) else [who]
+                if act == "cork_pop_up":    # it moves both figures
+                    names = names + [sub.get("target")]
                 for name in names:
                     if isinstance(name, str) and start is not None:
                         moves.append((name, start, end, p.rstrip(".")))
@@ -365,12 +377,38 @@ class _Validator:
                      f"{', '.join(TYPES)})", index, "constrain",
                      f"{path}type")
             return
-        if ctype == "joint_to_joint":
-            for key in ("who", "joint", "target", "target_joint"):
+        if ctype in ("joint_to_joint", "joint_to_prop", "joint_to_point"):
+            need = {"joint_to_joint": ("who", "joint", "target",
+                                       "target_joint"),
+                    "joint_to_prop": ("who", "joint", "prop"),
+                    "joint_to_point": ("who", "joint")}[ctype]
+            for key in need:
                 if not isinstance(step.get(key), str):
                     self.add(ERROR, "bad-constraint",
-                             f"joint_to_joint needs '{key}'", index,
+                             f"{ctype} needs '{key}'", index,
                              "constrain", f"{path}{key}")
+            point = step.get("point")
+            is_xy = (isinstance(point, list) and len(point) >= 2
+                     and all(isinstance(c, (int, float))
+                             and not isinstance(c, bool) and math.isfinite(c)
+                             for c in point[:2]))
+            if ctype == "joint_to_point" and not is_xy:
+                self.add(ERROR, "bad-constraint",
+                         f"joint_to_point needs 'point': [x, y], got "
+                         f"{point!r}", index, "constrain", f"{path}point")
+            elif ctype == "joint_to_prop" and point is not None \
+                    and not is_xy:
+                from pam.constraints import PROP_POINTS
+                if not (isinstance(point, str) and point in PROP_POINTS):
+                    names = sorted(PROP_POINTS)
+                    self.add(ERROR, "bad-constraint",
+                             f"'point' must be one of {', '.join(names)} "
+                             f"or [dx, dy], got {point!r}", index,
+                             "constrain", f"{path}point")
+            elif ctype == "joint_to_joint" and point is not None:
+                self.add(WARNING, "timeline-key",
+                         "'point' has no meaning for joint_to_joint; it "
+                         "is ignored", index, "constrain", f"{path}point")
             joint = step.get("joint")
             if isinstance(joint, str) and joint in self.joints \
                     and joint not in CHAINS:
@@ -383,6 +421,58 @@ class _Validator:
                      index, "constrain", f"{path}who")
         if isinstance(cid, str) and cid:
             self._constraints.add(cid)
+
+    def check_routine(self, step, act, index, path, timed=False):
+        """A choreography routine (pam/choreography.py)."""
+        from pam import timeline as tl
+        who, target = step.get("who"), step.get("target")
+        for key, v in (("who", who), ("target", target)):
+            if not isinstance(v, str) or not v:
+                self.add(ERROR, "bad-routine",
+                         f"{act} needs '{key}', the name of one "
+                         f"character (the player skips the step)", index,
+                         act, f"{path}{key}")
+        if isinstance(who, str) and who and who == target:
+            self.add(ERROR, "bad-routine",
+                     f"{act}: 'who' and 'target' are the same character "
+                     f"(the player skips the step)", index, act,
+                     f"{path}target")
+        hands = ("lwrist", "rwrist")
+        for key in ("joint", "target_joint"):
+            v = step.get(key)
+            if v is None or not isinstance(v, str) or v not in self.joints:
+                continue                # (bad names: check_joints)
+            if act == "mismatched_hug":
+                self.add(WARNING, "timeline-key",
+                         f"'{key}' has no meaning for mismatched_hug "
+                         f"(both arms are used); it is ignored", index,
+                         act, f"{path}{key}")
+            elif v not in hands and not (act == "pull_immovable"
+                                         and key == "target_joint"):
+                self.add(WARNING, "timeline-key",
+                         f"'{key}' must be lwrist or rwrist for {act}; "
+                         f"the routine chooses a hand", index, act,
+                         f"{path}{key}")
+        c = step.get("cycles")
+        if c is not None and (isinstance(c, bool) or not isinstance(c, int)
+                              or c < 0):
+            self.add(WARNING, "timeline-key",
+                     f"'cycles' must be a whole number, got {c!r}; the "
+                     f"default is used", index, act, f"{path}cycles")
+        if not timed:
+            # (in a timed block these are reported with the block)
+            for msg in tl.describe(step)["problems"]:
+                self.add(WARNING, "timeline-key", msg, index, act,
+                         path.rstrip("."))
+        # constraints the routine leaves in force
+        if step.get("release", True) is False and isinstance(who, str):
+            rid = step.get("id") or f"{act}_{who}"
+            left = {"pull_immovable": ("grip", "root"),
+                    "mismatched_hug": ("upper", "lower")}.get(act, ())
+            for name in left:
+                if name == "root" and step.get("lock", True) is False:
+                    continue
+                self._constraints.add(f"{rid}.{name}")
 
     def check_joints(self, obj, index, action, path):
         for key in specs.JOINT_KEYS:
@@ -632,6 +722,8 @@ class _Validator:
             return
 
         self.check_references(step, act, index, path)
+        if act in specs.TIMELINE_ROUTINES:
+            self.check_routine(step, act, index, path, timed=timed)
 
         # ── removals take effect after the step ──────────────────────
         if act == "remove_prop":

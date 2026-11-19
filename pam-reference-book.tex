@@ -797,7 +797,7 @@ worked screenplay example. \\
 \textbf{\texttt{pam-player\_manual.md}} & Player-side reference: how
 to run the player, its environment variables, every action it handles
 directly, the camera metadata, and the timeline (frames, sequences,
-timed parallel blocks, constraints). \\
+timed parallel blocks, constraints, choreography routines). \\
 \textbf{\texttt{pam-the-road-to-blender\_outline.tex}} & The roadmap
 from the Manim animatic to Blender, in nine milestones. \\
 \textbf{\texttt{tests/README.md}} & The regression tests, the golden
@@ -906,7 +906,7 @@ Headline changes
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-1.0.1 & The Blender roadmap, Milestones 1 and 2. \textbf{Regression
+1.0.1 & The Blender roadmap, Milestones 1 to 3. \textbf{Regression
 baseline}: golden-trace tests and \texttt{pam-validate}.
 \textbf{Timeline}: a 15 fps frame clock and the \texttt{frames} key;
 \texttt{sequence} and named beats; timed \texttt{parallel} blocks with
@@ -914,7 +914,11 @@ baseline}: golden-trace tests and \texttt{pam-validate}.
 constraints run on exact frames. \textbf{Contact constraints}:
 \texttt{constrain} / \texttt{release} (\texttt{joint\_to\_joint},
 \texttt{root\_lock}), \texttt{slip\_on\_back}. \textbf{Trace
-version 5} for the Blender export. All opt-in. See \S14. \\
+version 5} for the Blender export. \textbf{Milestone 3}: the
+constraint types \texttt{joint\_to\_prop} and \texttt{joint\_to\_point},
+and the scale-aware choreography routines \texttt{pull\_immovable},
+\texttt{cork\_pop\_up} and \texttt{mismatched\_hug}. All opt-in. See
+\S14. \\
 0.9.23 & Backburner items 10--11, 18, and item-6 Option C.
 \textbf{2.5D depth system} (items 10--11): optional
 \texttt{"depth"}/\texttt{"rescale"} on cast and props entries;
@@ -4490,10 +4494,10 @@ can themselves produce warnings. Composes with
 active at once.
 
 \section{14. Runtime additions for the Blender roadmap (PAM 1.0.1): the
-timeline}\label{runtime-additions-timeline}\index{timeline}\index{frame clock}
+timeline, constraints and choreography}\label{runtime-additions-timeline}\index{timeline}\index{frame clock}
 
-Milestones 1 and 2 of \emph{PAM: The Road to Blender}, and its vertical
-slice. Everything in this section is opt-in: a screenplay that uses none
+Milestones 1, 2 and 3 of \emph{PAM: The Road to Blender}, and its
+vertical slice. Everything in this section is opt-in: a screenplay that uses none
 of the keys and actions below is loaded, played and traced exactly as
 before. The modules are \texttt{pam/timeline.py},
 \texttt{pam/constraints.py} and \texttt{pam/choreography.py}; each
@@ -4519,8 +4523,9 @@ place of the action's seconds key (\texttt{rt}, \texttt{t},
 At the top level and in a \texttt{sequence}, \texttt{frames} is
 understood by \texttt{wait}, \texttt{morph}, \texttt{turn},
 \texttt{scale}, \texttt{slip\_on\_back}, \texttt{fade\_out},
-\texttt{say}, and a timed \texttt{parallel} block. More actions accept
-it inside a timed block (\S14.4).
+\texttt{say}, the choreography routines (\S14.11), and a timed
+\texttt{parallel} block. More actions accept it inside a timed block
+(\S14.4).
 
 Two details of Manim shape the implementation. Manim renders
 \texttt{len(numpy.arange(0, run\_time, 1/fps))} frames for a play, and
@@ -4554,7 +4559,8 @@ frames.
 A \texttt{parallel} block is timed when the block has \texttt{frames},
 or when any step in its \texttt{do} list has \texttt{at},
 \texttt{frames}, \texttt{frames\_in} or \texttt{frames\_out}, is a
-\texttt{sequence}, or is a camera marker. Every other \texttt{parallel}
+\texttt{sequence}, is a camera marker, or is a choreography routine
+(\S14.11). Every other \texttt{parallel}
 block plays exactly as \S6 describes.
 
 \begin{verbatim}
@@ -4636,13 +4642,18 @@ halves up, and never to less than one frame (0.3 s is 5 frames).
   \texttt{constrain}, \texttt{release} --- the contact starts or ends
   on that frame (\S14.7).
 \item
+  \texttt{pull\_immovable}, \texttt{cork\_pop\_up},
+  \texttt{mismatched\_hug} --- a choreography routine: its phases
+  follow one another, each a set number of frames (\S14.11). A routine
+  in a \texttt{parallel} block makes the block a timed one.
+\item
   a camera marker --- see \S14.6.
 \item
   \texttt{sequence} --- a track: its steps follow one another, the
   first starting on the sequence's \texttt{at}. Use one per actor.
 \end{itemize}
 
-The list lives in \texttt{pam/action\_specs.py}, in the three sets
+The list lives in \texttt{pam/action\_specs.py}, in the four sets
 whose names begin with \texttt{TIMELINE\_}; the validator and the
 player both read it.
 
@@ -4713,6 +4724,9 @@ to where the cut would have put it. Framing, subject, zone and
 
 \subsection{\texorpdfstring{14.7 Contact constraints: \texttt{constrain} and \texttt{release}}{14.7 Contact constraints: constrain and release}}\label{contact-constraints}\index{constrain@\texttt{constrain}}\index{release@\texttt{release}}\index{contact constraints}
 
+A contact constraint is a temporary relation between skeletons, in
+force from one exact frame to another. There are four types.
+
 \begin{verbatim}
 {"action": "constrain", "id": "grip", "type": "joint_to_joint",
  "who": "abraham", "joint": "rwrist",
@@ -4720,9 +4734,35 @@ to where the cut would have put it. Framing, subject, zone and
 ...
 {"action": "release", "id": "grip"}
 
+{"action": "constrain", "id": "on_knife", "type": "joint_to_prop",
+ "who": "isaac", "joint": "rwrist", "prop": "knife", "point": "top"}
+
+{"action": "constrain", "id": "on_rock", "type": "joint_to_point",
+ "who": "abraham", "joint": "lwrist", "point": [-2.0, -1.4]}
+
 {"action": "constrain", "id": "isaac_root", "type": "root_lock",
  "who": "isaac"}
 \end{verbatim}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{joint\_to\_joint}\index{joint\_to\_joint@\texttt{joint\_to\_joint}}
+  --- keeps a hand or foot of \texttt{who} on a joint of another
+  figure, wherever that joint goes.
+\item
+  \texttt{joint\_to\_prop}\index{joint\_to\_prop@\texttt{joint\_to\_prop}}
+  --- keeps it on a prop or scene object. The prop is measured as it is
+  drawn on every frame, so the hand follows a prop that is moved,
+  carried or handed over.
+\item
+  \texttt{joint\_to\_point}\index{joint\_to\_point@\texttt{joint\_to\_point}}
+  --- keeps it on a fixed point of the stage while the rest of the body
+  moves.
+\item
+  \texttt{root\_lock}\index{root\_lock@\texttt{root\_lock}} --- keeps a
+  figure where it stands, whatever else tries to move it.
+\end{itemize}
 
 Keys of \texttt{constrain}:
 
@@ -4732,7 +4772,7 @@ Keys of \texttt{constrain}:
   \texttt{id} --- name used by \texttt{release} and in reports
   (required).
 \item
-  \texttt{type} --- \texttt{joint\_to\_joint} or \texttt{root\_lock}.
+  \texttt{type} --- one of the four types above.
 \item
   \texttt{who} --- the figure that yields.
 \item
@@ -4740,8 +4780,17 @@ Keys of \texttt{constrain}:
   (\texttt{root\_lock}: the joint that stays put, default
   \texttt{lankle}).
 \item
-  \texttt{target}, \texttt{target\_joint} --- the other figure and the
-  joint the hand stays on.
+  \texttt{target}, \texttt{target\_joint} --- \texttt{joint\_to\_joint}:
+  the other figure and the joint the hand stays on.
+\item
+  \texttt{prop} --- \texttt{joint\_to\_prop}: the prop the hand stays
+  on.
+\item
+  \texttt{point} --- \texttt{joint\_to\_point}: the stage position
+  \texttt{{[}x, y{]}}. \texttt{joint\_to\_prop}: where on the prop,
+  \texttt{center} (default), \texttt{top}, \texttt{bottom},
+  \texttt{left}, \texttt{right}, or \texttt{{[}dx, dy{]}} from its
+  center.
 \item
   \texttt{blend} --- frames the hand takes to reach the target
   (default 0: at once).
@@ -4752,14 +4801,42 @@ Keys of \texttt{constrain}:
   \texttt{down}: which way the elbow or knee bends.
 \end{itemize}
 
-\texttt{joint\_to\_joint} solves the elbow or knee on every frame with
-an analytic two-bone solver: bone lengths do not change, and the joint
-stays on the side it was on when the constraint started. If the target
-is out of reach the limb straightens toward it and the shortfall is
-reported; that is not an error. \texttt{root\_lock} keeps a figure
-where it stands, whatever else tries to move it. On every frame root
-locks are applied first, then the other constraints in the order they
-were declared.
+\textbf{The solver.}\index{two-bone solver} The three
+\texttt{joint\_to\_...} types differ only in where the target is. The
+limb is solved on every frame by the same analytic two-bone method: the
+root (shoulder or hip) and the target are known, the two bone lengths
+are fixed, and the middle joint lies at one of the two points where a
+circle about the root meets a circle about the target. Bone lengths are
+measured on the figure, in world coordinates, on the frame the
+constraint starts, so the solver works after body scale, depth rescale
+and rotation. Four rules decide the rest.
+
+\begin{enumerate}
+\tightlist
+\item
+  \emph{Bend direction.} A limb that is bent when the constraint starts
+  keeps the way it is bent, for the life of the constraint, so an elbow
+  or knee never flips. A limb that is straight then (its middle joint
+  within 2\% of the limb's length of the line from root to end) has no
+  bend to keep; it bends to the side of the line to the target that its
+  middle joint is on. \texttt{bend} overrides both.
+\item
+  \emph{Out of reach.} If the target is farther than the limb is long,
+  the limb straightens toward it and stops short. The shortfall is
+  reported on the console and in the trace; it is not an error.
+\item
+  \emph{Driver and follower.} The figure named by \texttt{who} yields.
+  The other figure, the prop, or the point does not.
+\item
+  \emph{Order of evaluation.} On every frame, after all key-pose
+  interpolation, root locks are applied first, then the other
+  constraints in the order they were declared. A hand may therefore
+  hold a wrist that is itself held on a point, if the point's
+  constraint is declared first.
+\end{enumerate}
+
+A constraint with a bad joint, prop or point is skipped with a message;
+it never stops the render.
 
 The \texttt{slip\_on\_back} action and the pose \texttt{pull\_lean}
 were added with the constraints for the Scene 2 wrist-pull
@@ -4809,7 +4886,11 @@ Version 5 adds:
   frame;
 \item
   \texttt{blocks}: for each timed \texttt{parallel} block, which step
-  ran on which frames.
+  ran on which frames;
+\item
+  \texttt{routines}: for each choreography routine, its frames, its
+  phases, and what it measured on the figures (\S14.11). Present only
+  when there are any.
 \end{itemize}
 
 Inside a timed block the tracer records frame by frame: one linear
@@ -4819,8 +4900,8 @@ nothing, so overlapping moves, the frame a line starts on, the frame
 the camera cuts on, and a hand held on a wrist carry over to Blender.
 
 New \texttt{pam.hooks} events: \texttt{sequence}, \texttt{beat},
-\texttt{constraint}, \texttt{constraint\_sample}, \texttt{block},
-\texttt{block\_item} and \texttt{frame}.
+\texttt{constraint}, \texttt{constraint\_sample}, \texttt{routine},
+\texttt{block}, \texttt{block\_item} and \texttt{frame}.
 
 \subsection{\texorpdfstring{14.10 Validation: \texttt{pam-validate}}{14.10 Validation: pam-validate}}\label{pam-validate}\index{pam-validate@\texttt{pam-validate}}
 
@@ -4834,8 +4915,9 @@ New \texttt{pam.hooks} events: \texttt{sequence}, \texttt{beat},
 \texttt{pam-validate} checks a screenplay in a second or two, without
 rendering. It rejects unknown actions, invalid joint names, negative
 durations, frame counts that are not whole numbers, malformed
-constraints, steps of a timed block that cannot run on the frame clock,
-and references to characters or props that do not exist at that step.
+constraints, a choreography routine without its two figures, steps of a
+timed block that cannot run on the frame clock, and references to
+characters or props that do not exist at that step.
 
 For a timed block it also warns about a duration in seconds that is
 rounded (with the number of frames it becomes), two steps that move the
@@ -4847,6 +4929,168 @@ are notes and never fail a file.
 
 The regression tests are in \texttt{tests/}; \texttt{tests/README.md}
 describes the golden traces and how to record them.
+
+\subsection{14.11 Choreography routines}\label{choreography-routines}\index{choreography routines}\index{pull\_immovable@\texttt{pull\_immovable}}\index{cork\_pop\_up@\texttt{cork\_pop\_up}}\index{mismatched\_hug@\texttt{mismatched\_hug}}\index{slip\_on\_back@\texttt{slip\_on\_back}}
+
+Milestone 3 of the roadmap. A routine is an action that works out its
+own blocking from the figures as they stand: their scale, their limb
+lengths, where their hands and feet are. Every position is measured
+from the figures' resolved joints (after body scale, depth rescale and
+rotation) on the frame the routine starts, and no routine contains a
+stage coordinate, so a gag survives a change of character size or
+position without being re-blocked. The module is
+\texttt{pam/choreography.py}.
+
+\begin{verbatim}
+{"action": "pull_immovable", "who": "abraham", "target": "isaac",
+ "frames": 30}
+{"action": "slip_on_back", "who": "abraham", "frames": 4}
+{"action": "cork_pop_up", "who": "isaac", "target": "abraham"}
+{"action": "mismatched_hug", "who": "abraham", "target": "isaac",
+ "frames_squeeze": 18}
+\end{verbatim}
+
+A routine is a step like any other: at the top level, in a
+\texttt{sequence}, or in a timed \texttt{parallel} block with
+\texttt{at}, where it overlaps dialogue, camera cuts and other actors.
+The scene \texttt{abe-isaac\_scene2-gags.json} plays all four, two of
+them inside timed blocks.
+
+\textbf{Phases.}\index{frames\_phase@\texttt{frames\_<phase>}} The
+three two-figure routines are made of phases that follow one another,
+each a whole number of frames.
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{pull\_immovable} --- \texttt{reach} 6, \texttt{pull} 12,
+  \texttt{strain} 12.
+\item
+  \texttt{cork\_pop\_up} --- \texttt{offer} 6, \texttt{accept} 6,
+  \texttt{pop} 3, \texttt{land} 2, \texttt{hold} 9.
+\item
+  \texttt{mismatched\_hug} --- \texttt{approach} 6, \texttt{reach} 6,
+  \texttt{squeeze} 12, \texttt{release} 6.
+\end{itemize}
+
+\texttt{"frames\_<phase>": n} sets one phase, for example
+\texttt{"frames\_strain": 20}; 0 skips the phase. \texttt{"frames": n}
+sets the whole routine: the phases that were not set one by one share
+what is left, in proportion to their defaults, at least one frame each.
+Each phase starts a beat named \texttt{<id>.<phase>}, reported on the
+console and written to the trace.
+
+Keys common to the three routines: \texttt{who} and \texttt{target}
+(the two figures, required); \texttt{id} (names the routine in reports,
+its beats, and its constraints; default \texttt{<action>\_<who>});
+\texttt{frames} and \texttt{frames\_<phase>}; and \texttt{at} and
+\texttt{beat}, as for any step of a timed block.
+
+\textbf{\texttt{pull\_immovable}.} \texttt{who} turns to face
+\texttt{target}, takes hold (\texttt{reach}), leans back until his arm
+is taut (\texttt{pull}), and heaves (\texttt{strain}). \texttt{target}
+is root-locked and does not move. When the routine ends the grip and
+the lock are released; follow it with \texttt{slip\_on\_back}.
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{joint} --- the hand that grips (default: the one the lean
+  reaches with).
+\item
+  \texttt{target\_joint} --- what it grips. Default: the wrist of
+  \texttt{target} nearest \texttt{who}; if that is out of reach from
+  where \texttt{who} can stand, the nearest knee, then ankle.
+\item
+  \texttt{cycles} --- number of heaves in \texttt{strain} (default 2).
+\item
+  \texttt{lock} --- \texttt{false}: do not root-lock \texttt{target}.
+\item
+  \texttt{release} --- \texttt{false}: keep the grip (constraint
+  \texttt{<id>.grip}) and the lock (\texttt{<id>.root}) after the
+  routine; end them with \texttt{release}.
+\end{itemize}
+
+It measures \texttt{who}'s arm and the position of the gripped joint.
+The stance is worked out so that at the full lean the shoulder is one
+arm's length, less 4\%, from that joint; \texttt{who} shuffles to it
+during \texttt{reach}.
+
+\textbf{\texttt{slip\_on\_back}.} The feet shoot out and the figure
+lands flat on its back, on the ground its feet were standing on. Keys:
+\texttt{who}; \texttt{frames} (default 4) or \texttt{rt};
+\texttt{direction}, \texttt{left} or \texttt{right}, where the head
+ends up; \texttt{slide}, how far the feet shoot forward as a fraction
+of the figure's leg length (default 0.35).
+
+\textbf{\texttt{cork\_pop\_up}.} \texttt{who} bends and holds a hand
+out to where \texttt{target}, who is lying down, can reach it
+(\texttt{offer}). \texttt{target} takes it (\texttt{accept}).
+\texttt{who} straightens and \texttt{target} comes up onto his feet and
+off the ground (\texttt{pop}), drops back onto it (\texttt{land}), and
+both stand still (\texttt{hold}).
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{joint} --- the hand \texttt{who} offers (default: the one
+  toward \texttt{target}).
+\item
+  \texttt{target\_joint} --- the hand \texttt{target} takes it with
+  (default: the one nearest the offered hand).
+\item
+  \texttt{hop} --- how high \texttt{target} leaves the ground, as a
+  fraction of his leg length (default 0.25). It is raised by itself
+  when \texttt{who} is so tall that \texttt{target} could not otherwise
+  keep hold of the hand.
+\item
+  \texttt{pose} --- the pose \texttt{target} lands in (default
+  \texttt{standing\_side}, turned to face \texttt{who}).
+\end{itemize}
+
+It measures both figures' arms and shoulders. The hand is offered at a
+point 80\% of \texttt{target}'s arm length from his shoulder, toward
+\texttt{who}'s shoulder. \texttt{who} bends at the hips, and then at
+the knees, only as far as his own arm needs to get there. The offered
+hand is a \texttt{joint\_to\_point} constraint and the grip a
+\texttt{joint\_to\_joint}.
+
+\textbf{\texttt{mismatched\_hug}.} \texttt{who} steps in against
+\texttt{target} (\texttt{approach}), throws both arms around him
+(\texttt{reach}), squeezes (\texttt{squeeze}), and lets go
+(\texttt{release}).
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{cycles} --- number of squeezes (default 2).
+\item
+  \texttt{release} --- \texttt{false}: stay in the hug. There is then
+  no \texttt{release} phase, and the arms stay (constraints
+  \texttt{<id>.upper} and \texttt{<id>.lower}) until a \texttt{release}
+  step or the end of the enclosing \texttt{sequence}.
+\end{itemize}
+
+It measures how wide \texttt{target}'s body is at the height of
+\texttt{who}'s shoulders: the torso outline between shoulders and hips,
+or the legs below them. \texttt{who} stands against the near side and
+each hand goes to the far side. If the arms are too short they
+straighten and stop short (rule 2 of the solver), and that is the joke.
+The console reports the width, the arm length and the shortfall.
+
+\textbf{How a routine is played.} A routine always runs on the frame
+clock. \texttt{pam.timeline.describe} gives its phases
+(\texttt{routine\_layout}); on the frame it starts,
+\texttt{pam.choreography.start} measures the figures and returns the
+phases to the block runner (\S14.8). A routine written outside a timed
+block is wrapped in a block of its own. Its contacts are ordinary
+constraints (\S14.7), so the four rules of the solver apply.
+
+\textbf{The completion test.} The roadmap's test for Milestone 3 is
+automated in the test file \texttt{test\_choreography.py}, in
+\texttt{tests/}: the scene is traced again with Isaac's scale raised from 1.15 to 1.30, and every gag must
+still read, on the same frames, with no elbow or knee flipping.
+\texttt{tests/README.md} lists what ``read'' is taken to mean.
 
 \chapter{Character Properties
 Reference}\label{character-properties-reference}
@@ -14045,7 +14289,8 @@ folded into the single-file LaTeX output:
 
 Section 14 of the \texttt{pam\_player.py} chapter (the timeline) was
 written directly in LaTeX from \texttt{pam/timeline.py},
-\texttt{pam/constraints.py}, \texttt{pam/validate.py} and
+\texttt{pam/constraints.py}, \texttt{pam/choreography.py},
+\texttt{pam/validate.py} and
 \texttt{pam-player\_manual.md}.
 
 \section{External links}\label{external-links}

@@ -5,7 +5,8 @@ This is the one place that lists the valid action names and the keys
 whose values the validator checks (roadmap Milestone 1).  The validator
 (``pam/validate.py``) reads all of it.  The timeline (``pam/timeline.py``,
 Milestone 2) reads the lists of actions that can run in a timed block,
-so the validator and the player agree on them by construction.  For the
+and the phases of the choreography routines (Milestone 3), so the
+validator and the player agree on them by construction.  For the
 rest, ``tests/test_action_specs.py`` compares this module with the
 dispatcher in ``pam_player.py`` and fails if they disagree.
 
@@ -89,6 +90,8 @@ DURATION_KEYS = frozenset({
 
 # Keys that hold a whole number of frames on the 15 fps clock.
 FRAME_KEYS = frozenset({"frames", "blend", "at", "frames_in", "frames_out"})
+# (the "frames_<phase>" keys of the choreography routines are frame keys
+# too; see routine_phase_keys() below)
 
 
 def frame_actions():
@@ -126,10 +129,38 @@ TIMELINE_PLAYER = frozenset({
 })
 
 
+# Choreography routines (pam/choreography.py, Milestone 3): an action
+# made of several timed phases, each with a default length in frames.
+# A routine always runs on the frame clock, as a step of a timed block
+# or on its own.  "frames" on the step sets the whole length;
+# "frames_<phase>" sets one phase (see timeline.routine_layout).
+ROUTINE_PHASES = {
+    "pull_immovable": (("reach", 6), ("pull", 12), ("strain", 12)),
+    "cork_pop_up":    (("offer", 6), ("accept", 6), ("pop", 3),
+                       ("land", 2), ("hold", 9)),
+    "mismatched_hug": (("approach", 6), ("reach", 6), ("squeeze", 12),
+                       ("release", 6)),
+}
+TIMELINE_ROUTINES = frozenset(ROUTINE_PHASES)
+
+# A routine's last phase is left out when the step says so:
+# (action, key, value) -> the phase that is dropped.
+ROUTINE_OPTIONAL_PHASE = {
+    ("mismatched_hug", "release", False): "release",
+}
+
+
+def routine_phase_keys():
+    """Every "frames_<phase>" key a routine understands."""
+    return frozenset(f"frames_{name}" for phases in ROUTINE_PHASES.values()
+                     for name, _ in phases)
+
+
 def timeline_actions():
     """Actions that may be steps of a timed parallel block.  (A camera
     marker may be one too; it has no action name.)"""
-    return TIMELINE_ANIMATED | TIMELINE_LOCOMOTION | TIMELINE_PLAYER
+    return (TIMELINE_ANIMATED | TIMELINE_LOCOMOTION | TIMELINE_PLAYER
+            | TIMELINE_ROUTINES)
 
 
 # ── joints ───────────────────────────────────────────────────────────────
@@ -186,6 +217,15 @@ REFERENCE_OVERRIDES = {
     # constraints hold one figure's joint on another figure's joint
     ("constrain", "who"):        "character",
     ("constrain", "target"):     "character",
+    # choreography routines act on two figures
+    ("pull_immovable", "who"):      "character",
+    ("pull_immovable", "target"):   "character",
+    ("cork_pop_up", "who"):         "character",
+    ("cork_pop_up", "target"):      "character",
+    ("mismatched_hug", "who"):      "character",
+    ("mismatched_hug", "target"):   "character",
+    # a hand held on a prop (constrain, type joint_to_prop)
+    ("constrain", "prop"):          "prop",
     # two-character interactions
     ("kiss", "target"):             "character",
     ("hold_hands", "target"):       "character",

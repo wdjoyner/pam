@@ -130,12 +130,18 @@ as version 4, byte for byte as before.  Version 5 adds:
                  "frames"}]}],
   "constraints": [{"id", "type", "who", "joints", "f0", "f1",
                    "max_shortfall", "joint"?, "target"?,
-                   "target_joint"?, "blend"?}],   # for information only
+                   "target_joint"?, "prop"?, "point"?, "moving"?,
+                   "blend"?}],                    # for information only
   "blocks": [{"id", "f0", "f1",            # timed parallel blocks; only
               "items": [{"action", "who", "f0", "f1", "beat"?,
                          "track"?}],       # present when there are any
               "tracks": [{"id", "f0", "f1"}],
               "beats": [{"name", "frame", "frames"}]}],
+  "routines": [{"id", "action", "who", "target", "f0", "f1",
+                "phases": [[name, frames], ...],   # choreography
+                "measured": {...}}],     # routines (pam/choreography.py);
+                                         # only present when there are any;
+                                         # for information only
 and one more kind of piece in "tracks":
 
   {"kind": "sampled", "source": "constraint", "constraint": id,
@@ -984,6 +990,7 @@ class Tracer:
         self.sequences = []
         self.constraints = []
         self.blocks = []            # timed parallel blocks
+        self.routines = []          # choreography routines
         self._in_block = 0          # > 0 while one is playing
         self._open_plays = []       # [t0, pre, stepped by frames] per play
         self._open_constraints = {}     # id -> record with "_samples"
@@ -1232,6 +1239,12 @@ class Tracer:
                     "beats": [{"name": b["name"], "frame": b["frame"],
                                "frames": b.get("frames")}
                               for b in rep.get("beats", [])]})
+        elif event == "routine":
+            self.timeline = True
+            self.routines.append(
+                {k: data[k] for k in ("id", "action", "who", "target",
+                                      "f0", "f1", "phases", "measured")
+                 if data.get(k) is not None})
         elif event == "frame":
             self._on_frame(data)
 
@@ -1268,7 +1281,8 @@ class Tracer:
             if data.get("phase") == "begin":
                 rec = {k: data[k] for k in ("id", "type", "who", "joints",
                                             "joint", "target",
-                                            "target_joint", "blend")
+                                            "target_joint", "prop",
+                                            "point", "moving", "blend")
                        if data.get(k) is not None}
                 rec["f0"] = data.get("frame")
                 rec["f1"] = None
@@ -1567,6 +1581,8 @@ class Tracer:
                 for c in self.constraints]
             if self.blocks:
                 out["blocks"] = self.blocks
+            if self.routines:
+                out["routines"] = self.routines
         return out
 
 

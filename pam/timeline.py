@@ -10,7 +10,8 @@ Milestone 2 of *PAM: The Road to Blender*.  The module provides:
 * timed ``parallel`` blocks: steps that overlap, each starting on its
   own frame (``at``) and lasting its own number of frames, including
   dialogue (``say``), camera cuts, walks, and contact constraints;
-* the ``constrain`` and ``release`` actions (see ``pam/constraints.py``).
+* the ``constrain`` and ``release`` actions (see ``pam/constraints.py``);
+* the clock the choreography routines run on (``pam/choreography.py``).
 
 Everything here is opt-in.  A screenplay that uses none of the new
 syntax is not touched: ``expand()`` returns its action list unchanged,
@@ -88,6 +89,9 @@ list, and the validator and the player both read it):
 * ``wait``: stillness, usually with a ``beat``; with a ``sound`` key and
   no duration it is a sound effect on an exact frame;
 * ``constrain`` and ``release``: a contact starts or ends on that frame;
+* a choreography routine (``pull_immovable``, ``cork_pop_up``,
+  ``mismatched_hug``; see ``pam/choreography.py``): its phases follow
+  one another, each a set number of frames;
 * a camera marker (``_subscene_marker`` with ``_shot_meta``): a cut on
   that frame, or with ``frames`` (or an animated ``move``) a move that
   takes that long;
@@ -157,7 +161,8 @@ DEFAULT_SECONDS_KEY = "rt"
 # Actions for which ``frames`` is understood at the top level and in a
 # sequence.  ``say`` and ``parallel`` are played by the block runner
 # below; ``constrain`` reads its own ``frames``.
-FRAME_ACTIONS = frozenset(SECONDS_KEY) | {"constrain", "parallel"}
+FRAME_ACTIONS = (frozenset(SECONDS_KEY) | {"constrain", "parallel"}
+                 | _specs.TIMELINE_ROUTINES)
 
 # Keys that only the timeline understands.  A step that carries one is
 # timeline syntax.
@@ -245,6 +250,82 @@ def is_timed_say(step) -> bool:
                                         "frames_out")))
 
 
+def is_routine(step) -> bool:
+    """True for a choreography routine (``pam/choreography.py``).  A
+    routine is always played by the block runner, on exact frames."""
+    return (isinstance(step, dict)
+            and step.get("action") in _specs.TIMELINE_ROUTINES
+            and "_comment" not in step and "_hint" not in step)
+
+
+def routine_layout(step):
+    """The phases of a routine step and their lengths in frames.
+
+    Returns ``(phases, problems)``: *phases* is ``[(name, frames),
+    ...]`` in playing order, *problems* a list of messages about keys
+    that could not be honored.
+
+    Each phase has a default length (``action_specs.ROUTINE_PHASES``).
+    ``"frames_<phase>": n`` sets one phase (0 skips it).  ``"frames":
+    n`` sets the whole routine: the phases that were not set one by
+    one share what is left, in proportion to their defaults and with
+    at least one frame each.
+    """
+    act = step.get("action")
+    problems = []
+    phases = list(_specs.ROUTINE_PHASES[act])
+    for (a, key, value), dropped in _specs.ROUTINE_OPTIONAL_PHASE.items():
+        if a == act and step.get(key, not value) is value:
+            phases = [(n, f) for n, f in phases if n != dropped]
+    names = [n for n, _ in phases]
+    for key in step:
+        if key.startswith("frames_") and key[7:] not in names:
+            problems.append(
+                f"'{key}' is not a phase of {act} here (its phases: "
+                f"{', '.join(names)}); ignoring it")
+    fixed = {}
+    for name in names:
+        key = f"frames_{name}"
+        if key in step:
+            n = _count(step[key])
+            if n is None:
+                problems.append(f"'{key}' must be a whole number of "
+                                f"frames, got {step[key]!r}; using the "
+                                f"default")
+            else:
+                fixed[name] = n
+    out = [(n, fixed.get(n, f)) for n, f in phases]
+    if "frames" not in step:
+        return out, problems
+    total = _count(step["frames"])
+    if total is None:
+        return out, problems        # describe() reports it
+    free = [(n, f) for n, f in phases if n not in fixed]
+    rest = total - sum(fixed.values())
+    if not free:
+        if rest != 0:
+            problems.append(
+                f"'frames' is {total} but the phases add up to "
+                f"{sum(fixed.values())}; the phases win")
+        return out, problems
+    if rest < len(free):
+        problems.append(
+            f"'frames' is {total}, too short for {act} with these "
+            f"phase lengths; using the default lengths")
+        return out, problems
+    # share out the rest in proportion to the defaults, one frame at
+    # least to each phase, by cumulative rounding (so the sum is exact)
+    spare = rest - len(free)
+    weight = sum(f for _, f in free) or 1
+    acc, done, share = 0, 0, {}
+    for n, f in free:
+        acc += f
+        cut = (acc * spare + weight // 2) // weight
+        share[n] = 1 + cut - done
+        done = cut
+    return [(n, fixed.get(n, share.get(n))) for n, _ in phases], problems
+
+
 def is_timed_parallel(step) -> bool:
     """True when a ``parallel`` block uses the frame clock (see the
     module docstring).  Every other parallel block is played by the
@@ -260,7 +341,7 @@ def is_timed_parallel(step) -> bool:
         if not isinstance(sub, dict):
             continue
         if _is_marker(sub) or sub.get("action") == "sequence" \
-                or any(k in sub for k in TIMED_KEYS):
+                or any(k in sub for k in TIMED_KEYS) or is_routine(sub):
             return True
     return False
 
@@ -271,7 +352,7 @@ def uses_timeline(actions) -> bool:
         if not isinstance(s, dict):
             return False
         if s.get("action") in ("sequence", "constrain", "release") \
-                or any(k in s for k in TIMED_KEYS):
+                or any(k in s for k in TIMED_KEYS) or is_routine(s):
             return True
         subs = s.get("do")
         if not isinstance(subs, list):
@@ -288,7 +369,7 @@ def _convert_frames(step: dict) -> dict:
         return step             # constrain reads its own "frames"
     if act == "parallel" and not is_timed_parallel(step):
         return step             # an ordinary parallel block
-    if act == "parallel" or is_timed_say(step):
+    if act == "parallel" or is_timed_say(step) or is_routine(step):
         # played by the block runner, which reads the frame keys itself
         n = describe(step).get("frames")
         return step if n is None else {**step, "_frames": n}
@@ -378,7 +459,8 @@ def describe(step, block=None, meta=None) -> dict:
 
     ``kind``      ``"anim"``, ``"loco"``, ``"say"``, ``"wait"``,
                   ``"instant"`` (constrain, release), ``"camera"``,
-                  ``"sequence"``, ``"parallel"`` or ``"unsupported"``
+                  ``"routine"``, ``"sequence"``, ``"parallel"`` or
+                  ``"unsupported"``
     ``frames``    its length in frames; None when that is known only
                   when it plays (a walk without ``frames``)
     ``rounded``   [(key, seconds, frames)] for every duration given in
@@ -386,7 +468,8 @@ def describe(step, block=None, meta=None) -> dict:
     ``problems``  messages about keys that cannot be honored
 
     and, by kind: ``parts`` (say: frames of ``in``, ``hold``, ``out``),
-    ``per_kf`` (loco), ``move`` (camera), ``steps`` (sequence: the
+    ``per_kf`` (loco), ``move`` (camera), ``layout`` (routine: its
+    phases, ``[(name, frames), ...]``), ``steps`` (sequence: the
     descriptions of its steps; parallel: of its tracks, each with its
     ``at``).
 
@@ -518,6 +601,14 @@ def describe(step, block=None, meta=None) -> dict:
                 else seconds_to_frames(SAY_SECONDS["hold"])
         out["parts"] = {"in": fin, "hold": hold, "out": fout}
         out["frames"] = fin + hold + fout
+        return out
+
+    if act in _specs.TIMELINE_ROUTINES:
+        out["kind"] = "routine"
+        layout, problems = routine_layout(step)
+        out["problems"].extend(problems)
+        out["layout"] = layout
+        out["frames"] = sum(n for _, n in layout)
         return out
 
     if act in _specs.TIMELINE_LOCOMOTION:

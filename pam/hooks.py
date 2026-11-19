@@ -60,13 +60,22 @@ unchanged because nothing existing changed):
                       of a sequence that carries a ``"beat"`` name is
                       about to start.
 ``"constraint"``    — scene, phase ("begin" | "end"), id, type, who, fig,
-                      joints, frame, t, and for joint_to_joint: joint,
-                      target, target_joint, blend; on "end" also f0 and
-                      max_shortfall.
+                      joints, frame, t, and for the joint_to_...
+                      types: joint, blend, and target and target_joint
+                      (joint_to_joint), prop and point (joint_to_prop),
+                      or point (joint_to_point; with moving=True when
+                      the point is measured every frame); on "end" also
+                      f0 and max_shortfall.
 ``"constraint_sample"`` — scene, id, who, fig, frame, t, joints
                       ({joint: (x, y)}): the world positions a
                       constraint gave its joints on one whole frame of
                       the 15 fps clock.
+
+``"routine"``       — scene, id, action, who, target, f0, f1, phases
+                      ([[name, frames], ...]), measured: a choreography
+                      routine (pam/choreography.py) has ended; measured
+                      holds what it measured on the figures (arm
+                      length, width, shortfall, ...).
 
 ``"block"``         — scene, phase ("begin" | "end"), id, frame, t; on
                       "end" also report: a timed parallel block (its
