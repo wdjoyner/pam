@@ -97,8 +97,8 @@
       "plays": 298,
       "pieces": 97,
       "recorded_at": {
-        "commit": "9b959ce2fefa46f7fb82612ec6881625b247c020",
-        "tracked_files_modified": true,
+        "commit": "507c12a98abdc0ccd4e477f92e3d6dd3af6f726f",
+        "tracked_files_modified": false,
         "pam_version": "1.0.1",
         "recorded": "2026-11-19"
       }
