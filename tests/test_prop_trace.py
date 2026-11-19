@@ -511,3 +511,196 @@ def test_bad_transitions_are_skipped_not_fatal(tmp_path):
 def test_validator_and_player_agree_on_the_fixture():
     report = validate_file(tt.REPO / tt.KNIFE, sidecar=False)
     assert report.findings == []
+
+
+# ── the scroll (Stage 4b; the golden fixture and the project) ────────────
+
+from pam import prop_states as ps          # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def scroll(tmp_path_factory):
+    work = tmp_path_factory.mktemp("scroll")
+    out = work / "scroll.trace.json"
+    log = tt.record_trace(tt.SCROLL, out, work)
+    return json.loads(out.read_text()), log
+
+
+def _rows(trace, name="scroll"):
+    return tt.prop_state(trace, name).get("text") or []
+
+
+def _block(trace, bid):
+    return next(b for b in trace["blocks"] if b["id"] == bid)
+
+
+def _item(block, action="prop_transition", who=None):
+    return next(i for i in block["items"] if i["action"] == action
+                and (who is None or i.get("who") == who))
+
+
+def test_scroll_trace_carries_its_text_and_model(scroll):
+    trace, _ = scroll
+    st = tt.prop_state(trace, "scroll")
+    rec = tt.prop_object(trace, "scroll")
+    assert st["machine"] == "scroll" and st["object"] == rec["id"]
+    assert [s for _, s in st["states"]] == [
+        "rolled", "unrolled", "edited", "trailing"]
+    assert rec["model"]["kind"] == "scroll"
+    assert rec["geometry"] is None, "its outline changes with its state"
+    first = st["text"][0][1]
+    assert first["state"] == "rolled"
+    assert [r["text"] for r in first["lines"][0]] == ["GENESIS / B'RESHIT"]
+    last = st["text"][-1][1]
+    assert last == ps.text_row(_final_text(trace), "trailing")
+
+
+def _replay(text, rev):
+    """Apply one recorded revision again: ``(text, plan)``.  A revision
+    records the line it was made on; a write that started a new line
+    is written as a new line."""
+    op = {k: v for k, v in rev.items()
+          if k in ("write", "cross_out", "replace", "with", "line",
+                   "occurrence")}
+    if "write" in op and op["line"] == len(text["lines"]) + 1:
+        del op["line"]
+    problems = []
+    out = ps.apply_text(text, op, problems)
+    assert problems == [], problems
+    return out
+
+
+def _final_text(trace):
+    """The scroll's text after every change the trace's events list."""
+    text = ps.normalize_text(["GENESIS / B'RESHIT"])
+    for ev in _events(trace, "scroll"):
+        for rev in (ev.get("text") or {}).get("revisions", []):
+            text, _ = _replay(text, rev)
+    return text
+
+
+def test_writing_is_traced_frame_by_frame(scroll):
+    """On every frame of a step that writes or crosses out, the trace
+    holds exactly what prop_states.text_row shows for that frame of
+    the step, so Blender can draw the same letters on the same frames."""
+    trace, _ = scroll
+    rows = _rows(trace)
+    text = ps.normalize_text(["GENESIS / B'RESHIT"])
+    steps = [e for e in _events(trace, "scroll") if "text" in e["changed"]]
+    assert len(steps) == 3
+    for ev in steps:
+        (rev,) = ev["text"]["revisions"]
+        text, plan = _replay(text, rev)
+        n = ev["frames"]
+        state = tt.state_at(tt.prop_state(trace, "scroll")["states"],
+                            ev["f"])
+        changes = 0
+        for k in range(n + 1):
+            want = ps.text_row(text, state, plan,
+                               ps.text_progress(plan, k, n))
+            got = tt.state_at(rows, ev["f"] + k)
+            assert got == want, (rev, k)
+            changes += any(f == ev["f"] + k for f, _ in rows)
+        assert changes >= min(n, plan["strokes"]) - 1, rev
+
+
+def test_scroll_steps_run_in_timed_blocks(scroll):
+    trace, _ = scroll
+    st = tt.prop_state(trace, "scroll")
+    write = _block(trace, "s_write")
+    item = _item(write)
+    assert (item["f0"], item["f1"]) == (write["f0"], write["f0"] + 30)
+    assert _when(trace, "scroll", to="edited") == write["f0"]
+    morph = _item(write, "morph", "abraham")
+    assert morph["f0"] == write["f0"] + 6, "the morph overlaps the writing"
+    revise = _block(trace, "s_revise")
+    assert _item(revise)["f1"] - _item(revise)["f0"] == 24
+    say = _item(revise, "say", "isaac")
+    assert _item(revise)["f0"] < say["f0"] < _item(revise)["f1"]
+    bolt = _block(trace, "s_bolt")
+    assert [f for f, s in st["states"] if s == "trailing"] == [bolt["f0"]]
+
+
+def test_the_grip_stays_in_the_hand(scroll):
+    """Held by its grip, the scroll stays in Abraham's hand on every
+    frame, rolled, open, written on, and trailing while he runs."""
+    trace, _ = scroll
+    rec = tt.prop_object(trace, "scroll")
+    held = [h for h in rec["holds"] if h["hand"] == "lwrist"]
+    assert len(held) == 1 and held[0]["offset"] == [0.0, 0.0]
+    joints = tt.figure_frames(trace, "abraham")
+    f0 = round(held[0]["t0"] * 15)
+    f1 = round(held[0]["t1"] * 15)
+    checked = 0
+    for name in ("s_write", "s_revise", "s_bolt"):
+        b = _block(trace, name)
+        for f in range(max(b["f0"], f0), min(b["f1"], f1) + 1):
+            x, y, _, _ = tt.prop_box(trace, rec, f)
+            assert dist((x, y), joints[f]["lwrist"]) < 1e-3, (name, f)
+            checked += 1
+    assert checked > 80
+    # while he runs, the hand (and the scroll) cover ground
+    b = _block(trace, "s_bolt")
+    assert dist(tt.prop_box(trace, rec, b["f0"])[:2],
+                tt.prop_box(trace, rec, b["f1"])[:2]) > 1.0
+    # in the belt before that: on his right hip, turned 25 degrees
+    first = rec["attachments"][0][1]
+    assert (first["joint"], first["angle"], first["mode"]) == \
+        ("rhip", 25.0, "in")
+
+
+def test_the_scroll_changes_shape_with_its_state(scroll):
+    """Rolled it is a narrow roll; open, a sheet as wide as the model
+    says; trailing, a ribbon nearly twice as long."""
+    trace, _ = scroll
+    rec = tt.prop_object(trace, "scroll")
+    st = tt.prop_state(trace, "scroll")["states"]
+    m = rec["model"]
+    widths = {}
+    for f, s in st:
+        w, h = tt.prop_box(trace, rec, f + 1)[2:]
+        widths.setdefault(s, (w, h))
+    assert widths["rolled"][0] < 0.1
+    assert widths["rolled"][1] == pytest.approx(
+        m["roll_len"] + 2 * (m["rod_over"] + m["knob"]), abs=0.01)
+    assert widths["unrolled"][0] == pytest.approx(
+        m["width"] + m["rod"], abs=0.02)
+    assert widths["edited"] == widths["unrolled"]
+
+
+def test_scroll_scene_replays_identically(scroll, tmp_path):
+    trace, _ = scroll
+    out = tmp_path / "again.trace.json"
+    tt.record_trace(tt.SCROLL, out, tmp_path)
+    assert tt.compare_traces(trace, json.loads(out.read_text())) == []
+
+
+def test_the_scroll_in_every_scene_is_what_the_ledger_says(played):
+    """At the end of every scene the trace shows the scroll in the state,
+    and with the text, the ledger records; and the text rows of a scene
+    start from the text the scene before left."""
+    _, traces, validated = played
+    for sid, trace in traces.items():
+        led = validated[sid]["props"]["scroll"]
+        rows = _rows(trace)
+        assert rows[-1][1] == ps.text_row(led["text"], led["state"]), sid
+    for a, b in (("scene1", "scene2"), ("scene5", "scene6")):
+        led = validated[a]["props"]["scroll"]
+        assert _rows(traces[b])[0][1] == ps.text_row(led["text"],
+                                                     led["state"]), b
+
+
+def test_the_scroll_is_in_the_belt_from_scene_two_to_five(played):
+    _, traces, _ = played
+    for sid in ("scene2", "scene3", "scene4", "scene5"):
+        trace = traces[sid]
+        rec = tt.prop_object(trace, "scroll")
+        end = round(trace["duration"] * 15)
+        joints = tt.figure_frames(trace, "abraham")
+        x, y, w, h = tt.prop_box(trace, rec, end)
+        # (the tracer leaves out prop moves under 2e-3)
+        assert dist((x, y), joints[end]["rhip"]) < 2e-3, sid
+        assert w < 0.3 and tt.prop_visible(rec, end), sid
+        assert [s for _, s in tt.prop_state(trace, "scroll")["states"]] \
+            == ["rolled"], sid
+        assert len(_rows(trace)) == 1, sid

@@ -90,8 +90,9 @@ list, and the validator and the player both read it):
   no duration it is a sound effect on an exact frame;
 * ``constrain`` and ``release``: a contact starts or ends on that frame;
 * ``prop_transition`` (``pam/prop_states.py``): a prop changes state on
-  that frame; with ``frames`` its move to a new attachment, or a number
-  on its display that climbs, takes that long;
+  that frame; with ``frames`` its move to a new attachment, a number
+  on its display that climbs, or text written on it or crossed out,
+  takes that long;
 * a choreography routine (``pull_immovable``, ``cork_pop_up``,
   ``mismatched_hug``; see ``pam/choreography.py``): its phases follow
   one another, each a set number of frames;
@@ -618,7 +619,8 @@ def describe(step, block=None, meta=None) -> dict:
 
     if act == "prop_transition":
         # the state changes on the step's first frame; "frames" is how
-        # long a move, or a climbing number, takes (pam/prop_states.py)
+        # long a move, a climbing number, or writing takes
+        # (pam/prop_states.py)
         out["kind"] = "prop"
         out["frames"] = frames if frames is not None else 0
         return out

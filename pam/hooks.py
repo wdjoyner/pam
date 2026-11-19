@@ -97,14 +97,21 @@ existing changed):
                       ({part: mobject} of a composite prop), display,
                       frame, t: a prop with a state is being followed.
 ``"prop_state_changed"`` — scene, prop, frame, t, frames, changed (a
-                      list of "state", "attached", "display"), from,
-                      to, attached ({prop or prop.part: attachment}),
-                      display, cause (the action: "prop_transition",
+                      list of "state", "attached", "display", "text"),
+                      from, to, attached ({prop or prop.part:
+                      attachment}), display, text ({"revisions",
+                      "reads"}), cause (the action: "prop_transition",
                       or an existing one such as "elevator_open").
 ``"prop_attached"``  — scene, prop (or prop.part), mob, attach, frame,
                       t: the prop has arrived on an attachment.
 ``"prop_display"``   — scene, prop, frame, t, state, screen, display:
                       what a prop's display shows from this frame.
+``"prop_text"``      — scene, prop, frame, t, state, text: what a
+                      text-bearing prop (a scroll) shows, and how it is
+                      open, from this frame (a row of
+                      prop_states.text_row: lines of runs with the
+                      letters written so far and how much of each line
+                      through struck text is drawn).
 
 A prop that a ``prop_transition`` puts in a character's hand is
 reported with the ordinary ``"prop_attach"`` / ``"prop_release"`` pair,

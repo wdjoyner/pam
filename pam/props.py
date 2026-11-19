@@ -18,7 +18,7 @@ props_core.py         — shared infrastructure (PROP_DEFAULTS, helpers)
 props_furniture.py    — chair, desk, door, pocket_door, elevator, desk_lamp
 props_carried.py      — hat, briefcase, folder, phone, audio_video_bug,
                          backpack, laptop, knife (knife_handle,
-                         knife_blade), satchel
+                         knife_blade), satchel, scroll, quill
 props_flora.py        — flower, floral_arrangement / bouquet
 props_environment.py  — dodecahedron, building, sun, moon, solar_panel,
                          wire, backdrop, tv_monitor, avatar_pod, rock,
@@ -37,6 +37,15 @@ Stateful and composite props (Milestone 4, Stage 4a)
                      to go into, rest on, or stick in.
 States, the ``prop_transition`` action, attachments and the continuity
 ledger are in ``pam/prop_states.py``.
+
+Text-bearing props (Milestone 4, Stage 4b)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+``scroll``         — rolled, unrolled, edited or trailing, and its text,
+                     which is written, crossed out and replaced
+                     independently of that (``pam/prop_states.py``).
+                     It is kept on an attachment by its grip, the near
+                     roller.
+``quill``          — a plain prop, to write with.
 
 New in v0.9.7
 ~~~~~~~~~~~~~
@@ -113,6 +122,8 @@ from pam.props_carried import (
     build_knife_handle,
     build_knife_blade,
     build_satchel,
+    build_scroll,
+    build_quill,
 )
 
 # ── flora ─────────────────────────────────────────────────────────────────────
@@ -186,6 +197,8 @@ PROP_TYPES = {
     "knife_handle":        build_knife_handle,
     "knife_blade":         build_knife_blade,
     "satchel":             build_satchel,
+    "scroll":              build_scroll,         # text-bearing (Stage 4b)
+    "quill":               build_quill,
     # ── flora ─────────────────────────────────────────────────────────────
     "flower":              build_flower,
     "floral_arrangement":  build_floral_arrangement,

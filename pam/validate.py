@@ -208,6 +208,8 @@ class _Validator:
         # stateful props: the same books the player keeps
         self.pstates = prop_states
         self.states = prop_states.World()
+        # text revisions record the scene they were made in
+        self.states.scene = getattr(continuity, "scene", None)
         self.continuity = continuity
         self.known = specs.known_actions()
         self.joints = specs.known_joints()

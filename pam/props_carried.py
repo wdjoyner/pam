@@ -3,7 +3,7 @@ PAM props_carried.py
 ~~~~~~~~~~~~~~~~~~~~
 Props carried or held by characters: hat, briefcase, folder, phone (all
 styles), audio_video_bug, backpack, laptop, knife (with its parts
-knife_handle and knife_blade), satchel.
+knife_handle and knife_blade), satchel, scroll, quill.
 
 version 0.9.8
 
@@ -17,6 +17,17 @@ Stateful props (Milestone 4, Stage 4a)
             redraws its screen for a state (standby, recording, live)
             and its display fields (viewers, comment).  A phone that no
             step puts in a state is drawn exactly as before.
+
+Text-bearing props (Milestone 4, Stage 4b)
+------------------------------------------
+``scroll``  rolled, unrolled, edited or trailing, with text that is
+            written, crossed out and replaced independently of the
+            state.  ``group.pam_draw_text(state, row)`` redraws it from
+            a row of ``prop_states.text_row``.  It is laid out in its
+            own frame, from its grip (the near roller), and kept on an
+            attachment by the grip (``group.pam_anchor()``).  Its sizes
+            (``SCROLL``) are the model trace2blender.py builds.
+``quill``   a plain prop, to write with.
 """
 
 from __future__ import annotations
@@ -640,6 +651,337 @@ def build_satchel(name: str, x=0.0, y=0.0, color=None, label=None,
         attachments={"centre": np.array([x, y, 0]),
                      "surface": np.array([x, y + H / 2, 0]),
                      "floor": np.array([x, y - H / 2, 0])},
+        parent=parent, attach=attach, attrs=attrs)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SCROLL  (text-bearing prop: rolled, unrolled, edited, trailing)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#   rolled      unrolled / edited                      trailing
+#    (o)       o┌──────────────────────┐o      o┌──────────────────────~~~~~~o
+#    | |       ││ GENESIS / B'RESHIT   ││      ││ GENESIS / B'RESHIT    ~~~~~ |
+#    | |       ││ AND ABRAHAM RAISED   ││      ││ AND ABRAHAM RAISED    ~~~~~ |
+#    (o)       o└──────────────────────┘o      o└──────────────────────~~~~~~o
+#     ^         ^ grip: the near roller          ^ grip
+#
+# Everything is laid out in the scroll's own frame: the origin is its
+# *grip* (the middle of the near roller; of the roll, when rolled), x
+# runs along the lines of text, y up.  The prop is kept on an
+# attachment by its grip, so that it stays in the hand that holds it
+# whatever shape it takes, and the trace records the grip as the prop's
+# position.  The text frame is the same in every open state: the
+# trailing scroll is the open sheet unrolled further, flat where the
+# text is and waving beyond it.
+#
+# The numbers are in SCROLL and go into the trace as the prop's model,
+# so that trace2blender.py builds the same shapes and sets the text in
+# the same columns.
+
+SCROLL = dict(
+    width=0.70, height=0.34,        # the open sheet, roller to roller
+    rod=0.026, rod_over=0.05,       # rollers: width, and how far they
+    knob=0.022,                     # stand out past the sheet; knobs
+    roll_len=0.34, roll_dia=0.075,  # rolled up
+    ribbon=1.30, wave=0.05, wavelength=0.50,    # trailing
+    # the text: left margin, top margin, columns and rows that fit,
+    # line spacing
+    text_x=0.05, text_top=0.045, cols=42, rows=7, line_h=0.034,
+    strike_y=0.55,                  # the line through struck text, in
+)                                   # columns above the baseline
+SCROLL["cell_w"] = (SCROLL["width"] - 2 * SCROLL["text_x"]) / SCROLL["cols"]
+SCROLL["baseline0"] = (SCROLL["height"] / 2 - SCROLL["text_top"]
+                       - 0.75 * SCROLL["line_h"])
+SCROLL_COLORS = dict(sheet="#efe2bf", edge="#b89a62", wood="#7a4e2a",
+                     knob="#5c3a1e", ink="#2b1d12", tie="#9c2a22",
+                     roll="#e2d1a4")
+SCROLL_FONT = PROP_DEFAULTS["label_font"]
+_TEXT_CACHE = {}
+
+
+def scroll_wave(x, m=SCROLL):
+    """How far the trailing ribbon is lifted at *x* (flat where the text
+    is, then a wave that grows toward the free end)."""
+    u = x - m["width"]
+    if u <= 0:
+        return 0.0
+    grow = min(1.0, u / m["wavelength"])
+    return m["wave"] * grow * float(np.sin(2 * np.pi * u / m["wavelength"]))
+
+
+def scroll_line(runs):
+    """The characters of one line of a text row, set in their columns,
+    and for each run the columns it covers."""
+    width = max([r["at"] + len(r["text"]) for r in runs] + [0])
+    cells = [" "] * width
+    for r in runs:
+        for i, c in enumerate(r["text"]):
+            cells[r["at"] + i] = c
+    return "".join(cells)
+
+
+def scroll_line_scale(line, m=SCROLL):
+    """A line longer than the sheet holds is set smaller to fit."""
+    return min(1.0, m["cols"] / len(line)) if line else 1.0
+
+
+def _glyphs(line):
+    """Text for a line (one submobject per character that is not a
+    space), at a size where one column is SCROLL["cell_w"]."""
+    key = (line, SCROLL_FONT)
+    if key not in _TEXT_CACHE:
+        if "_adv" not in _TEXT_CACHE:
+            one = Text("M", font=SCROLL_FONT, font_size=48)
+            many = Text("M" * 20, font=SCROLL_FONT, font_size=48)
+            _TEXT_CACHE["_adv"] = (many.width - one.width) / 19
+        t = Text(line, font=SCROLL_FONT, font_size=48)
+        t.scale(SCROLL["cell_w"] / _TEXT_CACHE["_adv"])
+        _TEXT_CACHE[key] = t
+    return _TEXT_CACHE[key].copy()
+
+
+def _scroll_text(row, color, m=SCROLL):
+    """The text of a row, in the scroll's frame: the last ``rows``
+    lines, each character in its column, a line through what is struck
+    out as far as it has been drawn, and only what has been written."""
+    ui = VGroup()
+    lines = (row or {}).get("lines") or []
+    for j, runs in enumerate(lines[-m["rows"]:]):
+        line = scroll_line(runs)
+        if not line.strip():
+            continue
+        f = scroll_line_scale(line, m)
+        cw = m["cell_w"] * f
+        base = m["baseline0"] - j * m["line_h"]
+        glyphs = _glyphs(line)
+        glyphs.scale(f, about_point=ORIGIN)
+        cols = [i for i, c in enumerate(line) if not c.isspace()]
+        if len(cols) != len(glyphs):
+            continue                # (a font that merged glyphs)
+        # first character centered in its column; the baseline on the
+        # bottom of the first capital or digit
+        c0 = cols[0]
+        ref = next((k for k, i in enumerate(cols)
+                    if line[i].isupper() or line[i].isdigit()), 0)
+        glyphs.shift(np.array([
+            m["text_x"] + (c0 + 0.5) * cw - glyphs[0].get_center()[0],
+            base - glyphs[ref].get_bottom()[1], 0]))
+        show = set()
+        for r in runs:
+            n = r.get("shown", len(r["text"]))
+            for i in range(n):
+                show.add(r["at"] + i)
+        for k, i in enumerate(cols):
+            if i in show:
+                glyphs[k].set_fill(color, opacity=1.0).set_stroke(width=0)
+                ui.add(glyphs[k])
+        for r in runs:
+            a = float(r.get("strike") or 0.0)
+            if r.get("struck") is None or a <= 0:
+                continue
+            x0 = m["text_x"] + r["at"] * cw
+            x1 = x0 + len(r["text"]) * cw * a
+            y = base + m["strike_y"] * cw
+            ui.add(Line(np.array([x0, y, 0]), np.array([x1, y, 0]),
+                        color=color, stroke_width=1.4))
+    return ui
+
+
+def _scroll_shape(state, colors, m=SCROLL):
+    """The scroll's shape in a state, in its own frame."""
+    W, H = m["width"], m["height"]
+    rod, over, knob = m["rod"], m["rod_over"], m["knob"]
+    out = VGroup()
+
+    def roller(x, y=0.0):
+        r = VGroup(
+            Rectangle(width=rod, height=H + 2 * over, color=colors["wood"],
+                      fill_color=colors["wood"], fill_opacity=1.0,
+                      stroke_width=1.0).move_to(np.array([x, y, 0])))
+        for s in (-1, 1):
+            r.add(Circle(radius=knob, color=colors["knob"],
+                         fill_color=colors["knob"], fill_opacity=1.0,
+                         stroke_width=1.0).move_to(
+                np.array([x, y + s * (H / 2 + over), 0])))
+        return r
+
+    if state == "rolled":
+        L, D = m["roll_len"], m["roll_dia"]
+        out.add(Line(np.array([0, -(L / 2 + over), 0]),
+                     np.array([0, L / 2 + over, 0]),
+                     color=colors["wood"], stroke_width=3.0))
+        out.add(RoundedRectangle(width=D, height=L, corner_radius=D * 0.35,
+                                 color=colors["edge"],
+                                 fill_color=colors["roll"],
+                                 fill_opacity=1.0, stroke_width=1.2))
+        for s in (-1, 1):
+            out.add(Circle(radius=knob, color=colors["knob"],
+                           fill_color=colors["knob"], fill_opacity=1.0,
+                           stroke_width=1.0).move_to(
+                np.array([0, s * (L / 2 + over), 0])))
+        out.add(Rectangle(width=D * 1.04, height=0.018,
+                          color=colors["tie"], fill_color=colors["tie"],
+                          fill_opacity=1.0, stroke_width=0.5))
+        return out
+    if state == "trailing":
+        L = m["ribbon"]
+        xs = list(np.arange(rod / 2, L, 0.02)) + [L]
+        top = [np.array([x, H / 2 + scroll_wave(x, m), 0]) for x in xs]
+        bot = [np.array([x, -H / 2 + scroll_wave(x, m), 0])
+               for x in reversed(xs)]
+        out.add(Polygon(*top, *bot, color=colors["edge"],
+                        fill_color=colors["sheet"], fill_opacity=1.0,
+                        stroke_width=1.2))
+        out.add(roller(0.0))
+        out.add(roller(L, scroll_wave(L, m)))
+        return out
+    # unrolled, edited
+    out.add(Rectangle(width=W - rod, height=H, color=colors["edge"],
+                      fill_color=colors["sheet"], fill_opacity=1.0,
+                      stroke_width=1.2).move_to(np.array([W / 2, 0, 0])))
+    out.add(roller(0.0))
+    out.add(roller(W))
+    return out
+
+
+def build_scroll(name: str, x=0.0, y=0.0, color=None, ink=None,
+                 parent=None, attach=None, attrs=None,
+                 prop_registry=None, **kwargs) -> VGroup:
+    """Build a scroll: a sheet between two wooden rollers that bears
+    text (Milestone 4, Stage 4b).
+
+    Parameters
+    ----------
+    name   : registry name.
+    x, y   : where its grip is (the middle of the near roller).
+    color  : parchment color.  Default ``"#efe2bf"``.
+    ink    : ink color.  Default ``"#2b1d12"``.
+    attrs  : visual overrides (``"scale"``, ``"inclination"``).
+
+    Its states (rolled, unrolled, edited, trailing) and its text are
+    kept by ``pam/prop_states.py``, which redraws it with
+    ``group.pam_draw_text(state, row)`` whenever either changes::
+
+        {"action": "props", "items": {"scroll": {"type": "scroll",
+            "text": ["GENESIS / B'RESHIT"],
+            "attached": {"to": "abraham", "joint": "lwrist"}}}}
+        {"action": "prop_transition", "prop": "scroll", "to": "edited",
+         "text": {"write": "AND ABRAHAM RAISED THE KNIFE."}, "frames": 30}
+
+    Until then it is drawn rolled up.  ``group.pam_anchor()`` is where
+    its grip is; ``group.pam_point("grip")`` the same.
+    """
+    colors = dict(SCROLL_COLORS)
+    if color:
+        colors["sheet"] = color
+    if ink:
+        colors["ink"] = ink
+    # an invisible frame: the grip, and a step along x and along y,
+    # from which the scroll is redrawn wherever it has been moved,
+    # turned or scaled
+    frame = VMobject(stroke_opacity=0.0, fill_opacity=0.0, stroke_width=0)
+    frame.set_points_as_corners([np.array([x, y, 0]),
+                                 np.array([x + 0.01, y, 0]),
+                                 np.array([x, y + 0.01, 0])])
+    frame.pam_internal = "scroll_frame"
+    group = VGroup(frame)
+    group.pam_model = {"kind": "scroll", **{k: round(float(v), 6)
+                                             for k, v in SCROLL.items()},
+                       "colors": dict(colors)}
+    group.pam_no_outline = True     # its outline changes with its state
+
+    def where():
+        a = frame.get_anchors()
+        o, px, py = a[0], a[1], a[-1]
+        k = float(np.linalg.norm(px - o)) / 0.01
+        ang = float(np.arctan2(px[1] - o[1], px[0] - o[0]))
+        cross = (px[0] - o[0]) * (py[1] - o[1]) - (px[1] - o[1]) * (py[0] - o[0])
+        flip = 1.0 if cross >= 0 else -1.0
+        return o, ang, k, flip
+
+    def anchor():
+        o = where()[0]
+        return np.array([float(o[0]), float(o[1]), 0.0])
+
+    def point(which):
+        return anchor() if which == "grip" else None
+
+    def draw(state, row):
+        old = getattr(group, "pam_display_ui", None)
+        if old is not None:
+            group.remove(old)
+            group.pam_display_ui = None
+        o, ang, k, flip = where()
+        st = state or "rolled"
+        ui = VGroup(_scroll_shape(st, colors))
+        if st != "rolled":
+            ui.add(_scroll_text(row, colors["ink"]))
+        if flip < 0:
+            ui.stretch(-1, 1, about_point=ORIGIN)
+        ui.scale(k, about_point=ORIGIN)
+        ui.rotate(ang, about_point=ORIGIN)
+        ui.shift(o)
+        try:
+            ui.set_z_index(group.z_index)
+        except Exception:
+            pass
+        group.add(ui)
+        group.pam_display_ui = ui
+        return ui
+
+    group.pam_anchor = anchor
+    group.pam_point = point
+    group.pam_draw_text = draw
+    draw("rolled", None)
+    _apply_attrs(group, attrs or {})
+    a = anchor()
+    return _attach_pam_attrs(
+        group, name, "scroll", float(a[0]), float(a[1]),
+        surface_y=float(group.get_top()[1]),
+        attachments={"centre": a.copy(), "grip": a.copy(),
+                     "surface": np.array([a[0], group.get_top()[1], 0])},
+        parent=parent, attach=attach, attrs=attrs)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  QUILL  (a feather pen; nib at +x)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_quill(name: str, x=0.0, y=0.0, color=None,
+                parent=None, attach=None, attrs=None,
+                prop_registry=None, **kwargs) -> VGroup:
+    """Build a quill pen lying along x, its nib at +x.
+
+    Parameters
+    ----------
+    name   : registry name.
+    x, y   : center.
+    color  : feather color.  Default ``"#f4f1e8"``.
+    attrs  : visual overrides (``"scale"``, ``"inclination"``).
+    """
+    c = color or "#f4f1e8"
+    L = 0.24
+    vane = Polygon(
+        np.array([x - L / 2, y + 0.004, 0]),
+        np.array([x - L / 4, y + 0.030, 0]),
+        np.array([x + L / 6, y + 0.018, 0]),
+        np.array([x + L / 4, y + 0.004, 0]),
+        np.array([x + L / 6, y - 0.008, 0]),
+        np.array([x - L / 3, y - 0.012, 0]),
+        color="#cfc6b0", fill_color=c, fill_opacity=1.0, stroke_width=1.0)
+    shaft = Line(np.array([x - L / 2, y, 0]), np.array([x + L / 2, y, 0]),
+                 color="#8a7a5a", stroke_width=1.5)
+    nib = Polygon(np.array([x + L / 2 - 0.03, y + 0.006, 0]),
+                  np.array([x + L / 2, y, 0]),
+                  np.array([x + L / 2 - 0.03, y - 0.006, 0]),
+                  color="#2b1d12", fill_color="#2b1d12", fill_opacity=1.0,
+                  stroke_width=0.5)
+    group = VGroup(vane, shaft, nib)
+    _apply_attrs(group, attrs or {})
+    return _attach_pam_attrs(
+        group, name, "quill", x, y, surface_y=y + 0.03,
+        attachments={"centre": np.array([x, y, 0]),
+                     "nib": np.array([x + L / 2, y, 0])},
         parent=parent, attach=attach, attrs=attrs)
 
 def build_briefcase(name: str, x=0.0, y=0.0,

@@ -52,6 +52,12 @@ FIXTURES = (
     # changes state, a hand held on a prop, parts that go from hand to
     # hand and into a bowl), and a phone in a hand.
     "abe-isaac_knife-break.json",
+    # Milestone 4, Stage 4b: the scroll, a text-bearing prop.  Taken
+    # from Abraham's belt, unrolled, written on, its period turned into
+    # a question mark, revised (crossed out and written again) under a
+    # line of dialogue, and let trail as he runs; three of the changes
+    # are steps of timed parallel blocks.
+    "abe-isaac_scroll-revision.json",
 )
 
 # Fixtures written before the timeline existed.  They must keep tracing
@@ -61,6 +67,7 @@ SLICE = FIXTURES[3]
 OVERLAP = FIXTURES[4]
 SCENE2 = FIXTURES[5]
 KNIFE = FIXTURES[6]
+SCROLL = FIXTURES[7]
 
 # The six-scene project whose prop continuity the ledger tests walk
 # (Milestone 4): scenes and a sidecar with a "continuity" block.

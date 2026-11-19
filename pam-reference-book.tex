@@ -921,7 +921,10 @@ and the scale-aware choreography routines \texttt{pull\_immovable},
 Stage 4a}: stateful props (\texttt{pam/prop\_states.py}) and the
 \texttt{prop\_transition} action; the composite \texttt{knife} and the
 \texttt{phone}'s display; attachments; the continuity ledger in the
-sidecar; \texttt{joint\_to\_prop} in Blender. All opt-in. See
+sidecar; \texttt{joint\_to\_prop} in Blender. \textbf{Stage 4b}: the
+\texttt{scroll}, a text-bearing prop whose text is written, crossed
+out and replaced independently of its state, frame by frame in the
+trace and in Blender; the \texttt{quill}. All opt-in. See
 \S14. \\
 0.9.23 & Backburner items 10--11, 18, and item-6 Option C.
 \textbf{2.5D depth system} (items 10--11): optional
@@ -4501,7 +4504,7 @@ active at once.
 timeline, constraints, choreography and stateful props}\label{runtime-additions-timeline}\index{timeline}\index{frame clock}
 
 Milestones 1, 2 and 3 of \emph{PAM: The Road to Blender}, its
-vertical slice, and Stage 4a of Milestone 4. Everything in this section
+vertical slice, and Stages 4a and 4b of Milestone 4. Everything in this section
 is opt-in: a screenplay that uses none
 of the keys and actions below is loaded, played and traced exactly as
 before. The modules are \texttt{pam/timeline.py},
@@ -4654,9 +4657,10 @@ halves up, and never to less than one frame (0.3 s is 5 frames).
   in a \texttt{parallel} block makes the block a timed one.
 \item
   \texttt{prop\_transition} --- a prop changes state on that frame;
-  with \texttt{frames} its move to a new attachment, or a number on its
-  display that climbs, takes that long (\S14.12). It too makes the
-  block a timed one.
+  with \texttt{frames} its move to a new attachment, a number on its
+  display that climbs, or text written on a scroll or crossed out,
+  takes that long (\S14.12, \S14.13). It too makes the block a timed
+  one.
 \item
   a camera marker --- see \S14.6.
 \item
@@ -4971,8 +4975,10 @@ For stateful props (\S14.12) the validator keeps the same books the
 player keeps. It rejects a \texttt{prop\_transition} to a state the
 prop does not have or along a transition its machine does not allow, an
 attachment to something that does not exist at that step, a part moved
-by itself while its prop is in one piece, and two transitions that
-change one prop on the same frames of a timed block.
+by itself while its prop is in one piece, two transitions that change
+one prop on the same frames of a timed block, and, on a scroll, text
+written while it is not \texttt{edited} and a phrase it does not say,
+or says more than once (\S14.13).
 \texttt{--project P} validates every scene of a project in playing
 order against the continuity ledger, and \texttt{--no-ledger} reads the
 ledger without writing to it.
@@ -5151,7 +5157,8 @@ attachment. The module is \texttt{pam/prop\_states.py}.
 A prop is stateful when its item has any of the keys \texttt{state},
 \texttt{attached}, \texttt{parts}, \texttt{display} or
 \texttt{states}; when its type is composite (\texttt{knife},
-\texttt{composite\_prop}); when a \texttt{prop\_transition} names it;
+\texttt{composite\_prop}) or bears text (\texttt{scroll}, \S14.13);
+when a \texttt{prop\_transition} names it;
 or when the continuity ledger carries it. Every other prop is built,
 played and traced as before.
 
@@ -5183,6 +5190,9 @@ starts in, and which state may follow which.
   \texttt{standby}, \texttt{recording}, \texttt{live}; display fields
   \texttt{viewers} (a whole number) and \texttt{comment} (text or
   null).
+\item
+  \texttt{scroll} --- \texttt{rolled}, \texttt{unrolled},
+  \texttt{edited}, \texttt{trailing}; bears text (\S14.13).
 \item
   \texttt{pocket\_door}, \texttt{elevator} --- \texttt{closed},
   \texttt{open}.
@@ -5242,8 +5252,11 @@ these at once.
 \item
   \texttt{display} --- new values of display fields.
 \item
-  \texttt{frames} --- how long the move, and a number that climbs,
-  take (default 0: at once). The state changes on the first frame.
+  \texttt{text} --- a scroll: changes to what it says (\S14.13).
+\item
+  \texttt{frames} --- how long the move, a number that climbs, and
+  writing or crossing out take (default 0: at once). The state changes
+  on the first frame.
 \item
   \texttt{rate} --- easing of the move: \texttt{smooth} (default),
   \texttt{linear}, \texttt{rush\_into} (a fall), \texttt{rush\_from}.
@@ -5271,7 +5284,9 @@ these at once.
   \texttt{{[}dx,\ dy{]}} from its center.
 \item
   \texttt{by} --- which place of the moved prop sits there: one of the
-  same names, or a part of a composite prop.
+  same names, a part of a composite prop, or a named point of the prop
+  (\texttt{grip} on a scroll). Default: the prop's anchor if it has
+  one (a scroll's grip), else \texttt{center}.
 \item
   \texttt{offset} --- \texttt{{[}dx,\ dy{]}} added to the target.
 \item
@@ -5334,8 +5349,9 @@ New plain props for the others to go into, rest on or stick in:
 \texttt{satchel}, \texttt{bowl}, \texttt{rock}, \texttt{altar}.
 
 \textbf{The continuity ledger.} The ledger records, for each prop a
-film carries from scene to scene, its state, its parts and what each is
-attached to at the end of every scene. It is one JSON file per project,
+film carries from scene to scene, its state, its parts, what each is
+attached to, what its display shows and what its text says, at the end
+of every scene. It is one JSON file per project,
 the same file as the cast-and-props sidecar (\S11.1): a
 \texttt{continuity} block in \texttt{pam\_sidecar.json}.
 
@@ -5366,8 +5382,8 @@ as the scene before left it; they are declared for the scene
 automatically. Playing a scene and validating it both write its
 closing entry, with the same code. The file is rewritten only when an
 entry changes, and an entry holds no date. A scene may state a carried
-prop's \texttt{state}, \texttt{attached}, \texttt{parts} or
-\texttt{display} itself; where that differs from the ledger it is an
+prop's \texttt{state}, \texttt{attached}, \texttt{parts},
+\texttt{display} or \texttt{text} itself; where that differs from the ledger it is an
 \emph{override}, which is allowed and which \texttt{pam-validate}
 reports every time (\texttt{ledger-override}). The validator reports an
 error when a carried prop is attached to something the scene does not
@@ -5381,8 +5397,8 @@ write its entry. A scene the block does not list has no ledger.
 
 The first command validates every scene in order, each opening from the
 entry the one before has just written, without rendering.
-\texttt{projects/abe-isaac} holds six scenes that take the knife and
-the phone through \emph{Abraham and Isaac, Revisited}, and
+\texttt{projects/abe-isaac} holds six scenes that take the knife, the
+phone and the scroll through \emph{Abraham and Isaac, Revisited}, and
 \texttt{abe-isaac\_knife-break.json} is the Scene 2 break by itself.
 
 \textbf{The trace and Blender.} A scene with stateful props is traced
@@ -5415,6 +5431,129 @@ in \texttt{tests/}: every knife component is in its expected state and
 place at the end of every scene, none is lost and none is there twice.
 It runs without rendering. \texttt{test\_prop\_trace.py} checks the
 same scenes as the player plays them.
+
+\subsection{14.13 The scroll: a text-bearing prop}\label{scroll}\index{scroll@\texttt{scroll}}\index{text@\texttt{text}!scroll}\index{quill@\texttt{quill}}\index{prop\_transition@\texttt{prop\_transition}!text}
+
+Stage 4b of Milestone 4. A \texttt{scroll} has two dimensions of state
+that change independently of each other.
+
+\begin{itemize}
+\tightlist
+\item
+  Its \emph{state}, how it is open: \texttt{rolled},
+  \texttt{unrolled}, \texttt{edited} (open and being written on), and
+  \texttt{trailing} (unrolled further and streaming out from its grip
+  like a banner). From \texttt{rolled} it may be unrolled or let trail;
+  it is unrolled before it is written on; from any open state it may
+  be rolled up or let trail.
+\item
+  Its \emph{text}: lines, each made of spans that remember the
+  revision that wrote them and the one that crossed them out.
+\end{itemize}
+
+Rolling, unrolling and trailing never change the text, and writing
+never changes the state or where the scroll is. One
+\texttt{prop\_transition} may change several of these at once.
+
+\begin{verbatim}
+{"action": "props", "items": {
+  "scroll": {"type": "scroll", "text": ["GENESIS / B'RESHIT"],
+             "attached": {"to": "abraham", "joint": "lwrist"}}}}
+{"action": "prop_transition", "prop": "scroll", "to": "unrolled",
+ "frames": 6}
+{"action": "prop_transition", "prop": "scroll", "to": "edited",
+ "frames": 30, "text": {"write": "AND ABRAHAM RAISED THE KNIFE."}}
+{"action": "prop_transition", "prop": "scroll", "frames": 6,
+ "text": {"replace": ".", "with": "?", "line": 2}}
+{"action": "prop_transition", "prop": "scroll", "frames": 24,
+ "text": {"replace": "THE KNIFE?", "with": "HIS SON."}}
+{"action": "prop_transition", "prop": "scroll", "to": "trailing",
+ "frames": 6}
+\end{verbatim}
+
+\textbf{Text ops.} The \texttt{text} key of a
+\texttt{prop\_transition} holds one op or a list. The ops of one step
+are applied in order, each to what the one before left, and each is
+one revision.
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{\{"write": "..."\}} --- writes a new last line; with
+  \texttt{"line": n}, at the end of line \texttt{n}.
+\item
+  \texttt{\{"cross\_out": "..."\}} --- draws a line through the
+  phrase. It stays on the page and no longer counts as what the scroll
+  says.
+\item
+  \texttt{\{"replace": "...", "with": "..."\}} --- crosses out the
+  phrase and writes the new text right after it.
+\item
+  \texttt{line} --- counts from 1; \texttt{-1} is the last line. On
+  \texttt{cross\_out} and \texttt{replace} it says where to look.
+\item
+  \texttt{occurrence} --- which match, from 1, when the phrase is said
+  more than once.
+\end{itemize}
+
+A phrase is looked for in what the line says, leaving out crossed-out
+text: once the period of \texttt{THE KNIFE.} has been replaced by a
+question mark, the line says \texttt{THE KNIFE?}. A phrase that is not
+there is an error (\texttt{text-not-found}), and so is one that is
+there more than once with no \texttt{line} or \texttt{occurrence}
+(\texttt{text-ambiguous}). Text is written only while the scroll is
+\texttt{edited} (\texttt{not-writable}); \texttt{"to": "edited"} in
+the same step puts it there first. A word written right after
+crossed-out text is set one column apart from it.
+
+\textbf{On the frame clock.} With \texttt{frames} the change is drawn
+over that many frames: each letter written is one stroke, and each
+three letters crossed out are one stroke (at least two for a phrase).
+The strokes are spread evenly over the frames, and crossing out comes
+before the writing that replaces it. Letters appear one by one, and the
+line through a phrase grows from its left end. A scroll transition is a
+step like any other: at the top level, in a \texttt{sequence}, or as a
+step of a timed \texttt{parallel} block (\S14.8), where it may overlap
+dialogue, camera cuts and other actors.
+
+\textbf{Where it is.} The scroll is drawn in its own frame from its
+\emph{grip}, the middle of its near roller, and is kept on an
+attachment by the grip: rolled, open or trailing, the grip stays in the
+hand that holds it. \texttt{angle} turns it about the grip; a trailing
+scroll at angle 0 streams out to the right of the hand. The open sheet
+shows the last seven lines, in a monospaced font in fixed columns (PAM
+asks for Courier New; where it is not installed, Liberation Mono stands
+in, as for every other text PAM draws). A line too long for the sheet
+is set smaller.
+
+\textbf{In the ledger.} The scroll's state, its text and every
+revision go into the continuity ledger with the rest of its state. Each
+revision records its number, the op, the line it was made on, and the
+scene it was made in, so the ledger entry of the last scene still says
+which scene wrote each word and which crossed it out.
+
+\textbf{In the trace and in Blender.} The scroll's
+\texttt{"prop\_states"} record has \texttt{"text"}: what it shows,
+frame by frame while it is being written or crossed out. Each row is
+\texttt{\{"state",\ "lines"\}}, each line a list of runs with their
+text, the column they start in, their revisions, how many letters are
+written so far (\texttt{"shown"}) and how much of the line through
+struck text is drawn (\texttt{"strike"}). The scroll's prop object
+follows its grip, not the center of its bounding box, and its
+\texttt{"model"} holds its sizes and text layout. \texttt{trace2blender.py}
+builds its roll, open sheet and trailing ribbon, shows each in its
+state, and sets the text in the same columns, letter by letter on the
+same frames, with the lines through struck text growing as they do in
+Manim. New \texttt{pam.hooks} event: \texttt{prop\_text}.
+
+A \texttt{quill} is a plain prop, to write with.
+
+\textbf{The completion test.} \texttt{test\_scroll\_completion}, in
+\texttt{tests/test\_scroll.py}, validates the six scenes of
+\texttt{projects/abe-isaac} in order and checks that the scroll has its
+expected state, text and location at the end of every scene, without
+rendering. \texttt{abe-isaac\_scroll-revision.json} is the scroll's
+whole story in one scene, with a golden trace.
 
 \chapter{Character Properties
 Reference}\label{character-properties-reference}
@@ -14394,8 +14533,10 @@ Added for the Blender roadmap (\S14.12): \texttt{knife} (a composite of
 \texttt{knife\_handle} and \texttt{knife\_blade}),
 \texttt{composite\_prop}, \texttt{satchel} (in
 \texttt{props\_carried.py}), and \texttt{rock}, \texttt{altar},
-\texttt{bowl} (in \texttt{props\_environment.py}). The states of every
-stateful prop, old and new, are kept by \texttt{pam/prop\_states.py}.
+\texttt{bowl} (in \texttt{props\_environment.py}); and (\S14.13)
+\texttt{scroll}, a text-bearing prop, and \texttt{quill} (in
+\texttt{props\_carried.py}). The states of every stateful prop, old
+and new, are kept by \texttt{pam/prop\_states.py}.
 
 \subsection{\texorpdfstring{6.1 Furniture
 (\texttt{props\_furniture.py})}{6.1 Furniture (props\_furniture.py)}}\label{furniture-props_furniture.py}

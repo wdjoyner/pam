@@ -10,8 +10,82 @@
  },
  {
   "action": "wait",
-  "frames": 15,
-  "beat": "writes"
+  "frames": 3
+ },
+ {
+  "action": "prop_transition",
+  "prop": "quill",
+  "frames": 6,
+  "beat": "takes_quill",
+  "attached": {
+   "to": "abraham",
+   "joint": "rwrist",
+   "angle": 30
+  }
+ },
+ {
+  "action": "prop_transition",
+  "prop": "scroll",
+  "to": "edited",
+  "frames": 30,
+  "beat": "writes",
+  "text": {
+   "write": "AND ABRAHAM RAISED THE KNIFE."
+  }
+ },
+ {
+  "action": "wait",
+  "frames": 12,
+  "beat": "insert"
+ },
+ {
+  "action": "prop_transition",
+  "prop": "scroll",
+  "frames": 6,
+  "beat": "question_mark",
+  "text": {
+   "replace": ".",
+   "with": "?",
+   "line": 2
+  }
+ },
+ {
+  "action": "parallel",
+  "id": "s01_thud",
+  "frames": 24,
+  "do": [
+   {
+    "action": "wait",
+    "frames": 6,
+    "beat": "thud"
+   },
+   {
+    "action": "prop_transition",
+    "prop": "quill",
+    "at": 6,
+    "frames": 6,
+    "beat": "quill_away",
+    "attached": {
+     "to": "satchel",
+     "mode": "in",
+     "hidden": true
+    }
+   },
+   {
+    "action": "prop_transition",
+    "prop": "scroll",
+    "to": "rolled",
+    "at": 9,
+    "frames": 9,
+    "beat": "into_belt",
+    "attached": {
+     "to": "abraham",
+     "joint": "rhip",
+     "mode": "in",
+     "angle": 25
+    }
+   }
+  ]
  },
  {
   "action": "fade_out",

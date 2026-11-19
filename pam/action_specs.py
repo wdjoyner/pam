@@ -129,7 +129,7 @@ TIMELINE_LOCOMOTION = frozenset({"walk_to", "run_to", "trot_to"})
 TIMELINE_PLAYER = frozenset({
     "say", "wait", "constrain", "release", "sequence",
     # a prop changes state, moves to a new attachment, or changes what
-    # its display shows (pam/prop_states.py)
+    # its display shows or its text says (pam/prop_states.py)
     "prop_transition",
 })
 
