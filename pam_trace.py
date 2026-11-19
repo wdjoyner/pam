@@ -131,12 +131,24 @@ as version 4, byte for byte as before.  Version 5 adds:
   "constraints": [{"id", "type", "who", "joints", "f0", "f1",
                    "max_shortfall", "joint"?, "target"?,
                    "target_joint"?, "blend"?}],   # for information only
+  "blocks": [{"id", "f0", "f1",            # timed parallel blocks; only
+              "items": [{"action", "who", "f0", "f1", "beat"?,
+                         "track"?}],       # present when there are any
+              "tracks": [{"id", "f0", "f1"}],
+              "beats": [{"name", "frame", "frames"}]}],
 and one more kind of piece in "tracks":
 
   {"kind": "sampled", "source": "constraint", "constraint": id,
    "f0", "f1", "t0", "t1",
    "joints": [joint, ...],
    "frames": [{joint: [x, y]}, ...]}     # one entry per frame f0..f1
+
+Inside a timed parallel block (pam/timeline.py) steps overlap, each on
+its own frames, so the tracer records the block frame by frame: every
+figure, camera, bubble, prop and overlay move there is a run of linear
+one-frame pieces (source "play"), which is exactly what Manim drew at
+15 fps.  Which step ran on which frames is in "blocks".  A line of
+dialogue starts on the frame its bubble's "visibility" turns on.
 
 A sampled piece holds the resolved world position of a constrained
 limb's joints on every frame while the constraint was in force.  It
@@ -971,6 +983,9 @@ class Tracer:
         self.timeline = False
         self.sequences = []
         self.constraints = []
+        self.blocks = []            # timed parallel blocks
+        self._in_block = 0          # > 0 while one is playing
+        self._open_plays = []       # [t0, pre, stepped by frames] per play
         self._open_constraints = {}     # id -> record with "_samples"
         self.stats = {"plays": 0, "pieces_hook": 0, "pieces_pose_target": 0,
                       "pieces_play": 0, "pieces_cut": 0, "segments_stale": 0,
@@ -1199,6 +1214,43 @@ class Tracer:
                        "constraint_sample"):
             self.timeline = True
             self._on_timeline(event, data)
+        elif event == "block":
+            self.timeline = True
+            if data.get("phase") == "begin":
+                self._in_block += 1
+            else:
+                self._in_block = max(0, self._in_block - 1)
+                rep = data.get("report") or {}
+                self.blocks.append({
+                    "id": rep.get("id"), "f0": rep.get("f0"),
+                    "f1": rep.get("f1"),
+                    "items": [{k: it[k] for k in ("action", "who", "f0",
+                                                  "f1", "beat", "track")
+                               if it.get(k) is not None}
+                              for it in rep.get("items", [])],
+                    "tracks": [dict(tr) for tr in rep.get("tracks", [])],
+                    "beats": [{"name": b["name"], "frame": b["frame"],
+                               "frames": b.get("frames")}
+                              for b in rep.get("beats", [])]})
+        elif event == "frame":
+            self._on_frame(data)
+
+    # ── timeline: frame by frame inside a timed block ────────────────────
+    def _on_frame(self, data):
+        """A whole frame of a timed parallel block is complete.
+
+        Steps of a timed block start and end on their own frames, so a
+        ``Scene.play`` there is not one move with one rate function.
+        The tracer therefore treats every frame of the block as a play
+        of its own: one linear piece per frame for whatever moved
+        (figures, camera, bubbles, props, overlays).  At 15 fps that is
+        exactly what Manim drew."""
+        if not self._open_plays:
+            return
+        rec = self._open_plays[-1]
+        self.after(self.scene, rec[0], rec[1], "linear")
+        rec[0], rec[1] = self.before(self.scene)
+        rec[2] = True
 
     # ── timeline: sequences, beats, constraints (trace version 5) ────────
     def _on_timeline(self, event, data):
@@ -1395,6 +1447,11 @@ class Tracer:
     def after(self, scene, t0, pre, play_rate):
         t1 = self.now()
         self.stats["plays"] += 1
+        if self._in_block:
+            # the hooks describe a whole move; inside a timed block a
+            # play is one stretch of it (see _on_frame)
+            self.pending_seg.clear()
+            self.pending_pt.clear()
         snap, cam = self.snapshot()
         for name, (w1, v1) in snap.items():
             w0, v0 = pre.get(name, (None, None))
@@ -1508,6 +1565,8 @@ class Tracer:
             out["constraints"] = [
                 {k: v for k, v in c.items() if not k.startswith("_")}
                 for c in self.constraints]
+            if self.blocks:
+                out["blocks"] = self.blocks
         return out
 
 
@@ -1554,8 +1613,15 @@ def _play_rate(anims, kw):
 def play(self, *anims, **kw):
     t0, pre = TR.before(self)
     rate = _play_rate(anims, kw)
-    _orig_play(self, *anims, **kw)
-    TR.after(self, t0, pre, rate)
+    rec = [t0, pre, False]
+    TR._open_plays.append(rec)
+    try:
+        _orig_play(self, *anims, **kw)
+    finally:
+        TR._open_plays.remove(rec)
+    # inside a timed block the tracer has stepped through the play frame
+    # by frame (Tracer._on_frame); what is left is its last frame
+    TR.after(self, rec[0], rec[1], "linear" if rec[2] else rate)
 
 
 def wait(self, duration=1.0, *a, **kw):

@@ -1664,7 +1664,8 @@ class HumanGraph:
     def say(self, text: str, scene: Scene,
             hold=1.2, font_size=20, rt_in=0.4, rt_out=0.3,
             side="right", max_bubble_w=4.5, post_wait=0.0,
-            extra_anims=None, bubble_style=None, persist=False):
+            extra_anims=None, bubble_style=None, persist=False,
+            build_only=False):
         """Pop a speech bubble above the head, hold, then dismiss.
 
         Parameters
@@ -1694,6 +1695,12 @@ class HumanGraph:
             dismissal can match the original fade-out duration.
             Introduced in v0.9.10 to support unified persistent
             speech bubbles across all figure types.
+        build_only : bool
+            ``True`` — build the bubble, announce it on ``pam.hooks``,
+            and return it without playing anything.  The timeline
+            (``pam/timeline.py``) uses this to play the fade-in, hold
+            and fade-out as three timed pieces that can overlap other
+            motion.  ``bubble.pam_rt_out`` is stashed as for ``persist``.
         """
         # ── Head anchor: read from live dot, not pose space ──────────────
         # self.pose / self.offset are not updated by act_rotate (rotate is
@@ -1806,6 +1813,9 @@ class HumanGraph:
         if _hooks.active():
             _hooks.bubble(scene, bubble, owner=self, text=wrapped,
                           style=locals().get("bubble_style"))
+        if build_only:
+            bubble.pam_rt_out = rt_out
+            return bubble
         fade_anims = [FadeIn(bubble, scale=0.85)] + (extra_anims or [])
         scene.play(*fade_anims, run_time=rt_in)
         scene.wait(hold)
@@ -2683,7 +2693,8 @@ class DogGraph:
     def say(self, text: str, scene: Scene,
             hold=1.2, font_size=18, rt_in=0.4, rt_out=0.3,
             side="right", max_bubble_w=4.5, post_wait=0.0,
-            extra_anims=None, bubble_style=None, persist=False):
+            extra_anims=None, bubble_style=None, persist=False,
+            build_only=False):
         """Speech bubble above the dog's head.
 
         ``bubble_style`` is accepted for signature parity with
@@ -2693,6 +2704,10 @@ class DogGraph:
         fading it out, so the caller can register it for later
         dismissal via ``clear_bubble`` / ``clear_all_bubbles``.
         The bubble has ``bubble.pam_rt_out`` stashed on it.
+
+        ``build_only=True`` builds the bubble, announces it on
+        ``pam.hooks``, and returns it without playing anything (see
+        HumanGraph.say; used by the timeline).
         """
         s = self.style
         # ── Head anchor: read from live dot, not pose space ──────────────
@@ -2749,6 +2764,9 @@ class DogGraph:
         if _hooks.active():
             _hooks.bubble(scene, bubble, owner=self, text=wrapped,
                           style=locals().get("bubble_style"))
+        if build_only:
+            bubble.pam_rt_out = rt_out
+            return bubble
         fade_anims = [FadeIn(bubble, scale=0.85)] + (extra_anims or [])
         scene.play(*fade_anims, run_time=rt_in)
         scene.wait(hold)

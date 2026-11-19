@@ -23,7 +23,20 @@ Warnings (reported, not rejected unless ``strict``)
       no ``do`` list, a pose name that is not in the pose registry;
     * a step with both ``frames`` and its duration in seconds, ``frames``
       on an action that cannot be timed that way yet, and a ``release``
-      of a constraint that is not in force.
+      of a constraint that is not in force;
+    * in a timed ``parallel`` block (see ``pam/timeline.py``): a duration
+      in seconds that is not a whole number of frames, with the number
+      of frames it is rounded to; two steps that move the same figure
+      on the same frames; a block whose ``frames`` is shorter than its
+      steps; ``at`` where it has no meaning.
+
+A step of a timed block that cannot run on the frame clock (``wave``,
+``carry``, a nested block, ...) is an error: the player skips it.
+
+Notes (``frame_notes``; ``pam-validate --frames``)
+    * every duration in the screenplay that is not a whole number of
+      frames at 15 fps, with the rounded value.  Outside timed blocks
+      nothing is rounded today, so these are for information only.
 
 The lists of valid actions and of the keys that are checked live in
 ``pam/action_specs.py``.
@@ -49,6 +62,7 @@ from pam import action_specs as specs
 
 ERROR = "error"
 WARNING = "warning"
+NOTE = "note"           # information; never fails a screenplay
 
 
 @dataclass
@@ -84,6 +98,10 @@ class Report:
         return [f for f in self.findings if f.level == WARNING]
 
     @property
+    def notes(self):
+        return [f for f in self.findings if f.level == NOTE]
+
+    @property
     def ok(self):
         return not self.errors
 
@@ -91,8 +109,11 @@ class Report:
         lines = [f.format() for f in self.findings
                  if show_warnings or f.level == ERROR]
         name = self.path or "screenplay"
+        notes = self.notes
         lines.append(f"{name}: {self.steps} steps, {len(self.errors)} "
-                     f"error(s), {len(self.warnings)} warning(s)")
+                     f"error(s), {len(self.warnings)} warning(s)"
+                     + (f", {len(notes)} duration(s) not in whole frames"
+                        if notes else ""))
         return "\n".join(lines)
 
     def to_dict(self):
@@ -159,7 +180,8 @@ class _Validator:
                          f"'{key}' is {v!r}; a duration cannot be negative",
                          index, action, p)
 
-    def check_frames(self, step, act, index, path):
+    def check_frames(self, step, act, index, path, timed=False):
+        """*timed*: the step is a step of a timed parallel block."""
         for key in specs.FRAME_KEYS:
             if key not in step or step[key] is None:
                 continue
@@ -169,6 +191,22 @@ class _Validator:
                          f"'{key}' must be a whole number of frames "
                          f"(15 per second), got {v!r}", index, act,
                          f"{path}{key}")
+        if "at" in step and not timed:
+            self.add(WARNING, "at-ignored",
+                     "'at' only has a meaning for a step written "
+                     "directly in a timed parallel block; here it is "
+                     "ignored", index, act, f"{path}at")
+        for fkey, sec in (("frames_in", "rt_in"), ("frames_out", "rt_out")):
+            if fkey not in step:
+                continue
+            if act != "say":
+                self.add(WARNING, "frames-unsupported",
+                         f"'{fkey}' only has a meaning for 'say'", index,
+                         act, f"{path}{fkey}")
+            elif step.get(sec) is not None:
+                self.add(WARNING, "frames-and-seconds",
+                         f"step has both '{fkey}' and '{sec}'; the frames "
+                         f"win", index, act, f"{path}{fkey}")
         if "frames" not in step or act == "constrain":
             return
         sec = specs.seconds_key(act)
@@ -176,11 +214,143 @@ class _Validator:
             self.add(WARNING, "frames-and-seconds",
                      f"step has both 'frames' and '{sec}'; the frames win",
                      index, act, f"{path}frames")
-        if act not in specs.frame_actions():
+        ok = specs.frame_actions()
+        if timed:
+            ok = ok | specs.timeline_actions()
+        if act not in ok:
+            where = ("" if timed or act not in specs.timeline_actions()
+                     else " outside a timed parallel block")
             self.add(WARNING, "frames-unsupported",
-                     f"'frames' is not supported for '{act}' yet; the "
-                     f"action may not take exactly that long", index, act,
-                     f"{path}frames")
+                     f"'frames' is not supported for '{act}'{where} yet; "
+                     f"the action may not take exactly that long", index,
+                     act, f"{path}frames")
+
+    # ── timed parallel blocks (pam/timeline.py) ──────────────────────
+    def check_timed_block(self, step, index, path):
+        """A parallel block on the frame clock: what its steps may be,
+        what gets rounded, and what collides."""
+        from pam import timeline as tl
+        subs = step["do"]
+        info = tl.describe(step)
+        ok = specs.timeline_actions()
+        moves = []          # (who, first frame, last frame, where)
+
+        def report(sub, d, p, act):
+            for key, sec, n in d["rounded"]:
+                self.add(WARNING, "rounded-duration",
+                         f"'{key}' is {sec:g} s, which is "
+                         f"{sec * tl.FPS:.4g} frames at {tl.FPS} fps; in "
+                         f"a timed block it plays as {n} frame"
+                         f"{'' if n == 1 else 's'}", index, act,
+                         f"{p}{key}")
+            for msg in d["problems"]:
+                if d["kind"] != "unsupported":
+                    self.add(WARNING, "timeline-key", msg, index, act,
+                             p.rstrip("."))
+
+        def one(sub, d, p, start, in_track):
+            """Check one step; returns the frame it ends on (None when
+            that is not known before it plays)."""
+            if not isinstance(sub, dict):
+                self.step(sub, index, p)
+                return start
+            marker = "_subscene_marker" in sub
+            act = "camera" if marker else sub.get("action")
+            if "action" in sub and ("_comment" in sub or "_hint" in sub):
+                return start            # annotated: the player skips it
+            if in_track and "at" in sub:
+                self.add(WARNING, "at-ignored",
+                         "'at' is ignored inside a sequence: its steps "
+                         "follow one another", index, act, f"{p}at")
+            if marker:
+                self.step(sub, index, p, parallel=True, timed=True)
+                self.check_frames(sub, None, index, p, timed=True)
+            elif act == "parallel":
+                self.add(ERROR, "timeline-unsupported",
+                         "a parallel block cannot be a step of a timed "
+                         "parallel block (the player skips it); use a "
+                         "sequence for steps that follow one another",
+                         index, act, p.rstrip("."))
+                return start
+            elif isinstance(act, str) and act in self.known \
+                    and act not in ok:
+                self.add(ERROR, "timeline-unsupported",
+                         f"'{act}' cannot run in a timed parallel block "
+                         f"yet (it plays several animations of its own; "
+                         f"the player skips it); put it before or after "
+                         f"the block", index, act, p.rstrip("."))
+                return start
+            elif act == "sequence":
+                if in_track:
+                    self.add(ERROR, "timeline-unsupported",
+                             "a sequence cannot be nested in a sequence "
+                             "of a timed block (the player skips it)",
+                             index, act, p.rstrip("."))
+                    return start
+                inner = sub.get("do")
+                if not isinstance(inner, list):
+                    self.add(ERROR, "bad-step",
+                             "sequence needs a 'do' list of steps", index,
+                             act, p.rstrip("."))
+                    return start
+                self.check_frames(sub, act, index, p, timed=True)
+                end = start
+                kids = iter(d.get("steps") or [])
+                for j, x in enumerate(inner):
+                    if isinstance(x, dict) and "action" in x                             and ("_comment" in x or "_hint" in x):
+                        continue
+                    kd = next(kids, None) or tl.describe(x, step)
+                    end = one(x, kd, f"{p}do[{j}].", end, True)
+                return end
+            else:
+                self.step(sub, index, p, parallel=True, timed=True)
+            if d["kind"] == "unsupported" and (marker or act in ok):
+                for msg in d["problems"]:
+                    self.add(ERROR, "timeline-unsupported",
+                             msg + " (the player skips it)", index, act,
+                             p.rstrip("."))
+                return start
+            report(sub, d, p, act)
+            if start is None or d["frames"] is None:
+                end = None
+            else:
+                end = start + d["frames"]
+            if d["kind"] in ("anim", "loco"):
+                who = sub.get("who") or sub.get("prop")
+                names = who if isinstance(who, list) else [who]
+                for name in names:
+                    if isinstance(name, str) and start is not None:
+                        moves.append((name, start, end, p.rstrip(".")))
+            return end
+
+        kids = iter(info.get("steps") or [])
+        for i, sub in enumerate(subs):
+            if isinstance(sub, dict) and "action" in sub                     and ("_comment" in sub or "_hint" in sub):
+                continue
+            d = next(kids, None) or tl.describe(sub, step)
+            at = sub.get("at", 0) if isinstance(sub, dict) else 0
+            at = at if isinstance(at, int) and not isinstance(at, bool)                 and at >= 0 else 0
+            one(sub, d, f"{path}do[{i}].", at, False)
+
+        # two steps that move the same figure on the same frames
+        moves.sort(key=lambda m: (m[0], m[1]))
+        for a, b in zip(moves, moves[1:]):
+            if a[0] != b[0]:
+                continue
+            if a[2] is None or b[1] < a[2]:
+                span = (f"from frame {a[1]}" if a[2] is None
+                        else f"frames {a[1]} to {a[2]}")
+                self.add(WARNING, "timeline-overlap",
+                         f"'{a[0]}' is moved by two steps at once: "
+                         f"{a[3]} ({span}) and {b[3]} (from frame "
+                         f"{b[1]}); the one written later wins on the "
+                         f"frames they share", index, "parallel", b[3])
+        if "frames" in step and info.get("content") is not None                 and isinstance(info["frames"], int)                 and info["content"] > info["frames"]:
+            self.add(WARNING, "block-too-short",
+                     f"the block's 'frames' is {info['frames']} but its "
+                     f"steps need {info['content']}; it will run "
+                     f"{info['content'] - info['frames']} frames over",
+                     index, "parallel", f"{path}frames")
 
     def check_constrain(self, step, index, path):
         from pam.constraints import TYPES, CHAINS
@@ -321,7 +491,7 @@ class _Validator:
         registry.update(items.keys())
 
     # ── one step ─────────────────────────────────────────────────────
-    def step(self, step, index, path="", parallel=False):
+    def step(self, step, index, path="", parallel=False, timed=False):
         if not isinstance(step, dict):
             self.add(ERROR, "bad-step",
                      f"a step must be an object, got "
@@ -373,7 +543,7 @@ class _Validator:
 
         self.check_durations(step, index, act, path)
         self.check_joints(step, index, act, path)
-        self.check_frames(step, act, index, path)
+        self.check_frames(step, act, index, path, timed=timed)
         if act not in ("cast", "props", "scene_props", "scene_objects"):
             self.check_pose(step, index, act, path)
 
@@ -447,6 +617,16 @@ class _Validator:
                             if stray else ""), index, act,
                          path.rstrip("."))
                 return
+            from pam.timeline import is_timed_parallel
+            if is_timed_parallel(step):
+                if parallel:
+                    self.add(ERROR, "timeline-unsupported",
+                             "a timed parallel block cannot be a step of "
+                             "another parallel block", index, act,
+                             path.rstrip("."))
+                    return
+                self.check_timed_block(step, index, path)
+                return
             for i, sub in enumerate(subs):
                 self.step(sub, index, f"{path}do[{i}].", parallel=True)
             return
@@ -512,6 +692,53 @@ def validate_actions(actions):
     return _Validator().run(actions)
 
 
+def frame_notes(actions):
+    """Every duration in *actions* that is not a whole number of frames
+    at 15 fps, as a list of ``note`` findings with the rounded value
+    (roadmap, Milestone 2).
+
+    Inside a timed parallel block such a duration is rounded when the
+    block plays (the validator warns about those by itself).  Anywhere
+    else nothing is rounded by PAM today; the note says what the frame
+    clock would make of it, so that moving a step into a timed block,
+    or giving it ``frames``, holds no surprise.
+    """
+    from pam.timeline import FPS, is_whole_frames, seconds_to_frames
+    notes = []
+
+    def scan(obj, index, action, path):
+        if isinstance(obj, dict):
+            act = obj.get("action", action) if path == "" else action
+            for key, v in obj.items():
+                p = f"{path}{key}"
+                if key in specs.DURATION_KEYS:
+                    if isinstance(v, (int, float)) \
+                            and not isinstance(v, bool) \
+                            and math.isfinite(v) and v > 0 \
+                            and not is_whole_frames(v):
+                        n = seconds_to_frames(v)
+                        notes.append(Finding(
+                            NOTE, "not-whole-frames",
+                            f"'{key}' is {v:g} s = {v * FPS:.4g} frames "
+                            f"at {FPS} fps; on the frame clock it is "
+                            f"{n} frame{'' if n == 1 else 's'} "
+                            f"({n / FPS:.4g} s)", index, act, p))
+                elif isinstance(v, (dict, list)):
+                    scan(v, index, act, p + ("." if isinstance(v, dict)
+                                             else ""))
+        elif isinstance(obj, list):
+            for i, x in enumerate(obj):
+                if isinstance(x, dict):
+                    scan(x, index, x.get("action", action),
+                         f"{path}[{i}].")
+
+    if isinstance(actions, list):
+        for i, s in enumerate(actions):
+            if isinstance(s, dict):
+                scan(s, i, s.get("action"), "")
+    return notes
+
+
 def _with_sidecar(actions, path):
     """Merge the optional cast-and-props sidecar the way the player
     does (PAM_SIDECAR, or pam_sidecar.json next to the screenplay).
@@ -531,8 +758,11 @@ def _with_sidecar(actions, path):
     return merged, len(merged) - len(actions)
 
 
-def validate_file(path, sidecar=True):
+def validate_file(path, sidecar=True, frames=False):
     """Validate the screenplay at *path*.  Returns a Report.
+
+    With *frames* true the report also lists, as notes, every duration
+    that is not a whole number of frames at 15 fps (``frame_notes``).
 
     With *sidecar* true (the default) the cast-and-props sidecar is
     merged first, as the player would; step numbers in the report still
@@ -557,6 +787,8 @@ def validate_file(path, sidecar=True):
         actions, added = _with_sidecar(actions, str(path))
     out = validate_actions(actions)
     out.path = str(path)
+    if frames:
+        out.findings.extend(frame_notes(actions))
     if added and isinstance(actions, list):
         # The player splices the sidecar after a leading title.
         first = 1 if (actions and isinstance(actions[0], dict)

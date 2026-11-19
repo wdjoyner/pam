@@ -68,6 +68,18 @@ unchanged because nothing existing changed):
                       constraint gave its joints on one whole frame of
                       the 15 fps clock.
 
+``"block"``         — scene, phase ("begin" | "end"), id, frame, t; on
+                      "end" also report: a timed parallel block (its
+                      items, each with action, who, f0, f1, and its
+                      beats and tracks).
+``"block_item"``    — scene, phase ("begin" | "end"), block, item (the
+                      report record of one step of a timed block), step.
+``"frame"``         — scene, frame, t, block: inside a timed block, a
+                      whole frame of the 15 fps clock is complete (every
+                      animation, updater and contact constraint has
+                      run).  Not emitted on the first and last frame of
+                      a ``Scene.play``; those are its boundaries.
+
 Prop hand-off semantics (hooks version 2)
 ----------------------------------------
 An attach starts a hold: the prop rides on the figure's hand(s) (*hand*

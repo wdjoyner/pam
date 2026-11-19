@@ -3,13 +3,14 @@ pam.action_specs — what a PAM JSON step may contain.
 
 This is the one place that lists the valid action names and the keys
 whose values the validator checks (roadmap Milestone 1).  The validator
-(``pam/validate.py``) reads it today; the player is meant to read it too
-once the timeline arrives (Milestone 2), so that the two cannot drift
-apart.  Until then ``tests/test_action_specs.py`` compares this module
-with the dispatcher in ``pam_player.py`` and fails if they disagree.
+(``pam/validate.py``) reads all of it.  The timeline (``pam/timeline.py``,
+Milestone 2) reads the lists of actions that can run in a timed block,
+so the validator and the player agree on them by construction.  For the
+rest, ``tests/test_action_specs.py`` compares this module with the
+dispatcher in ``pam_player.py`` and fails if they disagree.
 
-Nothing here is imported by the player or the action handlers, so this
-module has no effect on rendering.
+This module holds tables only and imports nothing when loaded.  A
+screenplay without timeline syntax is played without consulting it.
 
 Two kinds of action
 -------------------
@@ -87,7 +88,7 @@ DURATION_KEYS = frozenset({
 # ── frames ───────────────────────────────────────────────────────────────
 
 # Keys that hold a whole number of frames on the 15 fps clock.
-FRAME_KEYS = frozenset({"frames", "blend"})
+FRAME_KEYS = frozenset({"frames", "blend", "at", "frames_in", "frames_out"})
 
 
 def frame_actions():
@@ -100,6 +101,35 @@ def seconds_key(action):
     """The seconds key that "frames" replaces for *action*."""
     from pam.timeline import SECONDS_KEY, DEFAULT_SECONDS_KEY
     return SECONDS_KEY.get(action, DEFAULT_SECONDS_KEY)
+
+
+# ── timed parallel blocks ────────────────────────────────────────────────
+
+# What a step of a timed ``parallel`` block may be (see pam/timeline.py).
+# The block runner needs the animations of a step without playing them,
+# so only actions that can hand them over belong here.
+
+# Handler actions that make one move and return its animations when
+# asked (``_collect_anims``).
+TIMELINE_ANIMATED = frozenset({
+    "morph", "turn", "scale", "slip_on_back", "fade_out",
+})
+
+# Locomotion: the runner plays the keyframes of the walk, run or trot
+# plan itself, as the parallel block always has.
+TIMELINE_LOCOMOTION = frozenset({"walk_to", "run_to", "trot_to"})
+
+# Handled by the player for the runner: dialogue, stillness, contacts,
+# and a track of steps.
+TIMELINE_PLAYER = frozenset({
+    "say", "wait", "constrain", "release", "sequence",
+})
+
+
+def timeline_actions():
+    """Actions that may be steps of a timed parallel block.  (A camera
+    marker may be one too; it has no action name.)"""
+    return TIMELINE_ANIMATED | TIMELINE_LOCOMOTION | TIMELINE_PLAYER
 
 
 # ── joints ───────────────────────────────────────────────────────────────
