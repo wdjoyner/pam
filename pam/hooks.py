@@ -112,6 +112,11 @@ existing changed):
                       prop_states.text_row: lines of runs with the
                       letters written so far and how much of each line
                       through struck text is drawn).
+``"prop_shape"``     — scene, prop, mob, frame, t, points: the control
+                      points ([[x, y], ...], world) a deformable prop (a
+                      piece of a rope) is drawn through from this frame;
+                      emitted only when they change.  A piece of a rope
+                      is not held: it has no "prop_attach" events.
 
 A prop that a ``prop_transition`` puts in a character's hand is
 reported with the ordinary ``"prop_attach"`` / ``"prop_release"`` pair,

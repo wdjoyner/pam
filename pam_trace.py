@@ -192,12 +192,37 @@ keys:
                         kind, joint or point, mode, hidden, ...)
   "angles"              [{"t0", "t1", "rate", "from", "to"}]: turns, in
                         degrees
+  "shape"               a deformable prop (a rope's piece, model
+                        {"kind": "rope_piece", "width", "points",
+                        "colors"}): its control points frame by frame,
+                        as sampled pieces (below)
 and a hold made by a prop_transition has "offset": [dx, dy], where the
 prop sits from the joint.  A prop with an anchor (a scroll: its grip) is
 followed by its anchor, not by the center of its bounding box: "initial"
 and "moves" give the anchor and the box's size, and it has no
 "geometry", since its outline changes with its state.  The Governor's "states" list is read through
 the same function (prop_states.state_of) as every other prop's state.
+
+Deformable props (Stage 4c).  A rope is a composite prop like the
+knife: "parts" gives the prop objects of its two pieces ({"piece_a":
+5, "piece_b": 6}), the same two before and after it snaps.  Its shape
+changes every frame (a coil on a shoulder, a loop that follows the
+wrists it is tied to, two pieces that recoil and fall), so each piece's
+prop object carries its control points the way a constrained limb
+carries its joints:
+
+  "shape": [{"kind": "sampled", "source": "prop_shape", "f0", "f1",
+             "t0", "t1", "points": n,
+             "frames": [[[x, y], ... n points], ...]}]  # f0..f1
+
+one sampled piece per run of frames on which the shape changed, with
+one entry per frame.  Between two runs the shape stays as the first
+run left it; before the first, as the first run starts.  The points
+are world coordinates, through which the piece is drawn as a smooth
+curve; the two pieces share the point where the rope breaks.  The
+first run starts on the frame the piece was first placed.  A piece
+is not held (it has no "holds"): its points already say where it is.
+"moves" still follow its bounding box, for information.
 
 A sampled piece holds the resolved world position of a constrained
 limb's joints on every frame while the constraint was in force.  It
@@ -459,6 +484,11 @@ class PropTracker:
             rec["part"] = getattr(mob, "pam_part", None)
         if isinstance(getattr(mob, "pam_model", None), dict):
             rec["model"] = _json_safe(mob.pam_model)
+        shape = getattr(mob, "pam_shape", None)
+        if getattr(mob, "pam_deformable", False) and callable(shape):
+            # its shape as built, until the first "prop_shape" event
+            f = int(math.floor(self.tr.now() * FPS + 0.4))
+            rec["_shape"] = {f: [_xy(p) for p in shape()]}
         rec["_angle"] = float(getattr(mob, "pam_angle", 0.0) or 0.0)
         gov = getattr(mob, "pam_governor", None)
         if gov is not None:
@@ -715,10 +745,31 @@ class PropTracker:
                 rec["holds"].append(hold)
             rec["holds"].sort(key=lambda h: h["t0"])
 
+    @staticmethod
+    def _shape_runs(samples):
+        """A deformable prop's samples ({frame: points}) as sampled
+        pieces: one per run of consecutive frames.  Between two runs the
+        shape is the last one of the first."""
+        runs, cur = [], None
+        for f in sorted(samples):
+            if cur is not None and f == cur["f1"] + 1:
+                cur["frames"].append(samples[f])
+                cur["f1"] = f
+                continue
+            cur = {"kind": "sampled", "source": "prop_shape",
+                   "f0": f, "f1": f, "frames": [samples[f]]}
+            runs.append(cur)
+        for r in runs:
+            r["t0"], r["t1"] = _r4(r["f0"] / FPS), _r4(r["f1"] / FPS)
+            r["points"] = len(r["frames"][0])
+        return runs
+
     def result(self):
         self.resolve_holds()
         out = []
         for rec in self.recs:
+            if rec.get("_shape"):
+                rec["shape"] = self._shape_runs(rec["_shape"])
             r = {k: v for k, v in rec.items() if not k.startswith("_")}
             if r["initial"] is None:
                 continue                         # never reached the stage
@@ -1336,7 +1387,8 @@ class Tracer:
         elif event == "frame":
             self._on_frame(data)
         elif event in ("prop_declared", "prop_state_changed",
-                       "prop_attached", "prop_display", "prop_text"):
+                       "prop_attached", "prop_display", "prop_text",
+                       "prop_shape"):
             self.timeline = True
             self._on_prop_state(event, data)
 
@@ -1399,6 +1451,15 @@ class Tracer:
                     rows[-1] = [f, row]
                 else:
                     rows.append([f, row])
+        elif event == "prop_shape":
+            # a deformable prop (a rope's piece): its control points on
+            # this frame; the last word on a frame is the one drawn
+            mob = data.get("mob")
+            if mob is None or self.pt._skip(mob) or f is None:
+                return
+            rec = self.pt.ensure(name, mob, "props")
+            rec.setdefault("_shape", {})[int(f)] = [
+                _xy(p) for p in data.get("points") or ()]
 
     # ── timeline: frame by frame inside a timed block ────────────────────
     def _on_frame(self, data):

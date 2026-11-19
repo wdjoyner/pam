@@ -18,7 +18,8 @@ props_core.py         — shared infrastructure (PROP_DEFAULTS, helpers)
 props_furniture.py    — chair, desk, door, pocket_door, elevator, desk_lamp
 props_carried.py      — hat, briefcase, folder, phone, audio_video_bug,
                          backpack, laptop, knife (knife_handle,
-                         knife_blade), satchel, scroll, quill
+                         knife_blade), satchel, scroll, quill, rope
+                         (rope_piece)
 props_flora.py        — flower, floral_arrangement / bouquet
 props_environment.py  — dodecahedron, building, sun, moon, solar_panel,
                          wire, backdrop, tv_monitor, avatar_pod, rock,
@@ -46,6 +47,16 @@ Text-bearing props (Milestone 4, Stage 4b)
                      It is kept on an attachment by its grip, the near
                      roller.
 ``quill``          — a plain prop, to write with.
+
+Deformable props (Milestone 4, Stage 4c)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+``rope``           — loose, tied, tightened or snapped: a curve whose
+                     shape is worked out on every frame from what it is
+                     attached to (a coil on a shoulder, a loop round
+                     two wrists).  Two pieces, ``<name>.piece_a`` and
+                     ``<name>.piece_b``, joined end to end until it
+                     snaps (``pam/prop_states.py``).
+``rope_piece``     — one piece of rope.
 
 New in v0.9.7
 ~~~~~~~~~~~~~
@@ -124,6 +135,8 @@ from pam.props_carried import (
     build_satchel,
     build_scroll,
     build_quill,
+    build_rope,
+    build_rope_piece,
 )
 
 # ── flora ─────────────────────────────────────────────────────────────────────
@@ -199,6 +212,8 @@ PROP_TYPES = {
     "satchel":             build_satchel,
     "scroll":              build_scroll,         # text-bearing (Stage 4b)
     "quill":               build_quill,
+    "rope":                build_rope,           # deformable (Stage 4c)
+    "rope_piece":          build_rope_piece,
     # ── flora ─────────────────────────────────────────────────────────────
     "flower":              build_flower,
     "floral_arrangement":  build_floral_arrangement,

@@ -24,7 +24,8 @@
  {
   "action": "fade_in",
   "who": "isaac",
-  "rt": 0.2
+  "rt": 0.2,
+  "pose": "reach_forward"
  },
  {
   "action": "fade_in",

@@ -1,8 +1,8 @@
 """
 pam.prop_states — state machines for props, and the continuity ledger.
 
-Milestones 4a and 4b of *PAM: The Road to Blender*.  The module
-provides:
+Milestone 4 of *PAM: The Road to Blender* (Stages 4a, 4b and 4c).  The
+module provides:
 
 * a generic state machine for props, with one action that drives it,
   ``prop_transition``;
@@ -13,6 +13,9 @@ provides:
 * props that bear text (the ``scroll``, Stage 4b): what it says, with
   every revision, changes independently of how it is open and where it
   is;
+* deformable props (the ``rope``, Stage 4c): a curve whose shape is
+  worked out on every frame from what it is attached to, and which
+  snaps into two pieces that keep their own identities;
 * attachments: a prop, or a part of one, kept on a character's joint,
   on or in another prop, or at rest on the stage, on every frame;
 * the continuity ledger: what state each prop is in, and what each of
@@ -54,6 +57,10 @@ A machine
 ``parts``        composite props: ``{part: {"type", "offset"}}``.
 ``display``      props with a display: the fields and their defaults.
 ``bound``        legacy props: how the state is read and entered.
+``mode``         (in a state) the attachment modes the whole prop may
+                 be in while it is in that state: a rope is ``tied``
+                 only while it is ``around`` something.
+``deformable``   its shape is worked out on every frame (a rope).
 
 ``TYPE_MACHINE`` gives the machine of a prop type.  A prop item may
 also define its own (the roadmap's ``composite_prop``)::
@@ -103,6 +110,9 @@ An attachment (``attached``):
              on the stage)
 ``joint``    character: the joint the prop stays on (default
              ``rwrist``)
+``joints``   character: several joints, instead of ``joint``: a rope
+             tied round both wrists, or a prop held between two hands
+             (it stays on their middle)
 ``point``    prop: where on it, as for ``joint_to_prop``: ``center``
              (default), ``top``, ``bottom``, ``left``, ``right`` or
              ``[dx, dy]`` from its center
@@ -115,7 +125,8 @@ An attachment (``attached``):
 ``angle``    the prop's orientation in degrees (default: as it is)
 ``mode``     what kind of attachment it is: ``held`` (default on a
              character), ``on`` (default on a prop), ``in``,
-             ``embedded``, ``free`` (default at rest)
+             ``embedded``, ``free`` (default at rest), ``around`` (a
+             rope wound round the joints or the prop; not at rest)
 ``hidden``   ``true``: out of sight (inside a satchel, in a pocket)
 
 An attachment made by ``prop_transition`` is kept on every frame: the
@@ -183,6 +194,53 @@ A scroll is kept on its attachment by its *grip*, the middle of its
 near roller, so it stays in the hand that holds it whether it is
 rolled, open or trailing.
 
+Deformable props
+----------------
+A ``rope`` is a composite prop of two pieces, ``rope.piece_a`` and
+``rope.piece_b``, joined end to end: two props from the start, like the
+knife's handle and blade, so that after it snaps each keeps its own
+identity and nothing is ever drawn twice.  Its states:
+
+``loose``      a coil: hanging from what carries it (a shoulder, a
+               hand), lying on a prop, or lying on the ground at rest
+``tied``       wound round what it is attached to with mode ``around``
+               (two wrists: ``"joints": ["lwrist", "rwrist"]``), with
+               a knot on top; it follows the joints on every frame
+``tightened``  the same, pulled tight
+``snapped``    two pieces, each on an attachment of its own: lying
+               where it fell (at rest, or on a prop), hanging from a
+               hand, or still round something
+
+``loose -> tied -> tightened``, ``tightened -> tied`` (eased) and back
+to ``loose`` (untied, given a new attachment), and ``snapped`` from any
+of them; nothing follows a snap::
+
+    {"action": "props", "items": {"rope": {"type": "rope",
+        "attached": {"to": "abraham", "joint": "rshoulder",
+                     "mode": "on"}}}}
+    {"action": "prop_transition", "prop": "rope", "to": "tied",
+     "attached": {"to": "isaac", "joints": ["lwrist", "rwrist"],
+                  "mode": "around"}, "frames": 18}
+    {"action": "prop_transition", "prop": "rope", "to": "tightened",
+     "frames": 3}
+    {"action": "prop_transition", "prop": "rope", "to": "snapped",
+     "frames": 12, "rate": "rush_into",
+     "parts": {"piece_a": {"attached": {"to": null, "x": 0.25, "y": -2.6}},
+               "piece_b": {"attached": {"to": null, "x": 2.95, "y": -2.6}}}}
+
+The shape is not in the books: the ``World`` keeps the state and the
+attachments (which is what the ledger carries), and the
+``StateManager`` works the shape out from them on every frame
+(``pam.props_carried``: ``rope_coil``, ``rope_loop``, ``rope_lying``,
+``rope_hanging``).  With ``frames``, a step that moves the rope or
+changes its state turns the shape it had into the new one over those
+frames; a snap also throws each broken end back along its piece
+(``rope_recoil``) before the pieces fall.  A piece at rest lies with
+its lowest point on ``y`` and its middle on ``x``; at rest with no
+``x`` or ``y`` it stays where it is.  Every piece whose control points
+change on a frame is reported with the hook ``prop_shape``, and the
+tracer records them frame by frame.
+
 The continuity ledger
 ---------------------
 The ledger is a ``continuity`` block in the project's cast-and-props
@@ -232,6 +290,10 @@ Hooks
 ``"prop_text"``           scene, prop, frame, t, state, text (a row,
                           ``text_row``): what a text-bearing prop shows,
                           and how it is open, from this frame
+``"prop_shape"``          scene, prop (a rope's piece, ``rope.piece_a``),
+                          mob, frame, t, points ([[x, y], ...]): the
+                          control points a deformable prop is drawn
+                          through from this frame
 """
 from __future__ import annotations
 
@@ -300,6 +362,35 @@ MACHINES = {
         },
         "text": True,
     },
+    # Deformable attachment (Stage 4c).  A rope is a curve whose shape
+    # is worked out on every frame from what it is attached to (see
+    # "Deformable props" in the module docstring).  Its two pieces are
+    # two props from the start, joined end to end, so that after it
+    # snaps each keeps its own identity.  "mode" lists the attachment
+    # modes the whole rope may be in while it is in that state.
+    "rope": {
+        "parts": {
+            "piece_a": {"type": "rope_piece", "offset": [0.0, 0.0]},
+            "piece_b": {"type": "rope_piece", "offset": [0.0, 0.0]},
+        },
+        "initial": "loose",
+        "states": {
+            "loose":     {"connected": True,
+                          "mode": ["held", "on", "in", "free"]},
+            "tied":      {"connected": True, "mode": ["around"]},
+            "tightened": {"connected": True, "mode": ["around"]},
+            "snapped":   {"connected": False},
+        },
+        # a knot may be pulled tight, eased again or undone; nothing
+        # follows a snap: the pieces are not joined again
+        "transitions": {
+            "loose":     ["tied", "snapped"],
+            "tied":      ["tightened", "loose", "snapped"],
+            "tightened": ["tied", "loose", "snapped"],
+            "snapped":   [],
+        },
+        "deformable": True,
+    },
     # The three patterns PAM already had.
     "doors": {
         "initial": "closed",
@@ -331,14 +422,18 @@ TYPE_MACHINE = {
     "avatar_pod": "lid", "pod": "lid",
     "dodecahedron": "governor",
     "scroll": "scroll",
+    "rope": "rope",
 }
 
 # Prop types that are composite whether or not the item says so.
-COMPOSITE_TYPES = frozenset({"knife", "composite_prop"})
+COMPOSITE_TYPES = frozenset({"knife", "composite_prop", "rope"})
 
 # Prop types that bear text (Stage 4b); stateful whether or not the
 # item says so.
 TEXT_TYPES = frozenset({"scroll"})
+
+# Prop types whose shape is worked out on every frame (Stage 4c).
+DEFORMABLE_TYPES = frozenset({"rope"})
 
 # Keys of a prop item that make it a stateful prop.  ("text" is not
 # one: a scroll is stateful by its type, and a "text" key on any other
@@ -374,9 +469,9 @@ LEGACY_ATTACH_ACTIONS = {
     "move_prop":      ("world",),
 }
 
-ATTACH_KEYS = ("to", "joint", "point", "by", "offset", "x", "y", "angle",
-               "mode", "hidden")
-MODES = ("held", "on", "in", "embedded", "free")
+ATTACH_KEYS = ("to", "joint", "joints", "point", "by", "offset", "x", "y",
+               "angle", "mode", "hidden")
+MODES = ("held", "on", "in", "embedded", "free", "around")
 JOINED = "joined"           # a part that moves with its composite prop
 POINTS = ("center", "top", "bottom", "left", "right")
 RATES = ("smooth", "linear", "rush_into", "rush_from")
@@ -902,6 +997,7 @@ class Change:
         self.changed = []           # "state", "attached", "display",
         #                             "text"
         self.frames = 0
+        self.rate = "smooth"        # easing of the step's moves
         self.cause = "prop_transition"
 
     def error(self, code, message):
@@ -937,7 +1033,12 @@ def describe_attach(att):
         return f"joined to {att.get('to')}"
     kind = att.get("kind")
     if kind == "character":
-        s = f"{att.get('mode', 'held')} by {att['to']} ({att.get('joint')})"
+        joints = ", ".join(att["joints"]) if att.get("joints") \
+            else att.get("joint")
+        if att.get("mode") == "around":
+            s = f"around {att['to']} ({joints})"
+        else:
+            s = f"{att.get('mode', 'held')} by {att['to']} ({joints})"
     elif kind == "prop":
         s = f"{att.get('mode', 'on')} {att['to']}"
     else:
@@ -1045,7 +1146,24 @@ class World:
                             f"character or prop at this step"))
                 return None
             out["to"], out["kind"] = to, kind
-            if kind == "character":
+            if kind == "character" and "joints" in att:
+                # several joints: a rope tied around both wrists, or a
+                # prop held between two hands (at their middle)
+                js = att["joints"]
+                if "joint" in att:
+                    bad.append((ERROR, "bad-attach",
+                                f"'{where}' has both 'joint' and "
+                                f"'joints'; give one"))
+                elif not (isinstance(js, list) and js
+                          and all(isinstance(j, str) for j in js)):
+                    bad.append((ERROR, "invalid-joint",
+                                f"'{where}.joints' must be a list of "
+                                f"joint names, got {js!r}"))
+                elif len(js) == 1:
+                    out["joint"] = js[0]
+                else:
+                    out["joints"] = list(js)
+            elif kind == "character":
                 out["joint"] = att.get("joint", "rwrist")
                 if not isinstance(out["joint"], str):
                     bad.append((ERROR, "invalid-joint",
@@ -1059,6 +1177,10 @@ class World:
                                 f"{pt!r}"))
                 elif pt != "center":
                     out["point"] = list(pt) if _is_xy(pt) else pt
+        if "joints" in att and out["kind"] != "character":
+            bad.append((ERROR, "bad-attach",
+                        f"'{where}.joints' is for an attachment to a "
+                        f"character"))
         default = {"character": "held", "prop": "on"}.get(out["kind"],
                                                          "free")
         mode = att.get("mode", default)
@@ -1066,6 +1188,11 @@ class World:
             bad.append((ERROR, "bad-attach",
                         f"'{where}.mode' must be one of "
                         f"{', '.join(MODES)}, got {mode!r}"))
+            mode = default
+        if mode == "around" and out["kind"] == "world":
+            bad.append((ERROR, "bad-attach",
+                        f"'{where}.mode' is around: say what it goes "
+                        f"around ('to' a character or a prop)"))
             mode = default
         out["mode"] = mode
         if "by" in att and att["by"] not in (None, "center"):
@@ -1254,6 +1381,15 @@ class World:
             return []
         st = (m.get("states") or {}).get(rec.get("state")) or {}
         out = []
+        modes = st.get("mode")
+        att = rec.get("attached")
+        if modes and att is not None and att.get("mode") not in modes:
+            # the whole prop (a rope is tied only while it is around
+            # something, and loose only while it is not)
+            out.append((ERROR, "state-requires",
+                        f"'{name}' cannot be {rec['state']} while it is "
+                        f"{describe_attach(att)} ({rec['state']} needs "
+                        f"the attachment mode {' or '.join(modes)})"))
         for part, need in (st.get("requires") or {}).items():
             prec = (rec.get("parts") or {}).get(part)
             att = (prec or {}).get("attached") or {}
@@ -1339,6 +1475,7 @@ class World:
             ch.error("bad-rate", f"'rate' must be one of "
                                  f"{', '.join(RATES)}, got {rate!r}")
             rate = "smooth"
+        ch.rate = rate
 
         # ── the state ────────────────────────────────────────────────
         if "to" in step:
@@ -2004,6 +2141,13 @@ class _Link:
         self.shown = None           # in the scene?
         self.keep = None            # (dx, dy): stay this far from the
         #                             target (a piece left where it was)
+        # deformable props (a rope): the shape a travel starts from, the
+        # linear progress of the travel, the way a lying piece runs, and
+        # the broken end of a piece that has just snapped
+        self.shape0 = None
+        self.u = 1.0
+        self.flip = False
+        self.recoil = None
 
 
 class StateManager:
@@ -2127,7 +2271,8 @@ class StateManager:
                 continue
             plain = att.get("kind") == "world" and not att.get("hidden") \
                 and "x" not in att and "y" not in att \
-                and "angle" not in att and target == name
+                and "angle" not in att and target == name \
+                and not self._deformable(mob)
             if plain:
                 continue            # at rest where it was built
             fade = False
@@ -2190,6 +2335,142 @@ class StateManager:
         c = anchor() if callable(anchor) else mob.get_center()
         return np.array([float(c[0]), float(c[1])])
 
+    @staticmethod
+    def _deformable(mob):
+        """True for a prop whose shape is worked out on every frame (a
+        rope, or one of its pieces)."""
+        return bool(getattr(mob, "pam_deformable", False)) \
+            and callable(getattr(mob, "pam_set_shape", None))
+
+    def _joints_xy(self, att):
+        """World (x, y) of the joints a character attachment names
+        (``joint``, or ``joints``), one row each; None when the
+        character or a joint is not on stage."""
+        import numpy as np
+        fig = self.get_fig(att.get("to"))
+        dots = getattr(fig, "dots", None) if fig is not None else None
+        names = att.get("joints") or [att.get("joint")]
+        if not dots or any(j not in dots for j in names):
+            return None
+        return np.array([[float(dots[j].get_center()[0]),
+                          float(dots[j].get_center()[1])] for j in names])
+
+    # ── deformable props (Stage 4c) ──────────────────────────────────
+    def _deform_target(self, link):
+        """The shape a rope (or one piece of it) has on its attachment
+        now, as control points; None when what it is attached to is not
+        on stage.
+
+        Whole (its pieces joined): around a character's joints or a
+        prop, a loop with a knot (tighter when ``tightened``); held by
+        or on a character, a coil hanging from the joint; on or in a
+        prop, a coil lying on it; at rest, a coil lying on the ground.
+        One piece (the rope has snapped): around, its half of such a
+        loop; held by a character, hanging from the joint; on or in a
+        prop, or at rest, lying where it fell."""
+        import numpy as np
+        from pam import props_carried as pc
+        att, mob = link.attach, link.mob
+        m = getattr(mob, "pam_rope", None) or pc.ROPE
+        base, part = self.world.split(link.target)
+        rec = self.world.props.get(base) or {}
+        tight = rec.get("state") == "tightened"
+        mode = att.get("mode")
+        off = np.array(att.get("offset") or [0.0, 0.0], float)
+        piece = part is not None
+        idx = list((rec.get("parts") or {}).keys()).index(part) \
+            if piece and part in (rec.get("parts") or {}) else 0
+
+        def half(whole):
+            return pc.rope_split(whole, m)[idx] if piece else whole
+
+        kind = att.get("kind")
+        if kind == "character":
+            P = self._joints_xy(att)
+            if P is None:
+                return None
+            P = P + off
+            if mode == "around":
+                # round the joints as they are drawn (Isaac's wrists are
+                # big), and as many of them as it is tied to
+                fig = self.get_fig(att["to"])
+                r = max(float(fig.dots[j].width) / 2 for j in
+                        (att.get("joints") or [att.get("joint")]))
+                return half(pc.rope_loop(P, tight=tight, radius=r, m=m))
+            top = P.mean(axis=0)
+            if piece:
+                return pc.rope_hanging(top, from_end=(idx == 1), m=m)
+            return pc.rope_coil(top=top, m=m)
+        if kind == "prop":
+            parent = self.mob_of(att["to"])
+            if parent is None or not hasattr(parent, "get_center"):
+                return None
+            pt = point_of(parent, att.get("point", "center")) + off
+            if mode == "around":
+                r = 0.5 * max(float(parent.width), float(parent.height))
+                return half(pc.rope_loop([pt], tight=tight, radius=r, m=m))
+            if piece:
+                return pc.rope_lying(pt, att.get("angle", 0.0), link.flip,
+                                     m=m)
+            return pc.rope_coil(bottom=pt, m=m)
+        if link.fixed is None:
+            c = self._by_xy(link)
+            link.fixed = np.array([att.get("x", float(c[0])),
+                                   att.get("y", float(c[1]))], float)
+        b = link.fixed + off
+        if piece:
+            return pc.rope_lying(b, att.get("angle", 0.0), link.flip, m=m)
+        return pc.rope_coil(bottom=b, m=m)
+
+    def _place_deformable(self, link):
+        """Give a rope (or a piece) its shape on this frame: where its
+        attachment puts it, or part of the way there from where its
+        travel began, with the throw of a piece that has just snapped."""
+        from pam import props_carried as pc
+        att, mob = link.attach, link.mob
+        shape = self._deform_target(link)
+        if shape is None:
+            if link.shown is not False:
+                self._show(link, False)
+            return
+        if link.start is not None and link.shape0 is not None \
+                and len(link.shape0) == len(shape):
+            pts = link.shape0 + link.alpha * (shape - link.shape0)
+            if link.recoil is not None:
+                pts = pts + pc.rope_recoil(
+                    link.shape0, link.recoil, link.u,
+                    m=getattr(mob, "pam_rope", None) or pc.ROPE)
+        else:
+            pts = shape
+        self._set_shape(link.target, mob, pts)
+        self._sync(mob)
+        hidden = bool(att.get("hidden")) and link.start is None
+        if link.shown is None or link.shown == hidden:
+            self._show(link, not hidden)
+        if link.start is None and not link.arrived:
+            self._arrive(link)
+
+    def _set_shape(self, target, mob, pts):
+        """Draw a rope (or a piece) through *pts*, and tell a tracer
+        the control points of every piece that changed (hook
+        ``prop_shape``)."""
+        import numpy as np
+        from pam import hooks as _hooks
+        mob.pam_set_shape(pts)
+        if not _hooks.active():
+            return
+        parts = getattr(mob, "pam_parts", None)
+        drawn = [(m, f"{target}.{p}") for p, m in parts.items()] if parts \
+            else [(mob, target)]
+        for m, name in drawn:
+            rows = [[round(float(x), 4), round(float(y), 4)]
+                    for x, y in np.asarray(m.pam_shape(), float)]
+            if getattr(m, "pam_shape_sent", None) == rows:
+                continue
+            m.pam_shape_sent = rows
+            _hooks.emit("prop_shape", scene=self.scene, prop=name, mob=m,
+                        frame=self.frame(), t=self.time(), points=rows)
+
     def _target_xy(self, link):
         """Where the attachment is now, or None when what the prop is
         attached to is not on stage."""
@@ -2200,12 +2481,10 @@ class StateManager:
         if link.keep is not None:
             off = off + link.keep
         if kind == "character":
-            fig = self.get_fig(att["to"])
-            dots = getattr(fig, "dots", None) if fig is not None else None
-            if not dots or att.get("joint") not in dots:
+            P = self._joints_xy(att)
+            if P is None:
                 return None
-            c = dots[att["joint"]].get_center()
-            return np.array([float(c[0]), float(c[1])]) + off
+            return P.mean(axis=0) + off
         if kind == "prop":
             parent = self.mob_of(att["to"])
             if parent is None or not hasattr(parent, "get_center"):
@@ -2224,6 +2503,13 @@ class StateManager:
         mob = self.mobs.get(target)
         if mob is None:
             return None
+        prior = None
+        if travel and self._deformable(mob) and target in self.links \
+                and self.links[target].arrived:
+            # a rope that is where it belongs travels from the shape it
+            # has now (putting it there again would give it the shape
+            # of its new state at once)
+            prior = mob.pam_shape()
         if travel:
             # a prop that has not been put on its attachment yet (what
             # it is on came on stage only now) is put there first, so
@@ -2243,15 +2529,25 @@ class StateManager:
             tgt = self._target_xy(link)
             if tgt is not None:
                 link.keep = self._by_xy(link) - tgt
+        link.shape0, link.recoil, link.u = None, None, 1.0
         if travel:
             c = self._by_xy(link)
             link.start = (float(c[0]), float(c[1]), self._angle(mob))
             link.alpha = 0.0
+            link.u = 0.0
             link.rate = _rate(rate)
+            if self._deformable(mob):
+                # a rope travels from the shape it has; a piece that
+                # lies down keeps running the way it ran
+                link.shape0 = prior if prior is not None \
+                    else mob.pam_shape()
+                link.flip = bool(link.shape0[0][0] > link.shape0[-1][0])
             if link.shown is False:
                 self._show(link, True)
         else:
             link.start, link.alpha, link.rate = None, 1.0, None
+            if self._deformable(mob):
+                link.flip = False
         self._mark_moving(mob)
         return link
 
@@ -2310,17 +2606,22 @@ class StateManager:
                 _hooks.emit("prop_attached", scene=self.scene, prop=name,
                             mob=mob, attach=data, frame=self.frame(),
                             t=self.time())
-        if att.get("kind") == "character" and not att.get("hidden"):
+        if att.get("kind") == "character" and not att.get("hidden") \
+                and not self._deformable(link.mob):
+            # (a rope is not held: its shape is traced point by point)
             fig = self.get_fig(att["to"])
             if fig is not None and _hooks.active():
-                joint = att["joint"]
-                jc = fig.dots[joint].get_center()
+                joints = att.get("joints") or [att["joint"]]
+                joint = joints[0]
+                jc = self._joints_xy(att).mean(axis=0)
                 for mob, name in self._traced(link):
                     c = self._ref_xy(mob)
                     _hooks.emit(
                         "prop_attach", fig=fig, scene=self.scene,
                         t=self.time(), prop=mob, prop_name=name,
-                        joints=[joint], hand=joint, mode="transition",
+                        joints=list(joints),
+                        hand=joint if len(joints) == 1 else None,
+                        mode="transition",
                         offset=[float(c[0] - jc[0]), float(c[1] - jc[1])])
                 link.held_by = (fig, joint)
 
@@ -2355,6 +2656,9 @@ class StateManager:
         import numpy as np
         for link in list(self.links.values()) if links is None else links:
             att, mob = link.attach, link.mob
+            if self._deformable(mob):
+                self._place_deformable(link)
+                continue
             tgt = self._target_xy(link)
             if tgt is None:
                 # what it is attached to is not on stage: neither is it
@@ -2504,6 +2808,31 @@ class StateManager:
                               inherited=bool(mv.get("inherited")))
             if link is not None:
                 moving.append(link)
+        if mob is not None and self._deformable(mob) and timed \
+                and ch.frames and "state" in ch.changed:
+            # a rope's shape follows its state (a knot pulled tight):
+            # what the step does not move changes shape over its frames
+            # where it is
+            rec = ch.record
+            kept = [name] if rec.get("attached") is not None else \
+                [f"{name}.{p}" for p in rec.get("parts") or {}]
+            for target in kept:
+                link = self.links.get(target)
+                if target in ch.moves or link is None \
+                        or link.start is not None:
+                    continue
+                link = self._link(target, link.attach, travel=True,
+                                  rate=ch.rate)
+                if link is not None:
+                    moving.append(link)
+        if ch.was_connected and ch.connected is False and mob is not None \
+                and self._deformable(mob) and timed and ch.frames:
+            # a rope snaps: each piece is thrown back from the break
+            names = list((ch.record.get("parts") or {}).keys())
+            for link in moving:
+                part = self.world.split(link.target)[1]
+                if part in names:
+                    link.recoil = -1 if names.index(part) == 0 else 0
         if moving or self.links:
             self._ensure_driver()
         self.step()
@@ -2747,6 +3076,7 @@ def travel_animation(mgr, links, a0=0.0, a1=1.0):
             for link in links:
                 if link.start is not None and link.rate is not None:
                     link.alpha = float(link.rate(u))
+                    link.u = u
 
         def update_mobjects(self, dt):
             pass

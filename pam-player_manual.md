@@ -803,7 +803,7 @@ The timeline counts in frames at **15 per second**, the frame rate of `manim -ql
 {"action": "wait", "frames": 9, "beat": "comic_hold"}
 ```
 
-At the top level and in a `sequence`, `frames` is understood by `wait`, `morph`, `turn`, `scale`, `slip_on_back`, `fade_out`, `say`, the choreography routines (`pull_immovable`, `cork_pop_up`, `mismatched_hug`), `prop_transition` (also one that writes on a scroll), and a timed `parallel` block. More actions accept it inside a timed block (below).
+At the top level and in a `sequence`, `frames` is understood by `wait`, `morph`, `turn`, `scale`, `slip_on_back`, `fade_out`, `say`, the choreography routines (`pull_immovable`, `cork_pop_up`, `mismatched_hug`), `prop_transition` (also one that writes on a scroll or reshapes a rope), and a timed `parallel` block. More actions accept it inside a timed block (below).
 
 ## `sequence`
 
@@ -857,7 +857,7 @@ A `parallel` block is timed when the block has `frames`, or when any step in its
 | `say` | the bubble fades in, holds, and fades out as three timed pieces. `frames` is the whole line, `frames_in` and `frames_out` the fades (defaults 6 and 5). With `persist` there is no fade-out. Human, alien and dog characters |
 | `wait` | stillness; with a `sound` key and no length, a sound effect on an exact frame |
 | `constrain`, `release` | the contact starts or ends on that frame |
-| `prop_transition` | a prop changes state on that frame; with `frames`, its move to a new attachment, a number on its display that climbs, or text written on a scroll or crossed out, takes that long (see "Stateful props" below) |
+| `prop_transition` | a prop changes state on that frame; with `frames`, its move to a new attachment, a number on its display that climbs, text written on a scroll or crossed out, or a rope changing shape (wound round, pulled tight, snapping), takes that long (see "Stateful props" below) |
 | `pull_immovable`, `cork_pop_up`, `mismatched_hug` | a choreography routine (below): its phases follow one another, each a set number of frames; `frames` is the whole routine |
 | `_subscene_marker` | a camera cut on that frame; with `frames`, or an animated `move` (`push`, `pull`, `pan-follow`, `drift`, `zoom`), the camera travels for that long |
 | `sequence` | a track: its steps follow one another, the first starting on the sequence's `at`. Use one per actor |
@@ -1023,9 +1023,9 @@ PAMPlayer: mismatched_hug 'hug' (abraham -> isaac) ran frames 97-127; arm 0.8648
 
 ## Stateful props
 
-A stateful prop has a state (`intact`, `broken`, ...), may be made of parts, may have a display, may bear text, and is kept on an attachment: a character's joint, another prop, or a place on the stage. One action changes all of it, `prop_transition`. The module is `pam/prop_states.py`; its first page is the full reference.
+A stateful prop has a state (`intact`, `broken`, ...), may be made of parts, may have a display, may bear text, may change shape (a rope), and is kept on an attachment: a character's joint, another prop, or a place on the stage. One action changes all of it, `prop_transition`. The module is `pam/prop_states.py`; its first page is the full reference.
 
-A prop is stateful when its item says so (any of the keys `state`, `attached`, `parts`, `display`, `states`), when it is a composite type (`knife`, `composite_prop`) or a text-bearing one (`scroll`), when a `prop_transition` names it, or when the continuity ledger carries it. Every other prop is built and played as before.
+A prop is stateful when its item says so (any of the keys `state`, `attached`, `parts`, `display`, `states`), when it is a composite type (`knife`, `composite_prop`, `rope`) or a text-bearing one (`scroll`), when a `prop_transition` names it, or when the continuity ledger carries it. Every other prop is built and played as before.
 
 ```json
 {"action": "props", "items": {
@@ -1051,6 +1051,7 @@ A prop is stateful when its item says so (any of the keys `state`, `attached`, `
 | `knife` | `intact`, `broken`, `blade_carried`, `blade_embedded` | composite: parts `handle` and `blade`. Nothing leads back to `intact`. `blade_carried` needs the blade's attachment mode `in` or `held`; `blade_embedded` needs `embedded` |
 | `phone`, `cellphone`, `smartphone` | `standby`, `recording`, `live` | display fields `viewers` (a whole number) and `comment` (text or null) |
 | `scroll` | `rolled`, `unrolled`, `edited`, `trailing` | bears text, changed by `text` steps only while it is `edited`. From `rolled`: `unrolled` or `trailing`; it is unrolled before it is written on. From any open state it may be rolled up or let trail |
+| `rope` | `loose`, `tied`, `tightened`, `snapped` | deformable and composite: pieces `piece_a` and `piece_b`. `tied` and `tightened` need the rope's attachment mode `around`; `loose` needs any other. `loose` to `tied` to `tightened`, `tightened` back to `tied`, either back to `loose`, and any of them to `snapped`. Nothing follows `snapped` |
 | `pocket_door`, `elevator` | `closed`, `open` | the state is the prop's `is_open`; entering it calls `open_doors` / `close_doors` |
 | `avatar_pod`, `pod` | `closed`, `open` | `is_open`; `open_lid` / `close_lid` |
 | `dodecahedron` (the Governor) | `gold`, `amber`, `dark` | the Governor's own state; `set_state` |
@@ -1084,7 +1085,7 @@ Put a prop in a state, move it or its parts to new attachments, change what its 
 - `parts` — composite props: `{part: {"attached": {...}, "rate": ...}}`
 - `display` — new values of display fields
 - `text` — a `scroll`: changes to what it says, one op or a list (see "The `scroll`" below)
-- `frames` — how long the move, a number that climbs, and writing or crossing out take (default 0: at once). The state changes on the first frame
+- `frames` — how long the move, a number that climbs, writing or crossing out, and a rope's change of shape take (default 0: at once). The state changes on the first frame
 - `rate` — easing of the move: `smooth` (default), `linear`, `rush_into` (a fall), `rush_from`
 - `at`, `beat`, `sound` — as for any step of a timed block
 - `rt` or `run_time` — doors, lids and the Governor only, outside a timed block: the length of the prop's own animation in seconds (default 0.6)
@@ -1092,12 +1093,13 @@ Put a prop in a state, move it or its parts to new attachments, change what its 
 ### An attachment
 - `to` — a character, a prop or scene object, or `null` (at rest on the stage)
 - `joint` — on a character: the joint the prop stays on (default `rwrist`)
+- `joints` — on a character, instead of `joint`: several joints. A rope with mode `around` goes round all of them (`["lwrist", "rwrist"]`); any other prop stays on their middle (held between two hands)
 - `point` — on a prop: where, as for `joint_to_prop`: `center` (default), `top`, `bottom`, `left`, `right`, or `[dx, dy]` from its center
 - `by` — which place of the moved prop sits there: one of the same names, a part of a composite prop (`"by": "blade"`), or a named point of the prop (`"by": "grip"` on a scroll). Default: the prop's anchor if it has one (a scroll's grip; `center` there means the grip too), else `center`
 - `offset` — `[dx, dy]` added to the target
 - `x`, `y` — with `"to": null`: where on the stage (default: where it is)
 - `angle` — the prop's orientation in degrees, counterclockwise (default: as it is). The knife's blade points to +x at 0
-- `mode` — what kind of attachment: `held` (default on a character), `on` (default on a prop), `in`, `embedded`, `free` (default at rest)
+- `mode` — what kind of attachment: `held` (default on a character), `on` (default on a prop), `in`, `embedded`, `free` (default at rest), `around` (wound round the joints or the prop: a rope; not at rest)
 - `hidden` — `true`: out of sight (in a satchel, in a pocket). The prop is not drawn, and is still there
 
 ### Notes
@@ -1197,6 +1199,60 @@ The scroll's state, text and revisions go into the ledger. Each revision records
 
 A `quill` is a plain prop, to write with.
 
+## The `rope`
+
+A deformable prop: a curve whose shape is worked out on every frame from what it is attached to. It is also a composite prop of two pieces, `rope.piece_a` and `rope.piece_b`, joined end to end, which are two props from the start (like the knife's handle and blade): after the rope snaps each piece keeps its own identity, and nothing is ever drawn twice.
+
+```json
+{"action": "props", "items": {
+  "rope": {"type": "rope", "attrs": {"scale": 1.4},
+           "attached": {"to": "abraham", "joint": "rshoulder", "mode": "on"}}}}
+{"action": "prop_transition", "prop": "rope", "to": "tied", "frames": 18,
+ "attached": {"to": "isaac", "joints": ["lwrist", "rwrist"], "mode": "around"}}
+{"action": "prop_transition", "prop": "rope", "to": "tightened", "frames": 3}
+{"action": "prop_transition", "prop": "rope", "to": "snapped", "frames": 12,
+ "rate": "rush_into",
+ "parts": {"piece_a": {"attached": {"to": null, "x": 0.25, "y": -2.6}},
+           "piece_b": {"attached": {"to": null, "x": 2.95, "y": -2.6}}}}
+```
+
+### Its shape in each state
+
+| State | Attached | Shape |
+|---|---|---|
+| `loose` | to a character (`held`, `on`) | a coil hanging from the joint: over a shoulder, from a hand |
+| `loose` | to a prop (`on`, `in`) | a coil lying on the prop's point |
+| `loose` | at rest | a coil lying on the ground, its bottom at `x`, `y` |
+| `tied` | `around` a character's `joints`, or a prop | wound three times round all of them, clear of the joints as they are drawn, with a knot on top and its two ends sticking out of the knot |
+| `tightened` | the same | the same, pulled tight: closer round them, and a smaller knot |
+| `snapped` | each piece: at rest, or on or in a prop | lying where it fell: along the ground, its lowest point on `y` and its middle on `x` (`angle` turns it) |
+| `snapped` | each piece: held by a character | hanging from the joint |
+| `snapped` | each piece: `around` | its half of the loop |
+
+- tied, the rope follows the joints it is tied to on every frame: when the wrists move, the loop moves and stretches with them
+- the rope breaks in the middle of its length, which is under the loop, between the wrists
+- with `frames`, a step that moves the rope or changes its state turns the shape it had into the new one over those frames: the coil leaves the shoulder and winds round the wrists, the knot is pulled tight
+- a snap with `frames` throws each broken end back along its piece, away from the break, for the first half of the step; the pieces then fall (use `"rate": "rush_into"`) and lie where their attachments put them
+- a piece the snap does not mention stays where the rope was
+- at rest with no `x` or `y`, a piece or a coil stays where it is (in the air, if that is where it was): give both
+- `attrs.scale` makes a rope that many times the usual size and thickness (coil, loop, knot, the length of a piece at rest). Isaac's wrists are big, and the loop fits round them by itself
+
+### In the ledger
+
+The rope's state, its pieces and their attachments go into the ledger, like the knife's. A rope tied round two wrists is recorded with both joints:
+
+```json
+"rope": {"type": "rope", "state": "tightened",
+         "attached": {"to": "isaac", "kind": "character",
+                      "joints": ["lwrist", "rwrist"], "mode": "around"},
+         "parts": {"piece_a": {"type": "rope_piece",
+                               "attached": {"to": "rope", "kind": "prop", "mode": "joined"}},
+                   "piece_b": {"type": "rope_piece",
+                               "attached": {"to": "rope", "kind": "prop", "mode": "joined"}}}}
+```
+
+Its shape is not recorded: it follows from the state and the attachments.
+
 ## The continuity ledger
 
 The ledger records, for each prop a film carries from scene to scene, its state, its parts, what each is attached to, and what its display shows and its text says, at the end of every scene. It is a `continuity` block in the project's cast-and-props sidecar (`pam_sidecar.json` next to the scenes, or `PAM_SIDECAR`):
@@ -1234,10 +1290,10 @@ The ledger records, for each prop a film carries from scene to scene, its state,
 ./pam-validate scene3.json --no-ledger        # reads the ledger, writes nothing
 ```
 
-`projects/abe-isaac` holds six scenes that take the knife, the phone and the scroll through *Abraham and Isaac, Revisited*; `abe-isaac_knife-break.json` is the Scene 2 break by itself, and `abe-isaac_scroll-revision.json` the scroll's whole story in one scene.
+`projects/abe-isaac` holds six scenes that take the knife, the phone, the scroll and the rope through *Abraham and Isaac, Revisited*; `abe-isaac_knife-break.json` is the Scene 2 break by itself, `abe-isaac_scroll-revision.json` the scroll's whole story in one scene, and `abe-isaac_rope-snap.json` the rope's.
 
 ### In the trace and in Blender
-A scene with stateful props is traced as version 5. `"prop_states"` names each such prop, the prop objects it is made of, its state from each frame on, what its display shows and, for a scroll, its text frame by frame (`"text"`: the letters written so far, and how far each line through struck text is drawn); `"prop_events"` lists every change (`prop_state_changed`) with its frame. `trace2blender.py` builds each part once, keeps it on its attachment, turns it, hides it, gives the phone its screens, and draws the scroll's roll, sheet or ribbon with its text, letter by letter on the same frames. A hand held on a prop (`joint_to_prop`) is moved to where Blender puts the prop, and an empty named `contact.<id>` marks the held point.
+A scene with stateful props is traced as version 5. `"prop_states"` names each such prop, the prop objects it is made of, its state from each frame on, what its display shows and, for a scroll, its text frame by frame (`"text"`: the letters written so far, and how far each line through struck text is drawn); `"prop_events"` lists every change (`prop_state_changed`) with its frame. A rope's pieces carry their shape, frame by frame, as control points (`"shape"`: sampled pieces, as for constrained limbs). `trace2blender.py` builds each part once, keeps it on its attachment, turns it, hides it, gives the phone its screens, draws the scroll's roll, sheet or ribbon with its text, letter by letter on the same frames, and builds each piece of a rope as a curve object whose points are keyed on every frame the trace has them. A hand held on a prop (`joint_to_prop`) is moved to where Blender puts the prop, and an empty named `contact.<id>` marks the held point.
 
 ## Checking a screenplay first
 

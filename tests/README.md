@@ -2,8 +2,9 @@
 
 Regression tests for *PAM: The Road to Blender*: the Milestone 1 baseline,
 the vertical slice, the Milestone 2 timeline, the Milestone 3 constraints
-and choreography routines, and Stages 4a and 4b of Milestone 4 (stateful
-props, the continuity ledger, and the scroll, a text-bearing prop).
+and choreography routines, and Milestone 4 (stateful props and the
+continuity ledger, Stage 4a; the scroll, a text-bearing prop, Stage 4b;
+the rope, a deformable attachment, Stage 4c).
 None of them writes a video, and none writes into the repository.
 
 ```bash
@@ -13,6 +14,9 @@ python -m pytest -k prop_states   # Milestone 4: the ledger and the knife's
 python -m pytest -k scroll        # Stage 4b: the scroll, its text, and its
                                   # completion test (the first file needs
                                   # no renderer and takes a second)
+python -m pytest -k rope          # Stage 4c: the rope, its shapes, its
+                                  # completion test (test_rope.py needs no
+                                  # renderer and takes a second)
 python -m pytest -k choreography  # Milestone 3, with its completion test
 python -m pytest -k golden   # golden-trace comparison only
 python -m pytest -k validate # validator only (a few seconds)
@@ -32,7 +36,9 @@ something extra and are skipped without it:
 |---|---|
 | `test_golden_traces.py` | A fresh `pam_trace.py` trace of each fixture matches the stored one within 0.002. One comparison covers scaling, locomotion, poses, prop attachment and handoff, camera moves, and speech bubbles. |
 | `test_scroll.py` | Milestone 4, Stage 4b, without a renderer. The scroll's machine; writing, crossing out and replacing text, and what an op may not do; text and shape changing independently; text shown letter by letter and a line through a phrase growing from its left end; the validator on scroll steps, also in timed blocks; the ledger carrying the text and its revisions; and the six-scene project, with the completion test for the scroll (below). |
-| `test_blender_build.py` | `trace2blender.py` builds a `.blend` from a stored golden trace without error; in the built scene a constrained hand stays on the wrist it holds, including a wrist that moves, and the contacts of the Scene 2 routines hold (the pull, the offered hand, the pop). Stateful props: the knife's handle and blade are built once each and are where the trace has them before and after the break; a hand held on a prop is on it in Blender, also on a prop the builder moves (a door set on the floor); a stateful phone gets its screens. The scroll: its roll, sheet and ribbon each shown in its state, its text letter by letter and the lines through struck text as long as the trace has them, on the same frames, and its grip in Abraham's hand. |
+| `test_rope.py` | Milestone 4, Stage 4c, without a renderer. The rope's machine (loose, tied, tightened, snapped; nothing follows a snap); a rope tied only while it is `around` something; attachments to several `joints`, and what an attachment may not say; its two pieces, joined until it snaps and each on its own attachment after; the validator on rope steps, also in timed blocks; the ledger carrying the rope and its pieces; and the six-scene project, with the completion test for the rope (below). |
+| `test_rope_shapes.py` | The rope's shapes, plain functions of world positions (`pam.props_carried`): a coil hanging from a shoulder or lying on the ground; a loop that goes round both wrists, stays clear of them, has its knot on top and its break under them, smaller when tight; a piece lying where it fell or hanging from a hand; the throw of a broken end; `attrs.scale`. |
+| `test_blender_build.py` | `trace2blender.py` builds a `.blend` from a stored golden trace without error; in the built scene a constrained hand stays on the wrist it holds, including a wrist that moves, and the contacts of the Scene 2 routines hold (the pull, the offered hand, the pop). Stateful props: the knife's handle and blade are built once each and are where the trace has them before and after the break; a hand held on a prop is on it in Blender, also on a prop the builder moves (a door set on the floor); a stateful phone gets its screens. The scroll: its roll, sheet and ribbon each shown in its state, its text letter by letter and the lines through struck text as long as the trace has them, on the same frames, and its grip in Abraham's hand. The rope: each piece built once, as a curve object; its control points in Blender are the trace's, and it is shown when the trace shows it, on every frame of every change and between them; the break of the tied rope is under Isaac's wrists, between them, as Blender places them. |
 | `test_blender_mouth.py` | Talking mouths in the Blender export: shown only while the character's bubble is showing, kept with `--no-bubbles`, removed by `--no-mouths`. |
 | `test_timeline.py` | The 15 fps frame clock: a duration in `frames` lasts exactly that many frames, sequences and beats land on their frames, and legacy screenplays are not touched. |
 | `test_timeline_blocks.py` | Timed `parallel` blocks (Milestone 2): overlapping moves start and end on their frames and keep their easing, a line of dialogue and a camera cut land on their frames, walks take exactly their frames, constraints start and end inside a block, repeated runs are identical, a block is exact at 30 fps, and ordinary `parallel` blocks and `say` lines are not touched. |
@@ -40,7 +46,7 @@ something extra and are skipped without it:
 | `test_constraints.py` | The two-bone solver, `joint_to_joint` and `root_lock`, release on a set frame, the fall and the comic hold, the `sampled` trace piece, and the same gag at other character scales. |
 | `test_choreography.py` | Milestone 3. `joint_to_point` and `joint_to_prop` (a hand on a point, a foot planted, a hand that follows a moving prop, a hand on a wrist that is itself held). How a routine's `frames` are shared over its phases. The Scene 2 routines `pull_immovable`, `cork_pop_up` and `mismatched_hug`: phases on their frames, a routine as a step of a timed block, and what each gag must show. The roadmap's completion test (below). |
 | `test_prop_states.py` | Milestone 4, Stage 4a, without a renderer. The prop state machines (the knife, the phone, an item's own, and doors, lids and the Governor as machines of the same kind); what a `prop_transition` may and may not do; the validator on stateful props, also in timed blocks; the continuity ledger file (written, read by the next scene, overrides reported, nothing rewritten when nothing changed); and the six-scene project, with the roadmap's completion test for the knife (below). |
-| `test_prop_trace.py` | The same things as the player plays them: prop identities and `prop_state_changed` events in the trace, where every part is on every frame of the knife break, a transition as a step of a timed block, a hand held on a part of the knife, the phone's display changing while the phone stays put (and the reverse), the blade stuck in the altar, the ledger written by playing equal to the one written by validating, and doors, a lid and the Governor through `prop_transition`. The scroll: its text in the trace on every frame of every step that writes or crosses out, exactly as `prop_states.text_row` shows it; its steps in timed blocks; its grip in the hand on every frame, also while Abraham runs; its shape in each state; and in the project, the trace and the ledger agreeing at the end of every scene. |
+| `test_prop_trace.py` | The same things as the player plays them: prop identities and `prop_state_changed` events in the trace, where every part is on every frame of the knife break, a transition as a step of a timed block, a hand held on a part of the knife, the phone's display changing while the phone stays put (and the reverse), the blade stuck in the altar, the ledger written by playing equal to the one written by validating, and doors, a lid and the Governor through `prop_transition`. The scroll: its text in the trace on every frame of every step that writes or crosses out, exactly as `prop_states.text_row` shows it; its steps in timed blocks; its grip in the hand on every frame, also while Abraham runs; its shape in each state; and in the project, the trace and the ledger agreeing at the end of every scene. The rope: its two pieces and their shapes in the trace, one rope until it snaps, every frame of a change sampled, the coil riding on Abraham's shoulder as he walks, the knot following Isaac's wrists on every frame, pulled tight over its frames, the broken ends springing apart and the pieces lying where the snap puts them; its steps in timed blocks; and in the project, the trace and the ledger agreeing at the end of every scene. |
 | `test_validate.py` | The JSON validator and the `pam-validate` command, including what they report for each fixture. |
 | `test_action_specs.py` | `pam/action_specs.py` lists exactly the actions `pam_player.py` dispatches. |
 | `test_fountain2pam_warnings.py` | `fountain2pam.py --warnings-json`, and that the validator reports the same `# REVIEW` comments. |
@@ -72,6 +78,12 @@ The fixtures are eight screenplays in the repository root:
   while he moves, turns its period into a question mark, crosses out THE
   KNIFE? and writes HIS SON. while Isaac says a line, and lets it trail as
   he runs; three of these are steps of timed parallel blocks)
+- `abe-isaac_rope-snap.json` (Milestone 4, Stage 4c: the rope. Abraham
+  slings the coil over his shoulder and walks with it, winds it round
+  Isaac's wrists while Isaac says a line, and yanks the knot tight; it
+  follows the wrists as Isaac moves his arms; Isaac flexes and it snaps,
+  with two camera cuts, and its pieces recoil and lie on either side of
+  the altar. The tie and the snap are steps of timed parallel blocks)
 
 `projects/abe-isaac/` is another kind of fixture: six scenes and a sidecar
 with a `continuity` block. The tests always work on a private copy of it,
@@ -253,6 +265,55 @@ One choice is blocking, not the script's: the quill lives in the
 satchel (Scene 6 "pulls a quill from the satchel"); Abraham takes it out
 to write in Scene 1 and in Scene 6 and puts it back each time.
 
+## The Stage 4c completion test (the rope)
+
+The task's completion test reads: *without rendering, the rope has its
+expected state, pieces and location at the end of every scene.* It is
+`test_rope_completion` in `test_rope.py`, and like the others it renders
+nothing. With the knife's and the scroll's, it completes Milestone 4.
+
+The six scenes are validated in order and the ledger is compared with a
+table taken from Draft 3 of the script with the rope-continuity edits
+(a pull request in `writing-guides`):
+
+| Scene | State | Pieces | Where |
+|---|---|---|---|
+| 1 | `loose` | joined | at rest by the cave entrance, out of sight (in the cave) |
+| 2 | `loose` | joined | on Abraham (`rshoulder`) |
+| 3 | `loose` | joined | on Abraham (`rshoulder`) |
+| 4 | `tightened` | joined | around Isaac (`lwrist`, `rwrist`) |
+| 5 | `tightened` | joined | around Isaac (`lwrist`, `rwrist`) |
+| 6 | `snapped` | apart | `piece_a` at rest left of the altar (x 0.25), `piece_b` at rest right of it (x 2.95), on the ground |
+
+For every scene it also checks that the rope has exactly its two pieces,
+joined to it until it snaps, that there is one rope, and that the
+validator found nothing lost or misplaced.
+`test_the_rope_goes_through_the_script_inside_each_scene` checks every
+change between the scene ends, and `test_no_scene_overrides_the_rope`
+that no scene departs from the ledger. `test_prop_trace.py` plays the
+six scenes and checks that the trace shows the rope where the ledger
+says at the end of each.
+
+Draft 3 did not say where the rope was or what became of it in three
+places: where it came from (it first appeared in Scene 3, with nothing
+in Scene 2), how Abraham carried it in Scene 3 and where it was when he
+began to tie Isaac in Scene 4, and where its halves went when it
+snapped in Scene 6. The proposed script edits answer all three: a coil
+lies by the cave entrance in Scene 2 and Abraham slings it over his
+shoulder as he leaves; he carries it there in Scene 3 and takes it from
+his shoulder in Scene 4; and its two halves fly off Isaac's wrists and
+land in the dirt on either side of the altar. The scenes follow them.
+`test_the_project_needs_the_script_edits` shows what happens without
+the pickup: the rope is still by the cave entrance in Scene 3.
+
+Two choices are blocking, not the script's: the coil hangs from
+Abraham's right shoulder (his satchel is at his left hip), and Isaac
+holds out his wrists in the `reach_forward` pose, which Scenes 5 and 6
+open in. The roadmap's routine table puts `reach_and_tighten` ("Isaac
+accidentally tightens his knot") in Scene 5. That beat is from Draft 2;
+in Draft 3 Abraham yanks the knot tight himself in Scene 4 and nothing
+happens to the rope in Scene 5, so the scenes follow Draft 3.
+
 ## Findings recorded while building the baseline
 
 **Updaters in dry-run mode (Milestone 1, task 7).** Manim does advance
@@ -339,6 +400,40 @@ validator accepts it.
 The README's "Stateful props" examples named `open_doors` and `close_doors`
 as actions. Those are methods of the prop; the actions are `elevator_open`
 and `elevator_close`. The examples are corrected.
+
+**The rope (Milestone 4, Stage 4c).** Six things turned up.
+
+- *A rope's shape is not in the books.* The `World` (and so the
+  validator and the ledger) keeps the rope's state and attachments; its
+  shape follows from them and is worked out on every frame by the
+  `StateManager`. So the ledger stays small and the completion test
+  needs no geometry.
+- *Changing shape in place is a travel too.* Pulling the knot tight
+  changes no attachment, only the state. A rope that is where it
+  belongs would take the new state's shape at once when it is put on
+  its attachment again at the start of the step, so a step with
+  `frames` keeps the shape the rope had and turns it into the new one
+  over its frames, as a move does.
+- *A rope is not held.* A prop on a character emits `prop_attach` and
+  the tracer turns that into a hold, which Blender follows with a
+  constraint on the hand. A rope's pieces have no holds: their control
+  points already say where they are, frame by frame, and Blender keys
+  them directly.
+- *Blender does not recompute automatic handles on animated points.*
+  With `AUTO` handles the curve kept the handles of its first shape and
+  drew spikes as the points moved. `trace2blender.py` works out smooth
+  (Catmull-Rom) handles itself and keys them with the points; the curve
+  passes through every control point.
+- *`figure_frames` is exact only at the ends of moves outside timed
+  blocks.* The tests that follow the rope on Abraham's shoulder as he
+  walks, and round Isaac's wrists as he moves his arms, check the
+  frames on which it is exact.
+- *Fonts, again.* The reference book needs `newtx` (in Debian's
+  `texlive-fonts-extra`), `binhex.tex` (`texlive-plain-generic`) and the
+  TeX Gyre metrics (`tex-gyre`). Installed with
+  `apt-get install --no-install-recommends`, `fonts-croscore` is not
+  pulled in and "Courier New" still falls back to Liberation Mono, so
+  the golden traces stay strict.
 
 **The referee report on Milestone 2.** `test_timeline_hardening.py` holds what
 came out of it:
