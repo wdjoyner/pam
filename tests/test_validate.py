@@ -254,6 +254,25 @@ def test_validator_runs_on_every_fixture(fixture):
     assert {f.code for f in report.warnings} <= {"review-comment"}
 
 
+def _repo_screenplays():
+    out = []
+    for path in sorted(tt.REPO.glob("*.json")):
+        try:
+            data = json.loads(path.read_text())
+        except ValueError:
+            continue
+        if isinstance(data, list) and any(
+                isinstance(s, dict) and "action" in s for s in data):
+            out.append(path.name)
+    return out
+
+
+@pytest.mark.parametrize("name", _repo_screenplays())
+def test_every_screenplay_in_the_repository_validates(name):
+    report = validate_file(tt.REPO / name, sidecar=False)
+    assert report.errors == [], report.format(show_warnings=False)
+
+
 # ── the command ──────────────────────────────────────────────────────────
 
 def run_cli(*args):

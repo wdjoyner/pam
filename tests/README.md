@@ -99,10 +99,20 @@ fixtures. `lucy-meets-lenny2_pam.json` originally had two dead steps left by
 the compiler: `trot_to` aimed at `lucy` (a human) and at `ramis` (a name that
 is never spawned; the dog prop is called `dog`). The player skipped both with
 a "not a DogGraph" message. The fixture now spawns the dog first and has it
-trot to center stage, and its golden trace was recorded again. Today's
-`fountain2pam.py` still produces those two steps from the `.fountain` source
-(its "trots/jogs" rule uses the speaker's name where the `dog` prop key
-belongs), so compiling that file again brings them back.
+trot to center stage, and its golden trace was recorded again. The cause was
+in `fountain2pam.py`: its "trots/jogs" rule used the character's name where
+the `dog` prop key belongs, and applied to humans too. The rule now addresses
+a dog by its prop key, spawns the dog before its first trot, and leaves a
+human who jogs to the humanoid rules (which emit `run_to`). Of the four
+`.fountain` files in the repository only `lucy-meets-lenny2_pam.fountain`
+compiles differently.
+
+**Every screenplay in the repository validates.** `test_validate.py` checks
+all the `.json` screenplays in the repository root, not only the fixtures.
+In `tntd_screenplay+sound_2026-07-12.json` this meant three corrections:
+26 `pause` steps (not an action, so the pauses never happened) became `wait`;
+`set_uniform` became `change_uniform`; and a `move_prop` that named
+`athena_seat` now moves `seat_athena`.
 
 **The patch guide.** `fountain2pam.py` prints "(Hints also written as
 _comment entries at bottom of JSON.)", but it appends the hints after the
