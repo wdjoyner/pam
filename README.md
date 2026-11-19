@@ -1393,6 +1393,7 @@ Options go after the `.blend` name.
 | `--bust` | Add a bust to female chests (off by default). |
 | `--tilt DEG` | Camera tilt toward the floor (default 8; 0 for a straight-on view). |
 | `--no-bubbles` | Leave out speech bubbles. |
+| `--no-mouths` | Leave out the talking mouths. By default each character gets a small dark mouth on the lower half of the head that opens and shuts while that character's speech bubble is showing. The mouths stay when `--no-bubbles` is given, so a film with a voice track still shows who is speaking. Dogs, and heads replaced by an attached face, get none. |
 | `--camera wide` | Hold the widest framing the scene uses for the whole film, instead of following PAM's camera moves and cuts. |
 | `--bubble-lift V` | Raise very dark bubble backgrounds (like the Governor's navy) to brightness V so they stand out on the stage (default 0.5; 0 keeps PAM's colors). |
 | `--no-overlays` | Leave out faces, torso icons, name tags, gloves, PAM's shoes, and on-screen cards. |

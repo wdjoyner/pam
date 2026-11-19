@@ -30,6 +30,11 @@ Options:
     --tilt DEG         camera tilt down toward the floor (default 8;
                        ignored by the flat look)
     --no-bubbles       leave out the speech bubbles
+    --no-mouths        leave out the talking mouths (a small dark mouth
+                       on the lower half of the head that opens and shuts
+                       while the character's speech bubble is showing; it
+                       is kept when --no-bubbles is given, so a film with
+                       a voice track still shows who is speaking)
     --no-overlays      leave out faces, torso icons, name tags, gloves,
                        PAM's shoes and on-screen cards (trace version 4)
     --no-labels        leave out the head labels ("Sidel", "Nona", ...)
@@ -115,6 +120,7 @@ class Options:
     bust = False
     tilt = 8.0
     bubbles = True
+    mouths = True
     props = True
     hips = 0.65
     skin = {}
@@ -156,6 +162,8 @@ def parse_args(argv):
             opt.tilt = float(a[i + 1]); i += 1
         elif k == "--no-bubbles":
             opt.bubbles = False
+        elif k == "--no-mouths":
+            opt.mouths = False
         elif k == "--no-props":
             opt.props = False
         elif k == "--hips":
@@ -1777,6 +1785,116 @@ def subtract_spans(seq, spans):
         rows += [[t0, True], [t1, False]]
     rows.sort()
     return combine_vis(seq, rows)
+
+
+# ── talking mouths ───────────────────────────────────────────────────────
+#
+# A character has no face unless PAM attached one, so with the speech
+# bubbles left out (a film with a voice track) nothing on screen says who
+# is speaking.  A small dark mouth on the lower half of the head opens
+# and shuts while the character's bubble is showing.  The timing comes
+# from the trace's bubble records; nothing is added to the Manim render.
+
+MOUTH_HALF = 2 / 15        # seconds from shut to open: two frames of the
+                           # trace's 15 fps clock, about 3.75 openings a second
+MOUTH_OPEN = (1.0, 0.55, 0.85, 0.45, 0.7)   # how wide, cycling, so the
+                                            # flapping is not mechanical
+MOUTH_GAP = 0.2            # lines closer together than this run together
+# size and place, as fractions of the head radius
+MOUTH_W, MOUTH_H, MOUTH_D = 0.34, 0.24, 0.10
+MOUTH_DROP = 0.45          # how far below the head's center
+MOUTH_SHUT = 0.12          # height of the shut mouth, relative to open
+MOUTH_COLOR = "#1a0d0a"
+
+
+def speech_spans(T, name):
+    """[(t0, t1), ...]: when *name*'s speech bubbles are showing, with
+    lines that follow one another at once merged into one span."""
+    spans = []
+    for b in T.get("bubbles") or []:
+        if b.get("owner") != name:
+            continue
+        t_on = None
+        for row in b.get("visibility") or []:
+            t, on = row[0], bool(row[1])
+            if on and t_on is None:
+                t_on = t
+            elif not on and t_on is not None:
+                if t > t_on:
+                    spans.append((t_on, t))
+                t_on = None
+        if t_on is not None:
+            spans.append((t_on, float(T.get("duration", t_on))))
+    spans.sort()
+    merged = []
+    for t0, t1 in spans:
+        if merged and t0 - merged[-1][1] < MOUTH_GAP:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], t1))
+        else:
+            merged.append((t0, t1))
+    return merged
+
+
+def mouth_keys(spans, half=MOUTH_HALF):
+    """[(t, openness), ...] for a mouth that flaps through each span:
+    shut (0) at the start and the end, opening to one of MOUTH_OPEN in
+    between.  Times are increasing."""
+    keys = []
+    k = 0
+    for t0, t1 in spans:
+        keys.append((t0, 0.0))
+        n = int((t1 - t0) / half + 1e-9)       # whole half-beats that fit
+        if n < 2:
+            # too short to open and shut on the beat: one quick opening
+            keys.append(((t0 + t1) / 2, MOUTH_OPEN[k % len(MOUTH_OPEN)]))
+            k += 1
+        else:
+            if n % 2:
+                n -= 1                         # end on a shut beat
+            for i in range(1, n):
+                if i % 2:
+                    keys.append((t0 + i * half,
+                                 MOUTH_OPEN[k % len(MOUTH_OPEN)]))
+                    k += 1
+                else:
+                    keys.append((t0 + i * half, 0.0))
+        keys.append((t1, 0.0))
+    return keys
+
+
+def build_mouth(bpy, col, name, head_empty, head_r, ball_me, mat, T, fps,
+                head_seq):
+    """Add *name*'s talking mouth to its head.  Returns the object, or
+    None when the character never speaks.  *head_seq* is the head's own
+    visibility: the mouth is hidden whenever the head is (a 3D face
+    replaces it, or the character is off stage)."""
+    spans = speech_spans(T, name)
+    if not spans:
+        return None
+    ob = bpy.data.objects.new(f"{name}.mouth", ball_me)
+    col.objects.link(ob)
+    ob.material_slots[0].link = "OBJECT"
+    ob.material_slots[0].material = mat
+    ob.parent = head_empty
+    # on the front of the head (the camera looks along +Y), lower half
+    front = math.sqrt(max(1.0 - MOUTH_DROP ** 2, 0.0))
+    ob.location = (0.0, -head_r * front * 0.98, -head_r * MOUTH_DROP)
+    w, h, d = head_r * MOUTH_W, head_r * MOUTH_H, head_r * MOUTH_D
+    for t, opened in mouth_keys(spans):
+        ob.scale = (w * (0.8 + 0.2 * opened), d,
+                    h * (MOUTH_SHUT + (1.0 - MOUTH_SHUT) * opened))
+        ob.keyframe_insert("scale", frame=frame_of(t, fps))
+    if ob.animation_data and ob.animation_data.action:
+        for fc in _id_fcurves(ob):
+            if fc.data_path == "scale":
+                for kp in fc.keyframe_points:
+                    kp.interpolation = "LINEAR"
+    seq = [(0.0, False)] if spans[0][0] > 0 else []
+    for t0, t1 in spans:
+        seq += [(t0, True), (t1, False)]
+    hidden_rows = [[t, not v] for t, v in head_seq]    # no head, no mouth
+    key_visibility([ob], combine_vis(seq, hidden_rows), fps)
+    return ob
 
 
 _CONES = {}
@@ -3544,6 +3662,7 @@ def build(trace_path, out_path, opt=None):
     bone_me = unit_bone_mesh(bpy)
     ball_me = unit_ball_mesh(bpy)
     stats = {}
+    mouth_mat = [None]          # made on first use
     all_empties = {}
     ob_builder = OverlayBuilder(bpy, sc, T, rates, opt, tilt, all_empties) \
         if (opt.overlays or opt.labels) and opt.look != "flat" else None
@@ -3788,6 +3907,15 @@ def build(trace_path, out_path, opt=None):
                     inst.scale = (k, k, k)
                     key_visibility([inst], head_seq, opt.fps)
                     stats[name]["label"] = label.get("text")
+            if opt.mouths and opt.look != "flat" and not is_dog:
+                if mouth_mat[0] is None:
+                    mouth_mat[0] = material(bpy, "mouth",
+                                            hex_rgba(MOUTH_COLOR),
+                                            roughness=0.9)
+                if build_mouth(bpy, col, name, empties["head"], head_r,
+                               ball_me, mouth_mat[0], T, opt.fps,
+                               head_seq) is not None:
+                    stats[name]["mouth"] = len(speech_spans(T, name))
         # shoes: the default pair, except while PAM's own shoes are on
         for side, shoe in shoes_default.items():
             spans = []
