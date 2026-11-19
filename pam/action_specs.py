@@ -54,7 +54,14 @@ PLAYER_ACTIONS = frozenset({
     # staging and timing
     "end_scene", "focus", "focus_reset", "group_translate", "parallel",
     "set_background", "wait",
+    # timeline and contact constraints (pam/timeline.py, constraints.py)
+    "sequence", "constrain", "release",
 })
+
+# Markers the player puts around a sequence's steps when it loads a
+# screenplay.  They are dispatched like actions but never written by an
+# author, so the validator does not accept them.
+INTERNAL_ACTIONS = frozenset({"_sequence_begin", "_sequence_end"})
 
 # A step with one of these keys and no "action" is an annotation or a
 # camera marker; the player skips or handles it before dispatch.
@@ -77,10 +84,28 @@ DURATION_KEYS = frozenset({
     "sfx_duration", "sfx_delay",
 })
 
+# ── frames ───────────────────────────────────────────────────────────────
+
+# Keys that hold a whole number of frames on the 15 fps clock.
+FRAME_KEYS = frozenset({"frames", "blend"})
+
+
+def frame_actions():
+    """Actions whose duration may be given with "frames"."""
+    from pam.timeline import FRAME_ACTIONS
+    return FRAME_ACTIONS
+
+
+def seconds_key(action):
+    """The seconds key that "frames" replaces for *action*."""
+    from pam.timeline import SECONDS_KEY, DEFAULT_SECONDS_KEY
+    return SECONDS_KEY.get(action, DEFAULT_SECONDS_KEY)
+
+
 # ── joints ───────────────────────────────────────────────────────────────
 
 # Keys whose value is a joint name ("joints": a list of them).
-JOINT_KEYS = frozenset({"anchor", "joint"})
+JOINT_KEYS = frozenset({"anchor", "joint", "target_joint"})
 JOINT_LIST_KEYS = frozenset({"joints"})
 
 
@@ -128,6 +153,9 @@ REFERENCE_OVERRIDES = {
     # trot_to only moves dogs; the player skips it for anything else
     ("trot_to", "prop"):         "dog",
     ("trot_to", "who"):          "dog",
+    # constraints hold one figure's joint on another figure's joint
+    ("constrain", "who"):        "character",
+    ("constrain", "target"):     "character",
     # two-character interactions
     ("kiss", "target"):             "character",
     ("hold_hands", "target"):       "character",

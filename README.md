@@ -1612,6 +1612,44 @@ Checklist:
 5. add a small screenplay test case;
 6. document the key.
 
+### Timeline and contact constraints (first version)
+
+This is the vertical slice of the Blender roadmap: one gag, Abraham's failed pull on Isaac's wrist, taken through every layer. It is opt-in. A screenplay that uses none of the syntax below plays and traces exactly as before.
+
+```json
+{"action": "sequence", "id": "s02_wrist_pull", "do": [
+  {"action": "constrain", "id": "isaac_root", "type": "root_lock", "who": "isaac"},
+  {"action": "constrain", "id": "grip", "type": "joint_to_joint",
+   "who": "abraham", "joint": "rwrist",
+   "target": "isaac", "target_joint": "lwrist", "blend": 6},
+  {"action": "wait", "frames": 6, "beat": "grab"},
+  {"action": "wait", "frames": 6, "beat": "nothing_moves"},
+  {"action": "morph", "who": "abraham", "pose": "pull_lean", "frames": 12, "beat": "pull"},
+  {"action": "wait", "frames": 6, "beat": "strain"},
+  {"action": "release", "id": "grip"},
+  {"action": "slip_on_back", "who": "abraham", "frames": 4, "beat": "slip"},
+  {"action": "wait", "frames": 9, "beat": "comic_hold"}
+]}
+```
+
+The full scene is `abe-isaac_wrist-pull_slice.json`; render it with `./pam-render --script abe-isaac_wrist-pull_slice.json`.
+
+| Syntax | Meaning |
+|---|---|
+| `"frames": n` | The step lasts exactly `n` frames at 15 per second. Supported on `wait`, `morph`, `turn`, `scale`, and `slip_on_back`. Use it in place of the seconds key, not with it. |
+| `sequence` | A named run of steps (`do`) on the frame clock. The console reports the frames it ran on and any step that missed its count. Constraints started in a sequence end with it. |
+| `"beat": "name"` | Names a step of a sequence. Beats and their frames are reported and written to the trace. |
+| `constrain`, type `joint_to_joint` | Keeps `who`'s wrist or ankle (`joint`) on `target`'s `target_joint`. The elbow or knee is solved each frame; bone lengths do not change and the joint never flips side. `blend` is the number of frames the hand takes to get there. If the target is out of reach the limb straightens toward it, and the shortfall is reported. |
+| `constrain`, type `root_lock` | Keeps `who` where it stands, whatever else tries to move it. |
+| `"frames": n` on `constrain` | Releases the constraint by itself after `n` frames, even in the middle of a step. |
+| `release` | Ends the constraint with that `id` on the current frame. |
+| `slip_on_back` | The feet shoot out and the figure lands flat on its back, on the ground its feet were standing on. Works at any character scale. |
+| pose `pull_lean` | Leaning back hard against something immovable. |
+
+A scene that uses any of this is traced as **trace version 5**: it adds `"fps": 15`, whole-frame `f0`/`f1` on every piece, the sequences with their beats, the constraint intervals, and a `sampled` piece holding the constrained limb's joints on every frame. `trace2blender.py` keys those samples directly, so the hand stays on the wrist in Blender. Other scenes are still written as version 4, unchanged.
+
+The modules are `pam/timeline.py`, `pam/constraints.py`, and `pam/choreography.py`; each starts with a description of what it does and why.
+
 ### Validate a screenplay without rendering
 
 `pam-validate` checks PAM JSON files in a second or two, without Manim drawing anything:
@@ -1623,7 +1661,7 @@ Checklist:
 ./pam-validate my_scene.json --json          # machine-readable report
 ```
 
-It rejects unknown actions, invalid joint names, negative durations, and references to characters or props that do not exist at that step (never defined, defined later, or already removed). It also reports, as warnings, things the player passes over in silence: unresolved `# REVIEW` and `# PATCH` comments from `fountain2pam.py`, and action steps that carry a `_comment` (the player skips those entirely). The exit status is `0` when every file is valid and `1` otherwise.
+It rejects unknown actions, invalid joint names, negative durations, frame counts that are not whole numbers, malformed constraints, and references to characters or props that do not exist at that step (never defined, defined later, or already removed). It also reports, as warnings, things the player passes over in silence: unresolved `# REVIEW` and `# PATCH` comments from `fountain2pam.py`, and action steps that carry a `_comment` (the player skips those entirely). The exit status is `0` when every file is valid and `1` otherwise.
 
 The valid action names and the checked keys are listed in `pam/action_specs.py`. A new handler in `pam/actions.py` needs no change there; a new action dispatched inline in `pam_player.py` must be added to `PLAYER_ACTIONS`, and a test fails until it is.
 

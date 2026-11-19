@@ -26,9 +26,10 @@ def _inline_actions(src):
 def test_player_actions_match_the_dispatcher():
     inline = _inline_actions(_player_source())
     assert inline, "could not find the dispatcher's action tests"
-    assert inline == set(specs.PLAYER_ACTIONS), (
-        f"only in pam_player.py: {sorted(inline - specs.PLAYER_ACTIONS)}; "
-        f"only in PLAYER_ACTIONS: {sorted(specs.PLAYER_ACTIONS - inline)}")
+    listed = set(specs.PLAYER_ACTIONS) | set(specs.INTERNAL_ACTIONS)
+    assert inline == listed, (
+        f"only in pam_player.py: {sorted(inline - listed)}; "
+        f"only in action_specs.py: {sorted(listed - inline)}")
 
 
 def test_preamble_actions_are_consumed_by_the_player():
@@ -41,6 +42,8 @@ def test_known_actions_include_every_handler():
     known = specs.known_actions()
     assert set(ACTION_REGISTRY) <= known
     assert specs.PLAYER_ACTIONS <= known
+    assert not (specs.INTERNAL_ACTIONS & known), \
+        "internal markers are not valid in a screenplay"
     # Handled inline for some targets and by a handler for others.
     both = set(specs.PLAYER_ACTIONS) & set(ACTION_REGISTRY)
     assert both == {"wave", "group_translate"}

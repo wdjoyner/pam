@@ -11,6 +11,7 @@ bpy``) or a ``blender`` program on PATH (or named by the BLENDER
 environment variable).  Skipped when neither is available.
 """
 import importlib.util
+import json
 import os
 import shutil
 import subprocess
@@ -21,20 +22,26 @@ import pytest
 import trace_tools as tt
 
 
-def _command(trace, out):
-    script = str(tt.REPO / "trace2blender.py")
+def _run(script, *args):
+    """Command that runs *script* with Blender's Python, or None when
+    Blender is not available."""
     if importlib.util.find_spec("bpy") is not None:
-        return [sys.executable, script, str(trace), str(out)]
+        return [sys.executable, str(script), *map(str, args)]
     blender = os.environ.get("BLENDER") or shutil.which("blender")
     if blender:
         return [blender, "--background", "--python-exit-code", "1",
-                "--python", script, "--", str(trace), str(out)]
+                "--python", str(script), "--", *map(str, args)]
     return None
+
+
+def _command(trace, out):
+    return _run(tt.REPO / "trace2blender.py", trace, out)
 
 
 @pytest.mark.parametrize("fixture", [
     "screenplay_alice-meets-bob.json",        # figures and bubbles only
     "wdj_nona-vs-governor-venus3.json",       # props, a held prop, the Governor
+    "abe-isaac_wrist-pull_slice.json",        # trace version 5, sampled piece
 ])
 def test_blend_builds_from_golden_trace(fixture, tmp_path):
     out = tmp_path / "scene.blend"
@@ -47,3 +54,101 @@ def test_blend_builds_from_golden_trace(fixture, tmp_path):
     assert proc.returncode == 0, (proc.stdout[-2000:] + "\n"
                                   + proc.stderr[-4000:])
     assert out.is_file() and out.stat().st_size > 10_000
+
+
+def test_constrained_hand_stays_on_the_wrist_in_blender(tmp_path):
+    """Vertical slice, last step: the sampled piece survives the trip
+    into Blender.  Abraham's hand is on Isaac's wrist on every frame of
+    the hold, both on the frames keyed from the trace and on the frames
+    Blender interpolates between them."""
+    trace = tt.golden_path(tt.SLICE)
+    out = tmp_path / "slice.blend"
+    cmd = _command(trace, out)
+    if cmd is None:
+        pytest.skip("Blender is not available")
+    proc = subprocess.run(cmd, cwd=tmp_path, env=tt._env(),
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr[-4000:]
+
+    probe = _run(tt.REPO / "tests" / "blender_probe.py", out, trace)
+    proc = subprocess.run(probe, cwd=tmp_path, env=tt._env(),
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr[-4000:]
+    line = next(l for l in proc.stdout.splitlines() if l.startswith("PROBE "))
+    grip = json.loads(line[6:])["constraints"]["grip"]
+    assert grip["frames_held"] == 24
+    assert grip["keyed"] < 2e-3, "hand off the wrist on a keyed frame"
+    assert grip["between"] < 2e-3, "hand off the wrist between keyed frames"
+
+
+def test_sampled_piece_overrides_the_ordinary_pieces():
+    """trace2blender's own evaluation (no Blender needed): at the trace's
+    frame times the constrained joints are exactly the samples."""
+    sys.path.insert(0, str(tt.REPO))
+    import numpy as np
+    import trace2blender as t2b
+
+    T = t2b.load_trace(str(tt.golden_path(tt.SLICE)))
+    assert all(p["kind"] != "sampled" for p in T["tracks"]["abraham"])
+    (piece,) = T["sampled"]["abraham"]
+    opt = t2b.Options()
+    opt.fps = 15
+    rates = t2b.load_rates(T)
+    frames = [1 + f for f in range(piece["f0"], piece["f1"] + 1)]
+    X = t2b.sample_character("abraham", T, rates, opt, frames)
+    joints = T["cast"]["abraham"]["joints"]
+    for i, fr in enumerate(piece["frames"]):
+        for j in piece["joints"]:
+            assert np.allclose(X[i, joints.index(j)], fr[j], atol=1e-6)
+    # Without the samples, the ordinary pieces move each joint straight
+    # from its start to its end.  That happens to suit the wrist here
+    # (its target does not move), but the elbow swings on an arc.
+    T["sampled"] = {}
+    Y = t2b.sample_character("abraham", T, rates, opt, frames)
+    k = joints.index("relbow")
+    assert np.abs(X[:, k] - Y[:, k]).max() > 0.02
+
+
+def test_hand_follows_a_wrist_that_moves_in_blender(tmp_path):
+    """The driver moves (with an eased rate function) while the follower
+    holds on.  The hand must stay on the wrist in Blender as well, which
+    needs the driver's motion to be baked and not approximated by one of
+    Blender's easing curves."""
+    actions = [
+        {"action": "cast", "characters": {
+            "big": {"pose": "standing_front", "offset": [1.2, 0, 0],
+                    "scale": {"sy": 0.8, "sx": 0.8, "anchor": "lankle"}},
+            "small": {"pose": "standing_side", "offset": [-0.35, 0, 0],
+                      "scale": {"sy": 0.5, "sx": 0.5, "anchor": "lankle"}}}},
+        {"action": "fade_in", "who": "big", "rt": 0.2},
+        {"action": "fade_in", "who": "small", "rt": 0.2},
+        {"action": "sequence", "id": "follow", "do": [
+            {"action": "constrain", "id": "g", "type": "joint_to_joint",
+             "who": "small", "joint": "rwrist",
+             "target": "big", "target_joint": "lwrist"},
+            {"action": "morph", "who": "big", "pose": "standing_front",
+             "dx": 0.3, "dy": 0.15, "frames": 12},
+            {"action": "wait", "frames": 3},
+        ]},
+    ]
+    trace, _ = tt.trace_actions(actions, tmp_path)
+    (c,) = trace["constraints"]
+    assert c["max_shortfall"] == 0.0, "the scene keeps the wrist in reach"
+    out = tmp_path / "follow.blend"
+    cmd = _command(tmp_path / "scene.trace.json", out)
+    if cmd is None:
+        pytest.skip("Blender is not available")
+    proc = subprocess.run(cmd, cwd=tmp_path, env=tt._env(),
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr[-4000:]
+    probe = _run(tt.REPO / "tests" / "blender_probe.py", out,
+                 tmp_path / "scene.trace.json")
+    proc = subprocess.run(probe, cwd=tmp_path, env=tt._env(),
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr[-4000:]
+    line = next(l for l in proc.stdout.splitlines() if l.startswith("PROBE "))
+    g = json.loads(line[6:])["constraints"]["g"]
+    assert g["keyed"] < 2e-3
+    # between two 15 fps samples the hand moves in a straight line while
+    # the wrist follows the eased curve; they part by a hair
+    assert g["between"] < 0.01

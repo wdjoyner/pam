@@ -50,6 +50,24 @@ Events
                       text (as displayed), style.  Emitted before the
                       bubble fades in; listeners follow the mobject.
 
+Timeline events (emitted only by screenplays that use the timeline;
+see pam/timeline.py and pam/constraints.py; the hooks version is
+unchanged because nothing existing changed):
+
+``"sequence"``      — scene, phase ("begin" | "end"), id, frame, t; on
+                      "end" also report (the sequence's steps and beats).
+``"beat"``          — scene, name, frame, t, frames, sequence: a step
+                      of a sequence that carries a ``"beat"`` name is
+                      about to start.
+``"constraint"``    — scene, phase ("begin" | "end"), id, type, who, fig,
+                      joints, frame, t, and for joint_to_joint: joint,
+                      target, target_joint, blend; on "end" also f0 and
+                      max_shortfall.
+``"constraint_sample"`` — scene, id, who, fig, frame, t, joints
+                      ({joint: (x, y)}): the world positions a
+                      constraint gave its joints on one whole frame of
+                      the 15 fps clock.
+
 Prop hand-off semantics (hooks version 2)
 ----------------------------------------
 An attach starts a hold: the prop rides on the figure's hand(s) (*hand*

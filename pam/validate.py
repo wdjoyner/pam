@@ -10,6 +10,9 @@ Errors (the screenplay is rejected)
     * negative (or non-numeric) durations;
     * references to characters or props that do not exist at that step
       (including ``trot_to`` aimed at anything but a dog);
+    * a ``frames`` or ``blend`` count that is not a whole number, and a
+      ``constrain`` step with no ``id``, an unknown ``type``, or a joint
+      that does not end a limb;
     * steps the player cannot read at all (not an object, or no
       ``"action"`` key and no annotation key).
 
@@ -17,7 +20,10 @@ Warnings (reported, not rejected unless ``strict``)
     * unresolved ``# REVIEW`` and ``# PATCH`` comments left by
       ``fountain2pam.py`` (the player skips them silently);
     * a ``title`` that is not the first step, a ``parallel`` block with
-      no ``do`` list, a pose name that is not in the pose registry.
+      no ``do`` list, a pose name that is not in the pose registry;
+    * a step with both ``frames`` and its duration in seconds, ``frames``
+      on an action that cannot be timed that way yet, and a ``release``
+      of a constraint that is not in force.
 
 The lists of valid actions and of the keys that are checked live in
 ``pam/action_specs.py``.
@@ -130,6 +136,7 @@ class _Validator:
         self._poses = None
         self._removed = set()
         self._defined_later = set()
+        self._constraints = set()       # ids in force
 
     # ── reporting ────────────────────────────────────────────────────
     def add(self, level, code, message, index=None, action=None, path=""):
@@ -151,6 +158,61 @@ class _Validator:
                 self.add(ERROR, "negative-duration",
                          f"'{key}' is {v!r}; a duration cannot be negative",
                          index, action, p)
+
+    def check_frames(self, step, act, index, path):
+        for key in specs.FRAME_KEYS:
+            if key not in step or step[key] is None:
+                continue
+            v = step[key]
+            if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+                self.add(ERROR, "invalid-frames",
+                         f"'{key}' must be a whole number of frames "
+                         f"(15 per second), got {v!r}", index, act,
+                         f"{path}{key}")
+        if "frames" not in step or act == "constrain":
+            return
+        sec = specs.seconds_key(act)
+        if sec in step and step[sec] is not None:
+            self.add(WARNING, "frames-and-seconds",
+                     f"step has both 'frames' and '{sec}'; the frames win",
+                     index, act, f"{path}frames")
+        if act not in specs.frame_actions():
+            self.add(WARNING, "frames-unsupported",
+                     f"'frames' is not supported for '{act}' yet; the "
+                     f"action may not take exactly that long", index, act,
+                     f"{path}frames")
+
+    def check_constrain(self, step, index, path):
+        from pam.constraints import TYPES, CHAINS
+        cid, ctype = step.get("id"), step.get("type")
+        if not isinstance(cid, str) or not cid:
+            self.add(ERROR, "bad-constraint",
+                     "constrain needs an 'id'", index, "constrain",
+                     f"{path}id")
+        if ctype not in TYPES:
+            self.add(ERROR, "bad-constraint",
+                     f"unknown constraint type {ctype!r} (known: "
+                     f"{', '.join(TYPES)})", index, "constrain",
+                     f"{path}type")
+            return
+        if ctype == "joint_to_joint":
+            for key in ("who", "joint", "target", "target_joint"):
+                if not isinstance(step.get(key), str):
+                    self.add(ERROR, "bad-constraint",
+                             f"joint_to_joint needs '{key}'", index,
+                             "constrain", f"{path}{key}")
+            joint = step.get("joint")
+            if isinstance(joint, str) and joint in self.joints \
+                    and joint not in CHAINS:
+                self.add(ERROR, "invalid-joint",
+                         f"'{joint}' does not end a two-bone limb; use "
+                         f"one of {', '.join(sorted(CHAINS))}", index,
+                         "constrain", f"{path}joint")
+        elif not isinstance(step.get("who"), str):
+            self.add(ERROR, "bad-constraint", "root_lock needs 'who'",
+                     index, "constrain", f"{path}who")
+        if isinstance(cid, str) and cid:
+            self._constraints.add(cid)
 
     def check_joints(self, obj, index, action, path):
         for key in specs.JOINT_KEYS:
@@ -311,6 +373,7 @@ class _Validator:
 
         self.check_durations(step, index, act, path)
         self.check_joints(step, index, act, path)
+        self.check_frames(step, act, index, path)
         if act not in ("cast", "props", "scene_props", "scene_objects"):
             self.check_pose(step, index, act, path)
 
@@ -339,6 +402,38 @@ class _Validator:
                 if step.get("figure_type") == "dog":
                     w.dogs.add(name)
                     w.characters.add(name)
+            return
+
+        if act == "sequence":
+            subs = step.get("do")
+            if parallel:
+                self.add(ERROR, "bad-step",
+                         "a sequence cannot be a step of a parallel block",
+                         index, act, path.rstrip("."))
+                return
+            if not isinstance(subs, list):
+                self.add(ERROR, "bad-step",
+                         "sequence needs a 'do' list of steps", index, act,
+                         path.rstrip("."))
+                return
+            before = set(self._constraints)
+            for i, sub in enumerate(subs):
+                self.step(sub, index, f"{path}do[{i}].")
+            # constraints started in a sequence end with it
+            self._constraints &= before
+            return
+        if act == "constrain":
+            self.check_references(step, act, index, path)
+            self.check_constrain(step, index, path)
+            return
+        if act == "release":
+            cid = step.get("id")
+            if cid not in self._constraints:
+                self.add(WARNING, "unknown-constraint",
+                         f"no constraint '{cid}' is in force here (the "
+                         f"player skips this step)", index, act,
+                         f"{path}id")
+            self._constraints.discard(cid)
             return
 
         if act == "parallel":

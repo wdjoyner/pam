@@ -116,6 +116,35 @@ A piece is one timed move of one figure:
 scaled pose-local joint set *before* rotation; world = R(rot)·local +
 offset.  kind "cut" is an instantaneous jump (set_pose or any change
 made between plays); its t0 == t1.
+
+Trace version 5 (timeline)
+--------------------------
+A screenplay that uses the timeline (``sequence``, ``constrain``, or a
+``frames`` duration; see pam/timeline.py and pam/constraints.py) is
+written as trace_version 5.  A screenplay that does not is still written
+as version 4, byte for byte as before.  Version 5 adds:
+
+  "fps": 15,                       # the frame clock; frame f is at f/15 s
+  "f0", "f1" on every piece,       # t0 and t1 as whole frames
+  "sequences": [{"id", "f0", "f1", "beats": [{"name", "frame",
+                 "frames"}]}],
+  "constraints": [{"id", "type", "who", "joints", "f0", "f1",
+                   "max_shortfall", "joint"?, "target"?,
+                   "target_joint"?, "blend"?}],   # for information only
+and one more kind of piece in "tracks":
+
+  {"kind": "sampled", "source": "constraint", "constraint": id,
+   "f0", "f1", "t0", "t1",
+   "joints": [joint, ...],
+   "frames": [{joint: [x, y]}, ...]}     # one entry per frame f0..f1
+
+A sampled piece holds the resolved world position of a constrained
+limb's joints on every frame while the constraint was in force.  It
+lies on top of the figure's ordinary pieces for the same interval and
+replaces their values for the listed joints only: a hand pinned to a
+moving wrist travels along a path that the two endpoints of an ordinary
+piece do not determine.  A consumer keys the samples directly and
+solves nothing.
 """
 import json
 import os
@@ -130,6 +159,10 @@ from manim.scene.scene import Scene
 from pam import hooks
 
 TRACE_VERSION = 4
+# Written instead of TRACE_VERSION when the screenplay uses the timeline
+# (sequence / constrain / frames); see "Trace version 5" above.
+TRACE_VERSION_TIMELINE = 5
+FPS = 15                    # the timeline's frame clock (pam/timeline.py)
 RATE_SAMPLES = 64
 EPS = 1e-4
 
@@ -789,7 +822,10 @@ class OverlayTracker:
             if arm is not None:
                 known.add(id(arm))
             mobs = self._slot_mobs(fig)
-            for slot in set(mobs) | {s for (c, s) in self._slots if c == name}:
+            # sorted: set order varies from run to run (string hashing),
+            # and overlay ids are handed out in this order
+            for slot in sorted(set(mobs)
+                               | {s for (c, s) in self._slots if c == name}):
                 cur = mobs.get(slot)
                 prev = self._slots.get((name, slot))
                 if prev is not None and prev[0] is not cur:
@@ -930,6 +966,12 @@ class Tracer:
         self.background = []        # [[t, hex], ...] changes only
         self.bubbles = []           # records, see _register_bubble
         self._live_bubbles = {}     # id(mob) -> record (until it leaves)
+        # timeline (trace version 5): filled only when a screenplay
+        # uses sequences or constraints
+        self.timeline = False
+        self.sequences = []
+        self.constraints = []
+        self._open_constraints = {}     # id -> record with "_samples"
         self.stats = {"plays": 0, "pieces_hook": 0, "pieces_pose_target": 0,
                       "pieces_play": 0, "pieces_cut": 0, "segments_stale": 0,
                       "max_target_mismatch": 0.0}
@@ -1100,7 +1142,13 @@ class Tracer:
                 for j, (x, y) in loc.items()}
 
     def add_piece(self, name, piece):
-        self.tracks[name].append(piece)
+        # Scene.wait plays a Wait animation through Scene.play, and both
+        # are wrapped, so a change during a wait (a constrained limb
+        # following its target) is seen twice.  Keep one.
+        tr = self.tracks[name]
+        if tr and piece["source"] == "play" and tr[-1] == piece:
+            return
+        tr.append(piece)
         self.stats["pieces_" + piece["source"]] += 1
 
     # ── hook listener ────────────────────────────────────────────────────
@@ -1147,6 +1195,67 @@ class Tracer:
             self._find_cast_ref()
             t = data.get("t") if data.get("t") is not None else self.now()
             self.pt.on_prop_event(event, data, t, self.name_of(data["fig"]))
+        elif event in ("sequence", "beat", "constraint",
+                       "constraint_sample"):
+            self.timeline = True
+            self._on_timeline(event, data)
+
+    # ── timeline: sequences, beats, constraints (trace version 5) ────────
+    def _on_timeline(self, event, data):
+        if event == "sequence":
+            if data.get("phase") == "end":
+                rep = data.get("report") or {}
+                self.sequences.append({
+                    "id": data.get("id"),
+                    "f0": rep.get("f0"), "f1": data.get("frame"),
+                    "beats": [{"name": b["name"], "frame": b["frame"],
+                               "frames": b.get("frames")}
+                              for b in rep.get("beats", [])]})
+        elif event == "constraint":
+            cid = data.get("id")
+            if data.get("phase") == "begin":
+                rec = {k: data[k] for k in ("id", "type", "who", "joints",
+                                            "joint", "target",
+                                            "target_joint", "blend")
+                       if data.get(k) is not None}
+                rec["f0"] = data.get("frame")
+                rec["f1"] = None
+                rec["_samples"] = {}
+                self._open_constraints[cid] = rec
+                self.constraints.append(rec)
+            else:
+                rec = self._open_constraints.pop(cid, None)
+                if rec is None:
+                    return
+                rec["f1"] = data.get("frame")
+                rec["max_shortfall"] = _r4(data.get("max_shortfall", 0.0))
+                self._close_sampled(rec)
+        elif event == "constraint_sample":
+            rec = self._open_constraints.get(data.get("id"))
+            if rec is not None:
+                rec["_samples"][int(data["frame"])] = {
+                    j: _xy(p) for j, p in data["joints"].items()}
+
+    def _close_sampled(self, rec):
+        """Turn a constraint's per-frame samples into a sampled piece."""
+        samples = rec.pop("_samples", {})
+        name = rec.get("who")
+        if not samples or name not in self.tracks:
+            return
+        f0, f1 = min(samples), max(samples)
+        joints = [j for j in self.cast[name]["joints"]
+                  if any(j in fr for fr in samples.values())]
+        frames, last = [], None
+        for f in range(f0, f1 + 1):
+            cur = samples.get(f, last)      # a frame without a sample
+            last = cur                      # repeats the one before it
+            frames.append({j: cur[j] for j in joints if j in cur})
+        self.tracks[name].append({
+            "kind": "sampled", "source": "constraint",
+            "constraint": rec["id"],
+            "f0": f0, "f1": f1, "t0": _r4(f0 / FPS), "t1": _r4(f1 / FPS),
+            "joints": joints, "frames": frames})
+        self.stats["pieces_sampled"] = self.stats.get("pieces_sampled", 0) + 1
 
     # ── speech bubbles ───────────────────────────────────────────────────
     @staticmethod
@@ -1351,13 +1460,24 @@ class Tracer:
 
     def result(self):
         tracks = {n: tr for n, tr in self.tracks.items()}
+        if self.timeline:
+            # constraints still in force when the scene ended
+            for rec in list(self._open_constraints.values()):
+                rec["f1"] = int(round(self.now() * FPS))
+                self._close_sampled(rec)
+            self._open_constraints.clear()
+            for tr in tracks.values():
+                for p in tr:
+                    p.setdefault("f0", int(round(p["t0"] * FPS)))
+                    p.setdefault("f1", int(round(p["t1"] * FPS)))
+                tr.sort(key=lambda p: p["t0"])      # stable
         prop_objects = self.pt.result()
         overlays = self.ot.result()
         self.stats["overlays"] = len(overlays)
         self.stats["shapes"] = len(self.ot.shapes)
         self.stats["prop_objects"] = len(prop_objects)
         self.stats["prop_holds"] = sum(len(p["holds"]) for p in prop_objects)
-        return {
+        out = {
             "trace_version": TRACE_VERSION,
             "hooks_version": hooks.HOOKS_VERSION,
             "duration": _r4(self.now()),
@@ -1381,6 +1501,14 @@ class Tracer:
             "head_hidden": self.ot.head_hidden,
             "stats": self.stats,
         }
+        if self.timeline:
+            out["trace_version"] = TRACE_VERSION_TIMELINE
+            out["fps"] = FPS
+            out["sequences"] = self.sequences
+            out["constraints"] = [
+                {k: v for k, v in c.items() if not k.startswith("_")}
+                for c in self.constraints]
+        return out
 
 
 def screenplay_skins(path):
@@ -1452,7 +1580,7 @@ def main(out):
     with open(out, "w") as f:
         json.dump(res, f, separators=(",", ":"))
     n = sum(len(t) for t in res["tracks"].values())
-    print(f"trace_version={TRACE_VERSION} pieces={n} plays={TR.stats['plays']}"
+    print(f"trace_version={res['trace_version']} pieces={n} plays={TR.stats['plays']}"
           f" duration={res['duration']:.1f}s cast={list(res['cast'])}")
     print("stats:", json.dumps(TR.stats))
 
