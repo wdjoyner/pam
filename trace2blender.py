@@ -2308,9 +2308,47 @@ BACK_TYPES = {"door": WALL_Y - 0.06, "pocket_door": WALL_Y - 0.06,
 
 # Parts of stateful props that have a 3D model (the trace says which
 # in a prop object's "model").
-MODEL_KINDS = ("knife_handle", "knife_blade", "scroll")
+MODEL_KINDS = ("knife_handle", "knife_blade", "scroll", "rope_piece")
 ATTACH_FRONT = 0.05          # a prop on another sits this far in front
 BLADE_THICK, HANDLE_THICK = 0.012, 0.035
+ROPE_Y = -0.15               # a rope sits just in front of the figures
+
+
+def smooth_handles(P):
+    """Bezier handles that make a smooth curve through the points *P*
+    (n x 3): Catmull-Rom tangents, a third of the way to each
+    neighbor; the ends point at their one neighbor.  Returns (left,
+    right).  (Blender's automatic handles are not worked out again
+    while the points are animated, so they are keyed with them.)"""
+    P = np.asarray(P, float)
+    T = np.zeros_like(P)
+    if len(P) > 2:
+        T[1:-1] = (P[2:] - P[:-2]) / 2
+    if len(P) > 1:
+        T[0] = P[1] - P[0]
+        T[-1] = P[-1] - P[-2]
+    return P - T / 3, P + T / 3
+
+
+def rope_keys(rec, fps_trace=15):
+    """[(trace frame, points)] for a deformable prop (a rope's piece):
+    every sample of every run of its "shape", and before a run that
+    follows a stretch with no samples, the shape the stretch held, on
+    the frame before the run (so that Blender holds it rather than
+    easing into the next run).  Frame 0 has the first shape."""
+    out = []
+    last = None
+    for run in rec.get("shape") or ():
+        f0 = int(run["f0"])
+        if last is None:
+            if f0 > 0:
+                out.append((0, run["frames"][0]))
+        elif f0 > last[0] + 1:
+            out.append((f0 - 1, last[1]))
+        for k, pts in enumerate(run["frames"]):
+            out.append((f0 + k, pts))
+        last = (int(run["f1"]), run["frames"][-1])
+    return out
 
 
 def is_stateful(rec):
@@ -3098,6 +3136,67 @@ class PropBuilder:
                          self.mat("knife steel " + steel, hex_rgba(steel),
                                   roughness=0.25, metallic=0.9))]
 
+    def build_rope_piece(self, plan, tag):
+        """One piece of a rope as a curve object: a Bezier spline
+        through the piece's control points, with smooth handles
+        (``smooth_handles``), given thickness by a bevel.  Its points
+        and handles are keyed on every frame of the trace's "shape"
+        runs, in world coordinates, so it is not parented to the
+        prop's root: the points already say where it is.  Nothing is
+        solved."""
+        bpy = self.bpy
+        rec = plan.rec
+        rows = rope_keys(rec, int(self.T.get("fps", 15)))
+        if not rows:
+            return []
+        m = rec.get("model") or {}
+        col = m.get("colors") or {}
+        n = len(rows[0][1])
+        width = float(m.get("width", 0.024))
+        cu = bpy.data.curves.new(tag + ".rope", "CURVE")
+        cu.dimensions = "3D"
+        cu.bevel_depth = width / 2
+        cu.bevel_resolution = 2
+        cu.resolution_u = 6
+        if hasattr(cu, "use_fill_caps"):
+            cu.use_fill_caps = True
+        sp = cu.splines.new("BEZIER")
+        sp.bezier_points.add(n - 1)
+        for bp in sp.bezier_points:
+            bp.handle_left_type = "FREE"
+            bp.handle_right_type = "FREE"
+        mat = self.mat("rope " + col.get("rope", "#c9a46a"),
+                       hex_rgba(col.get("rope", "#c9a46a")), roughness=0.85)
+        ob = self.obj(tag + ".rope", cu, None, mat)
+        sched = floor_schedule(self.T) or []
+        fps_t = float(self.T.get("fps", 15))
+
+        def xyz(p, f):
+            fz = _floor_at(sched, f / fps_t) if sched else None
+            z = float(p[1])
+            if fz is not None:
+                z = max(z, fz + width / 2)
+            return (float(p[0]), ROPE_Y, z)
+
+        frames = np.array([frame_of(f / fps_t, self.opt.fps)
+                           for f, _ in rows], float)
+        P = np.array([[xyz(p, f) for p in pts] for f, pts in rows], float)
+        HL, HR = zip(*(smooth_handles(p) for p in P))
+        HL, HR = np.array(HL), np.array(HR)
+        for i, bp in enumerate(sp.bezier_points):
+            bp.co, bp.handle_left, bp.handle_right = P[0, i], HL[0, i], \
+                HR[0, i]
+        _enum_ids(bpy)
+        spec = [("LINEAR", "AUTO")] * len(rows)
+        for i in range(n):
+            for prop, V in (("co", P), ("handle_left", HL),
+                            ("handle_right", HR)):
+                path = f"splines[0].bezier_points[{i}].{prop}"
+                for k in range(3):
+                    fc = _fcurve(cu, path, k)
+                    write_fcurve(bpy, fc, frames, V[:, i, k], spec)
+        return [ob]
+
     def turn_keys(self, plan):
         """Keys for a turned prop's pivot: columns angle (degrees) and
         the shift (x, z) that keeps the turned model's bounding-box
@@ -3772,6 +3871,14 @@ class PropBuilder:
                 self.col.objects.link(body)
                 body.parent = root
             rows = self.display_rows(rec) if k == "phone" else []
+            if k == "rope_piece":
+                # a rope's piece: a curve keyed point by point, in world
+                # coordinates; no root keys, no holds
+                parts = self.build_rope_piece(plan, tag)
+                self.visibility(parts, rec)
+                stats[tag] = {"kind": k, "keys": len(rope_keys(rec)),
+                              "holds": 0, "dz": 0.0, "stateful": True}
+                continue
             if k == "knife_handle":
                 parts = self.build_knife_handle(plan, body, tag)
             elif k == "knife_blade":

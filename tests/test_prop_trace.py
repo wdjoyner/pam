@@ -747,3 +747,230 @@ def test_a_prop_moved_right_after_its_holder_appears_starts_on_its_attachment(
     assert dist(start["from"][:2], joints[g]["rhip"]) < 2e-3
     assert [a["joint"] for _, a in scroll["attachments"]] == \
         ["rhip", "lwrist"]
+
+
+# ── the rope (Stage 4c; the golden fixture and the project) ──────────────
+
+import numpy as np                          # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def rope(tmp_path_factory):
+    work = tmp_path_factory.mktemp("rope")
+    out = work / "rope.trace.json"
+    log = tt.record_trace(tt.ROPE, out, work)
+    return json.loads(out.read_text()), log
+
+
+def rope_shape(rec, frame):
+    """A rope piece's control points on *frame*, from its "shape" runs
+    (between runs the shape holds; before the first, as it starts)."""
+    runs = rec["shape"]
+    cur = runs[0]["frames"][0]
+    for r in runs:
+        if r["f0"] <= frame:
+            cur = r["frames"][min(frame, r["f1"]) - r["f0"]]
+    return np.array(cur, float)
+
+
+def rope_whole(trace, frame, name="rope"):
+    a = rope_shape(tt.prop_object(trace, f"{name}.piece_a"), frame)
+    b = rope_shape(tt.prop_object(trace, f"{name}.piece_b"), frame)
+    return a, b
+
+
+def _exact_frames(trace, name, f0, f1):
+    """The frames from *f0* to *f1* on which ``tt.figure_frames`` has
+    figure *name* exactly: not inside one of its moves (a move outside
+    a timed block is traced by its two ends)."""
+    moves = [(p["f0"], p["f1"]) for p in trace["tracks"][name]
+             if p["kind"] != "sampled"]
+    return [f for f in range(f0, f1 + 1)
+            if not any(a < f < b for a, b in moves)]
+
+
+def _turns_round(point, shape):
+    d = np.asarray(shape, float) - np.asarray(point, float)
+    ang = np.unwrap(np.arctan2(d[:, 1], d[:, 0]))
+    return abs(ang[-1] - ang[0]) / (2 * np.pi)
+
+
+def test_rope_trace_carries_its_pieces_and_their_shapes(rope):
+    trace, _ = rope
+    st = tt.prop_state(trace, "rope")
+    assert st["machine"] == "rope" and "object" not in st
+    assert [s for _, s in st["states"]] == \
+        ["loose", "tied", "tightened", "snapped"]
+    ids = st["parts"]
+    for part in ("piece_a", "piece_b"):
+        rec = tt.prop_object(trace, f"rope.{part}")
+        assert rec["id"] == ids[part]
+        assert rec["part_of"] == "rope" and rec["part"] == part
+        assert rec["model"]["kind"] == "rope_piece"
+        assert rec["model"]["width"] == pytest.approx(0.024 * 1.4)
+        assert rec["holds"] == [], "a rope is traced point by point"
+        assert rec.get("geometry") is None
+        n = rec["model"]["points"]
+        for run in rec["shape"]:
+            assert run["kind"] == "sampled" and run["source"] == \
+                "prop_shape"
+            assert len(run["frames"]) == run["f1"] - run["f0"] + 1
+            assert all(len(f) == n for f in run["frames"])
+    # the composite itself is no prop object: nothing is drawn twice
+    assert not [p for p in trace["prop_objects"] if p["name"] == "rope"]
+
+
+def test_the_two_pieces_are_one_rope_until_it_snaps(rope):
+    trace, _ = rope
+    snap = _when(trace, "rope", to="snapped")
+    for f in range(0, snap + 1):
+        a, b = rope_whole(trace, f)
+        assert np.allclose(a[-1], b[0], atol=1e-4), f
+    a, b = rope_whole(trace, snap + 6)
+    assert np.linalg.norm(a[-1] - b[0]) > 0.2
+
+
+def test_every_frame_of_a_change_is_traced(rope):
+    """The tie, the tightening and the snap are traced frame by frame:
+    one sample on every frame of the step."""
+    trace, _ = rope
+    rec = tt.prop_object(trace, "rope.piece_a")
+    sampled = {r["f0"] + k for r in rec["shape"]
+               for k in range(len(r["frames"]))}
+    for ev in _events(trace, "rope"):
+        n = ev.get("frames") or 0
+        assert set(range(ev["f"] + 1, ev["f"] + n + 1)) <= sampled, ev
+
+
+def test_the_coil_rides_on_abrahams_shoulder(rope):
+    trace, _ = rope
+    joints = tt.figure_frames(trace, "abraham")
+    on = _when(trace, "rope", cause="prop_transition", frames=9) + 9
+    tie = _when(trace, "rope", to="tied")
+    moved = 0
+    for f in _exact_frames(trace, "abraham", on, tie):
+        whole = np.concatenate(rope_whole(trace, f))
+        sh = joints[f]["rshoulder"]
+        # the coil hangs from the shoulder: its top is there
+        assert abs(whole[:, 1].max() - sh[1]) < 0.03, f
+        assert abs(whole[:, 0].mean() - sh[0]) < 0.08, f
+        moved = max(moved, abs(sh[0] - joints[on]["rshoulder"][0]))
+    assert moved > 0.5, "Abraham walks with it"
+
+
+def test_the_knot_follows_the_wrists_it_is_tied_to(rope):
+    """From the end of the tie to the snap, on every frame, the rope
+    goes round both of Isaac's wrists, stays clear of them, and has its
+    break between them, under them; also while he moves his arms."""
+    trace, _ = rope
+    joints = tt.figure_frames(trace, "isaac")
+    tie = _when(trace, "rope", to="tied") + 18
+    snap = _when(trace, "rope", to="snapped")
+    spread = []
+    frames = _exact_frames(trace, "isaac", tie, snap)
+    assert len(frames) > 10
+    for f in frames:
+        a, b = rope_whole(trace, f)
+        whole = np.concatenate([a, b[1:]])
+        wl, wr = (np.array(joints[f][j]) for j in ("lwrist", "rwrist"))
+        for w in (wl, wr):
+            assert _turns_round(w, whole) > 2.5, f
+            assert np.linalg.norm(whole - w, axis=1).min() > 0.04, f
+        brk = b[0]
+        assert brk[1] < min(wl[1], wr[1]), f
+        assert min(wl[0], wr[0]) - 0.05 <= brk[0] <= \
+            max(wl[0], wr[0]) + 0.05, f
+        spread.append(np.linalg.norm(wl - wr))
+    assert max(spread) > 0.1, "the wrists moved while it was tied"
+
+
+def test_pulled_tight_the_loop_is_smaller(rope):
+    trace, _ = rope
+    f = _when(trace, "rope", to="tightened")
+    before = np.concatenate(rope_whole(trace, f))
+    after = np.concatenate(rope_whole(trace, f + 3))
+    assert np.ptp(after[:, 1]) < np.ptp(before[:, 1]) - 0.02
+    # and it is pulled tight over the step's frames, not at once
+    mid = np.concatenate(rope_whole(trace, f + 1))
+    assert np.ptp(after[:, 1]) < np.ptp(mid[:, 1]) < np.ptp(before[:, 1])
+
+
+def test_the_pieces_recoil_and_lie_where_they_fall(rope):
+    trace, _ = rope
+    ev = next(e for e in _events(trace, "rope") if e.get("to") == "snapped")
+    f, n = ev["f"], ev["frames"]
+    gaps = [np.linalg.norm(rope_whole(trace, f + k)[0][-1]
+                           - rope_whole(trace, f + k)[1][0])
+            for k in range(0, 4)]
+    assert gaps[0] < 1e-3 and gaps[1] < gaps[2] < gaps[3], \
+        "the broken ends spring apart"
+    a, b = rope_whole(trace, f + n)
+    for piece, part in ((a, "piece_a"), (b, "piece_b")):
+        att = ev["attached"][f"rope.{part}"]
+        assert piece[:, 1].min() == pytest.approx(att["y"], abs=1e-3)
+        assert piece[:, 0].mean() == pytest.approx(att["x"], abs=1e-3)
+        # lying along the ground, low
+        assert np.ptp(piece[:, 1]) < 0.06
+    # and they stay there to the end
+    end = round(trace["duration"] * 15)
+    for x, y in zip(rope_whole(trace, f + n), rope_whole(trace, end)):
+        assert np.allclose(x, y)
+    for part in ("piece_a", "piece_b"):
+        assert tt.prop_visible(tt.prop_object(trace, f"rope.{part}"), end)
+
+
+def test_rope_steps_run_in_timed_blocks(rope):
+    trace, _ = rope
+    tie = _block(trace, "s_tie")
+    item = _item(tie)
+    assert (item["f0"] - tie["f0"], item["f1"] - tie["f0"]) == (6, 24)
+    assert _when(trace, "rope", to="tied") == item["f0"]
+    snap = _block(trace, "s_snap")
+    item = _item(snap)
+    assert (item["f0"] - snap["f0"], item["f1"] - snap["f0"]) == (1, 13)
+    assert _when(trace, "rope", to="snapped") == item["f0"]
+    assert _beat(trace, "rope_snaps") == item["f0"]
+
+
+def test_rope_scene_replays_identically(rope, tmp_path):
+    trace, _ = rope
+    out = tmp_path / "again.trace.json"
+    tt.record_trace(tt.ROPE, out, tmp_path)
+    assert tt.compare_traces(trace, json.loads(out.read_text())) == []
+
+
+def test_the_rope_in_every_scene_is_where_the_ledger_says(played):
+    """At the end of every scene the trace has the rope in the state the
+    ledger records, its two pieces drawn exactly when the ledger says
+    they are in sight, and where it says: on Abraham's shoulder, round
+    Isaac's wrists, or lying at its place on the ground."""
+    _, traces, validated = played
+    for sid, trace in traces.items():
+        led = validated[sid]["props"]["rope"]
+        assert [p["name"] for p in trace["prop_objects"]].count(
+            "rope.piece_a") == 1, sid
+        st = tt.prop_state(trace, "rope")
+        end = round(trace["duration"] * 15)
+        assert tt.state_at(st["states"], end) == led["state"], sid
+        a, b = rope_whole(trace, end)
+        whole = np.concatenate([a, b[1:]])
+        hidden = bool((led.get("attached") or {}).get("hidden"))
+        for part in ("piece_a", "piece_b"):
+            rec = tt.prop_object(trace, f"rope.{part}")
+            assert tt.prop_visible(rec, end) == (not hidden), sid
+        att = led.get("attached")
+        if att is None:
+            for piece, part in ((a, "piece_a"), (b, "piece_b")):
+                p = led["parts"][part]["attached"]
+                assert piece[:, 1].min() == pytest.approx(p["y"], abs=1e-3)
+                assert piece[:, 0].mean() == pytest.approx(p["x"], abs=1e-3)
+        elif att.get("mode") == "around":
+            joints = tt.figure_frames(trace, att["to"])
+            for j in att["joints"]:
+                assert _turns_round(joints[end][j], whole) > 2.5, sid
+        elif att.get("kind") == "character":
+            joints = tt.figure_frames(trace, att["to"])
+            top = joints[end][att["joint"]]
+            assert abs(whole[:, 1].max() - top[1]) < 0.03, sid
+        else:
+            assert whole[:, 1].min() == pytest.approx(att["y"], abs=1e-3)

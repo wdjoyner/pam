@@ -58,6 +58,13 @@ FIXTURES = (
     # line of dialogue, and let trail as he runs; three of the changes
     # are steps of timed parallel blocks.
     "abe-isaac_scroll-revision.json",
+    # Milestone 4, Stage 4c: the rope, a deformable attachment.  A coil
+    # slung over Abraham's shoulder and carried, wound round Isaac's
+    # wrists under a line of dialogue (a step of a timed block), pulled
+    # tight, following the wrists as they move, and snapped by Isaac's
+    # flex in a timed block with two camera cuts: two pieces that
+    # recoil and lie on either side of the altar.
+    "abe-isaac_rope-snap.json",
 )
 
 # Fixtures written before the timeline existed.  They must keep tracing
@@ -68,6 +75,7 @@ OVERLAP = FIXTURES[4]
 SCENE2 = FIXTURES[5]
 KNIFE = FIXTURES[6]
 SCROLL = FIXTURES[7]
+ROPE = FIXTURES[8]
 
 # The six-scene project whose prop continuity the ledger tests walk
 # (Milestone 4): scenes and a sidecar with a "continuity" block.

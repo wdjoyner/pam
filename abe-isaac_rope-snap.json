@@ -1,0 +1,238 @@
+[
+ {
+  "action": "set_background",
+  "color": "#a9c8e6"
+ },
+ {
+  "action": "cast",
+  "characters": {
+   "isaac": {
+    "figure_type": "human",
+    "build": "broad",
+    "gender": "male",
+    "pose": "standing_front",
+    "scale": {
+     "sy": 0.8,
+     "sx": 0.92,
+     "anchor": "lankle"
+    },
+    "offset": [
+     1.0,
+     0,
+     0
+    ],
+    "torso_color": "#b3261e",
+    "shoe_color": "#5a3b22",
+    "style": {
+     "head_label": "Isaac",
+     "edge_color": "#b07d48",
+     "edge_width": 4.0,
+     "node_color": "#a67c52",
+     "node_stroke": "#e0bc94",
+     "head_color": "#c69c6d",
+     "head_stroke": "#5a3b22",
+     "highlight_color": "#e0bc94"
+    }
+   },
+   "abraham": {
+    "figure_type": "human",
+    "build": "narrow",
+    "gender": "male",
+    "pose": "standing_side",
+    "scale": {
+     "sy": 0.48,
+     "sx": 0.48,
+     "anchor": "lankle"
+    },
+    "offset": [
+     -1.2,
+     0,
+     0
+    ],
+    "torso_color": "#3d5a80",
+    "shoe_color": "#5a3b22",
+    "style": {
+     "head_label": "Abe",
+     "edge_color": "#b07d48",
+     "edge_width": 4.0,
+     "node_color": "#a67c52",
+     "node_stroke": "#e0bc94",
+     "head_color": "#c69c6d",
+     "head_stroke": "#5a3b22",
+     "highlight_color": "#e0bc94"
+    }
+   }
+  }
+ },
+ {
+  "action": "props",
+  "rt": 0.2,
+  "items": {
+   "altar": {
+    "type": "altar",
+    "x": 1.6,
+    "y": -2.6
+   },
+   "rope": {
+    "type": "rope",
+    "attrs": {
+     "scale": 1.4
+    },
+    "attached": {
+     "to": null,
+     "x": -2.6,
+     "y": -2.6
+    }
+   }
+  }
+ },
+ {
+  "action": "fade_in",
+  "who": "isaac",
+  "rt": 0.2
+ },
+ {
+  "action": "fade_in",
+  "who": "abraham",
+  "rt": 0.2
+ },
+ {
+  "action": "prop_transition",
+  "prop": "rope",
+  "frames": 9,
+  "beat": "slings_rope",
+  "attached": {
+   "to": "abraham",
+   "joint": "rshoulder",
+   "mode": "on"
+  }
+ },
+ {
+  "action": "walk_to",
+  "who": "abraham",
+  "x": -0.2
+ },
+ {
+  "action": "parallel",
+  "id": "s_tie",
+  "frames": 30,
+  "do": [
+   {
+    "action": "morph",
+    "who": "isaac",
+    "pose": "reach_forward",
+    "frames": 6,
+    "beat": "holds_out_wrists"
+   },
+   {
+    "action": "prop_transition",
+    "prop": "rope",
+    "to": "tied",
+    "at": 6,
+    "frames": 18,
+    "beat": "winds_rope",
+    "attached": {
+     "to": "isaac",
+     "joints": [
+      "lwrist",
+      "rwrist"
+     ],
+     "mode": "around"
+    }
+   },
+   {
+    "action": "say",
+    "who": "isaac",
+    "text": "Looser.",
+    "at": 9,
+    "frames": 15,
+    "frames_in": 3,
+    "frames_out": 3
+   }
+  ]
+ },
+ {
+  "action": "prop_transition",
+  "prop": "rope",
+  "to": "tightened",
+  "frames": 3,
+  "beat": "yanks_knot"
+ },
+ {
+  "action": "wait",
+  "frames": 9
+ },
+ {
+  "action": "morph",
+  "who": "isaac",
+  "pose": "standing_side",
+  "frames": 9
+ },
+ {
+  "action": "morph",
+  "who": "isaac",
+  "pose": "reach_forward",
+  "frames": 9
+ },
+ {
+  "action": "parallel",
+  "id": "s_snap",
+  "frames": 24,
+  "do": [
+   {
+    "action": "morph",
+    "who": "isaac",
+    "pose": "standing_front",
+    "frames": 8,
+    "beat": "flexes"
+   },
+   {
+    "action": "prop_transition",
+    "prop": "rope",
+    "to": "snapped",
+    "at": 1,
+    "frames": 12,
+    "rate": "rush_into",
+    "beat": "rope_snaps",
+    "parts": {
+     "piece_a": {
+      "attached": {
+       "to": null,
+       "x": 0.25,
+       "y": -2.6
+      }
+     },
+     "piece_b": {
+      "attached": {
+       "to": null,
+       "x": 2.95,
+       "y": -2.6
+      }
+     }
+    }
+   },
+   {
+    "_subscene_marker": "s_snap_medium",
+    "at": 1,
+    "_shot_meta": {
+     "framing": "medium",
+     "subject": "isaac",
+     "move": "static"
+    }
+   },
+   {
+    "_subscene_marker": "s_snap_wide",
+    "at": 15,
+    "_shot_meta": {
+     "framing": "wide",
+     "subject": "ensemble",
+     "move": "static"
+    }
+   }
+  ]
+ },
+ {
+  "action": "wait",
+  "frames": 6
+ }
+]

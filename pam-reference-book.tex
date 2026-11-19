@@ -924,7 +924,11 @@ Stage 4a}: stateful props (\texttt{pam/prop\_states.py}) and the
 sidecar; \texttt{joint\_to\_prop} in Blender. \textbf{Stage 4b}: the
 \texttt{scroll}, a text-bearing prop whose text is written, crossed
 out and replaced independently of its state, frame by frame in the
-trace and in Blender; the \texttt{quill}. All opt-in. See
+trace and in Blender; the \texttt{quill}. \textbf{Stage 4c}: the
+\texttt{rope}, a deformable prop whose shape follows what it is
+attached to on every frame and which snaps into two pieces, traced as
+control points and rebuilt in Blender as curves; attachments
+\texttt{around} several \texttt{joints}. All opt-in. See
 \S14. \\
 0.9.23 & Backburner items 10--11, 18, and item-6 Option C.
 \textbf{2.5D depth system} (items 10--11): optional
@@ -4658,8 +4662,9 @@ halves up, and never to less than one frame (0.3 s is 5 frames).
 \item
   \texttt{prop\_transition} --- a prop changes state on that frame;
   with \texttt{frames} its move to a new attachment, a number on its
-  display that climbs, or text written on a scroll or crossed out,
-  takes that long (\S14.12, \S14.13). It too makes the block a timed
+  display that climbs, text written on a scroll or crossed out, or a
+  rope changing shape, takes that long (\S14.12--\S14.14). It too
+  makes the block a timed
   one.
 \item
   a camera marker --- see \S14.6.
@@ -4978,7 +4983,9 @@ attachment to something that does not exist at that step, a part moved
 by itself while its prop is in one piece, two transitions that change
 one prop on the same frames of a timed block, and, on a scroll, text
 written while it is not \texttt{edited} and a phrase it does not say,
-or says more than once (\S14.13).
+or says more than once (\S14.13), and a rope tied while it is not
+\texttt{around} something, or tied again after it has snapped
+(\S14.14).
 \texttt{--project P} validates every scene of a project in playing
 order against the continuity ledger, and \texttt{--no-ledger} reads the
 ledger without writing to it.
@@ -5157,7 +5164,8 @@ attachment. The module is \texttt{pam/prop\_states.py}.
 A prop is stateful when its item has any of the keys \texttt{state},
 \texttt{attached}, \texttt{parts}, \texttt{display} or
 \texttt{states}; when its type is composite (\texttt{knife},
-\texttt{composite\_prop}) or bears text (\texttt{scroll}, \S14.13);
+\texttt{composite\_prop}, \texttt{rope}) or bears text
+(\texttt{scroll}, \S14.13);
 when a \texttt{prop\_transition} names it;
 or when the continuity ledger carries it. Every other prop is built,
 played and traced as before.
@@ -5193,6 +5201,10 @@ starts in, and which state may follow which.
 \item
   \texttt{scroll} --- \texttt{rolled}, \texttt{unrolled},
   \texttt{edited}, \texttt{trailing}; bears text (\S14.13).
+\item
+  \texttt{rope} --- \texttt{loose}, \texttt{tied},
+  \texttt{tightened}, \texttt{snapped}; deformable, with the parts
+  \texttt{piece\_a} and \texttt{piece\_b} (\S14.14).
 \item
   \texttt{pocket\_door}, \texttt{elevator} --- \texttt{closed},
   \texttt{open}.
@@ -5254,9 +5266,9 @@ these at once.
 \item
   \texttt{text} --- a scroll: changes to what it says (\S14.13).
 \item
-  \texttt{frames} --- how long the move, a number that climbs, and
-  writing or crossing out take (default 0: at once). The state changes
-  on the first frame.
+  \texttt{frames} --- how long the move, a number that climbs,
+  writing or crossing out, and a rope's change of shape take (default
+  0: at once). The state changes on the first frame.
 \item
   \texttt{rate} --- easing of the move: \texttt{smooth} (default),
   \texttt{linear}, \texttt{rush\_into} (a fall), \texttt{rush\_from}.
@@ -5279,6 +5291,10 @@ these at once.
   \texttt{joint} --- on a character: the joint the prop stays on
   (default \texttt{rwrist}).
 \item
+  \texttt{joints} --- on a character, instead of \texttt{joint}:
+  several joints. A rope \texttt{around} them goes round all of them;
+  any other prop stays on their middle (\S14.14).
+\item
   \texttt{point} --- on a prop: \texttt{center} (default),
   \texttt{top}, \texttt{bottom}, \texttt{left}, \texttt{right}, or
   \texttt{{[}dx,\ dy{]}} from its center.
@@ -5298,7 +5314,8 @@ these at once.
 \item
   \texttt{mode} --- \texttt{held} (default on a character),
   \texttt{on} (default on a prop), \texttt{in}, \texttt{embedded},
-  \texttt{free} (default at rest).
+  \texttt{free} (default at rest), \texttt{around} (wound round the
+  joints or a prop: a rope; not at rest).
 \item
   \texttt{hidden} --- \texttt{true}: out of sight. The prop is not
   drawn, and is still there.
@@ -5398,8 +5415,9 @@ write its entry. A scene the block does not list has no ledger.
 The first command validates every scene in order, each opening from the
 entry the one before has just written, without rendering.
 \texttt{projects/abe-isaac} holds six scenes that take the knife, the
-phone and the scroll through \emph{Abraham and Isaac, Revisited}, and
-\texttt{abe-isaac\_knife-break.json} is the Scene 2 break by itself.
+phone, the scroll and the rope through \emph{Abraham and Isaac,
+Revisited}, and \texttt{abe-isaac\_knife-break.json} is the Scene 2
+break by itself.
 
 \textbf{The trace and Blender.} A scene with stateful props is traced
 as version 5. \texttt{"prop\_states"} names each such prop, the prop
@@ -5554,6 +5572,100 @@ A \texttt{quill} is a plain prop, to write with.
 expected state, text and location at the end of every scene, without
 rendering. \texttt{abe-isaac\_scroll-revision.json} is the scroll's
 whole story in one scene, with a golden trace.
+
+\subsection{14.14 The rope: a deformable attachment}\label{rope}\index{rope@\texttt{rope}}\index{around@\texttt{around}}\index{joints@\texttt{joints}}\index{prop\_transition@\texttt{prop\_transition}!rope}
+
+Stage 4c of Milestone 4, and the last of it. A \texttt{rope} is a curve
+whose shape is worked out on every frame from what it is attached to.
+It is also a composite prop of two pieces, \texttt{rope.piece\_a} and
+\texttt{rope.piece\_b}, joined end to end, which are two props from
+the start, like the knife's handle and blade: after the rope snaps each
+piece keeps its own identity, and nothing is ever drawn twice.
+
+\begin{verbatim}
+{"action": "props", "items": {
+  "rope": {"type": "rope", "attrs": {"scale": 1.4},
+           "attached": {"to": "abraham", "joint": "rshoulder",
+                        "mode": "on"}}}}
+{"action": "prop_transition", "prop": "rope", "to": "tied",
+ "frames": 18,
+ "attached": {"to": "isaac", "joints": ["lwrist", "rwrist"],
+              "mode": "around"}}
+{"action": "prop_transition", "prop": "rope", "to": "tightened",
+ "frames": 3}
+{"action": "prop_transition", "prop": "rope", "to": "snapped",
+ "frames": 12, "rate": "rush_into",
+ "parts": {
+   "piece_a": {"attached": {"to": null, "x": 0.25, "y": -2.6}},
+   "piece_b": {"attached": {"to": null, "x": 2.95, "y": -2.6}}}}
+\end{verbatim}
+
+\textbf{Its states and its shape.}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{loose} --- a coil: hanging from the joint of a character who
+  carries it (over a shoulder, from a hand), lying on a prop, or lying
+  on the ground at rest with its bottom at \texttt{x}, \texttt{y}.
+\item
+  \texttt{tied} --- wound three times round what it is
+  \texttt{around} (a character's \texttt{joints}, or a prop), clear of
+  the joints as they are drawn, with a knot on top and its two ends
+  sticking out of the knot. It follows the joints on every frame: when
+  the wrists move, the loop moves and stretches with them.
+\item
+  \texttt{tightened} --- the same, pulled tight.
+\item
+  \texttt{snapped} --- two pieces, each on an attachment of its own:
+  lying where it fell (at rest, or on a prop; its lowest point on
+  \texttt{y}, its middle on \texttt{x}, turned by \texttt{angle}),
+  hanging from a hand, or still round something.
+\end{itemize}
+
+\texttt{tied} and \texttt{tightened} need the rope's attachment mode
+\texttt{around}, and \texttt{loose} needs any other. A rope goes from
+\texttt{loose} to \texttt{tied} to \texttt{tightened}, from
+\texttt{tightened} back to \texttt{tied} or either back to
+\texttt{loose}, and from any of them to \texttt{snapped}; nothing
+follows \texttt{snapped}. The rope breaks in the middle of its length,
+which is under the loop, between the wrists.
+
+\textbf{On the frame clock.} With \texttt{frames}, a step that moves
+the rope or changes its state turns the shape it had into the new one
+over those frames: the coil leaves the shoulder and winds round the
+wrists, the knot is pulled tight. A snap throws each broken end back
+along its piece, away from the break, in the first half of the step;
+the pieces then fall (\texttt{"rate": "rush\_into"}) and lie where
+their attachments put them. A piece the step does not mention stays
+where the rope was. Rope transitions are steps like any other: at the
+top level, in a \texttt{sequence}, or as steps of a timed
+\texttt{parallel} block, under dialogue and camera cuts.
+\texttt{attrs.scale} makes a rope that many times the usual size and
+thickness; the loop fits round the joints it goes round by itself.
+
+\textbf{In the ledger.} The rope's state, its pieces and their
+attachments go into the continuity ledger, like the knife's; a rope
+tied round two wrists is recorded with both joints. Its shape is not
+recorded: it follows from the state and the attachments.
+
+\textbf{In the trace and in Blender.} Each piece's prop object has
+\texttt{"model"} (\texttt{rope\_piece}: its width and number of
+control points) and \texttt{"shape"}: its control points frame by
+frame, as sampled pieces like those of a constrained limb, one run for
+each stretch of frames on which the shape changed. A piece is not
+held: its points already say where it is. \texttt{trace2blender.py}
+builds each piece as a curve object, a Bezier spline through the
+control points with smooth handles and a round bevel, and keys its
+points on every frame the trace has them; nothing is solved. New
+\texttt{pam.hooks} event: \texttt{prop\_shape}.
+
+\textbf{The completion test.} \texttt{test\_rope\_completion}, in
+\texttt{tests/test\_rope.py}, validates the six scenes of
+\texttt{projects/abe-isaac} in order and checks that the rope has its
+expected state, pieces and location at the end of every scene, without
+rendering. \texttt{abe-isaac\_rope-snap.json} is the rope's whole
+story in one scene, with a golden trace.
 
 \chapter{Character Properties
 Reference}\label{character-properties-reference}
@@ -14533,9 +14645,10 @@ Added for the Blender roadmap (\S14.12): \texttt{knife} (a composite of
 \texttt{knife\_handle} and \texttt{knife\_blade}),
 \texttt{composite\_prop}, \texttt{satchel} (in
 \texttt{props\_carried.py}), and \texttt{rock}, \texttt{altar},
-\texttt{bowl} (in \texttt{props\_environment.py}); and (\S14.13)
-\texttt{scroll}, a text-bearing prop, and \texttt{quill} (in
-\texttt{props\_carried.py}). The states of every stateful prop, old
+\texttt{bowl} (in \texttt{props\_environment.py}); (\S14.13)
+\texttt{scroll}, a text-bearing prop, and \texttt{quill}; and
+(\S14.14) \texttt{rope}, a deformable prop, with its pieces
+\texttt{rope\_piece} (in \texttt{props\_carried.py}). The states of every stateful prop, old
 and new, are kept by \texttt{pam/prop\_states.py}.
 
 \subsection{\texorpdfstring{6.1 Furniture

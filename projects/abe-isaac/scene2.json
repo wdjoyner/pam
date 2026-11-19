@@ -15,6 +15,16 @@
   }
  },
  {
+  "action": "prop_transition",
+  "prop": "rope",
+  "beat": "rope_by_entrance",
+  "attached": {
+   "to": null,
+   "x": -2.6,
+   "y": -2.6
+  }
+ },
+ {
   "action": "fade_in",
   "who": "isaac",
   "rt": 0.2
@@ -221,6 +231,17 @@
     "beat": "hold"
    }
   ]
+ },
+ {
+  "action": "prop_transition",
+  "prop": "rope",
+  "frames": 9,
+  "beat": "slings_rope",
+  "attached": {
+   "to": "abraham",
+   "joint": "rshoulder",
+   "mode": "on"
+  }
  },
  {
   "action": "prop_transition",

@@ -178,8 +178,9 @@ Examples include:
 - `silver_hair`
 - `knife` (a handle and a blade that come apart), `satchel`, `bowl`, `rock`, `altar`
 - `scroll` (rolled, unrolled, written on, or trailing like a banner, with text that is written, crossed out and replaced), `quill`
+- `rope` (a coil, wound round two wrists and pulled tight, or snapped into two pieces that recoil and lie where they fall)
 
-Several props are **stateful**: doors and avatar pods open and close, the Governor changes color, a knife breaks, a phone goes live, a scroll is unrolled and revised. `pam/prop_states.py` keeps the state of all of them, and the `prop_transition` action changes it.
+Several props are **stateful**: doors and avatar pods open and close, the Governor changes color, a knife breaks, a phone goes live, a scroll is unrolled and revised, a rope is tied and snaps. `pam/prop_states.py` keeps the state of all of them, and the `prop_transition` action changes it.
 
 ### Fountain+ conversion
 
@@ -977,7 +978,7 @@ Always provide `type`. In some older/fallback paths, a missing type may default 
 
 ### Stateful props
 
-Some props have a state. Sliding doors, the elevator and the avatar pod are open or closed; the Governor is gold, amber or dark; a `knife` is intact or broken; a `phone` is on standby, recording or live; a `scroll` is rolled, unrolled, edited or trailing, and what it says changes separately. One action changes the state of any of them:
+Some props have a state. Sliding doors, the elevator and the avatar pod are open or closed; the Governor is gold, amber or dark; a `knife` is intact or broken; a `phone` is on standby, recording or live; a `scroll` is rolled, unrolled, edited or trailing, and what it says changes separately; a `rope` is loose, tied, tightened or snapped, and its shape follows what it is attached to. One action changes the state of any of them:
 
 ```json
 { "action": "prop_transition", "prop": "lift", "to": "open" }
@@ -993,6 +994,12 @@ Some props have a state. Sliding doors, the elevator and the avatar pod are open
 ```json
 { "action": "prop_transition", "prop": "scroll", "to": "edited",
   "text": { "replace": "THE KNIFE?", "with": "HIS SON." }, "frames": 24 }
+```
+
+```json
+{ "action": "prop_transition", "prop": "rope", "to": "tied",
+  "attached": { "to": "isaac", "joints": ["lwrist", "rwrist"], "mode": "around" },
+  "frames": 18 }
 ```
 
 The older actions still work and go through the same machine:
@@ -1398,7 +1405,7 @@ Tested with Blender 4.2, 4.4, and 5.2; written to also work with 3.x.
 - **Skin and clothing.** Give a cast entry a `"skin"` color (or `"skin_color"` in its `"style"`) and the head, neck, arms, and legs take that color while the chest, shoulders, and hips keep the figure's color as clothing. PAM ignores the key, so the Manim render is unchanged. `--skin nona=#7cc45a,sidel=#3f8f4a` does the same from the command line.
 - **Shoes:** a simple ellipsoid under each foot, pointing at the camera in front views and along the facing direction in side views (`--shoes HEX` for the color, `--no-shoes` to leave them off).
 - **Speech bubbles,** with PAM's colors, tails, phone/off-screen style, and timing, following walk-and-talk speakers. In close-ups, PAM's bubbles grow on screen with the zoom and can run past the edge of the frame (in the Manim video too); in Blender each bubble keeps the screen size it has in the opening wide shot (down to half size, shrinking toward its tail so it still points at the speaker) and is kept inside the camera frame while it is shown. `--bubbles-world` keeps PAM's world-space size instead.
-- **Props and scene objects.** Desks, tables, consoles (with their monitor), doors, chairs, cellphones, the knife's handle and blade, the scroll (with its text), and the Governor dodecahedron become simple 3D models; every other prop type is extruded from its 2D Manim outline, so nothing disappears. Floor-standing props are set on the floor, doors sit in the back wall, and props appear, move, and disappear when they do in Manim (`props`, `spawn_prop`, `remove_prop`, `place_on`, `reparent_prop`, ...).
+- **Props and scene objects.** Desks, tables, consoles (with their monitor), doors, chairs, cellphones, the knife's handle and blade, the scroll (with its text), the pieces of a rope (curves that change shape on every frame), and the Governor dodecahedron become simple 3D models; every other prop type is extruded from its 2D Manim outline, so nothing disappears. Floor-standing props are set on the floor, doors sit in the back wall, and props appear, move, and disappear when they do in Manim (`props`, `spawn_prop`, `remove_prop`, `place_on`, `reparent_prop`, ...).
 - **Held props follow the hands.** Between a figure's attach and release (`carry`, `pick_up`, `grab`, `hand_to`, ...) the prop rides on the holding wrist(s), so it moves with the Blender figure's smoothed walk. A prop placed on a table slides from the hand to the tabletop and rests there, tilted toward the camera if it is a phone. Hats and other `pam_follows` accessories ride on the head or torso.
 - **Faces, wardrobe, labels, and on-screen text.** Each face (`attach_face`) becomes a 3D head: an ellipsoid in the face's skin color, sized to its head shape, with the eyes, brows, mouth, and hair wrapped onto its front and the ears at its sides; the neck and bib lie flat on the chest (`--flat-faces` keeps the whole face flat). Torso icons and name tags (`attach_torso_icon`, `attach_name_tag`), dog harnesses, and head labels are flat decals traced from their Manim outlines, riding on the torso, head, or spine; the head ball hides while a face replaces it. Gloves become small 3D mitts on the wrists, `attach_shoes` sets the 3D shoes' color and length, and clothed limbs (`clothed_limbs` in a cast style) become tapered sleeves and trouser legs in the band colors, with `torso_color` on the chest. On-screen text, captions, and title text appear where they sit in the Manim frame, even with `--camera wide`, without their dark backing panel (`--card-bg` brings it back, fully or partly see-through).
 - **The Governor** spins slowly (when its `spawn_prop` asks for `"animate": "spin"`, the default), glows gold, flares word by word while it speaks, and dims to amber and slows down in its low-power state (`prop_color` with `#d47b00`).
@@ -1438,7 +1445,7 @@ Options go after the `.blend` name.
 
 ### How it works: `pam.hooks`
 
-`pam/hooks.py` lets an outside script listen to PAM while a screenplay plays. PAM emits events for motion segments (from `morph_to`, `set_pose`, `turn`, and `_pose_anims`), figure creation, fade-ins and fade-outs, action begin/end, prop attach/release, speech bubbles, and, for stateful props, `prop_declared`, `prop_state_changed`, `prop_attached`, `prop_display` and `prop_text`:
+`pam/hooks.py` lets an outside script listen to PAM while a screenplay plays. PAM emits events for motion segments (from `morph_to`, `set_pose`, `turn`, and `_pose_anims`), figure creation, fade-ins and fade-outs, action begin/end, prop attach/release, speech bubbles, and, for stateful props, `prop_declared`, `prop_state_changed`, `prop_attached`, `prop_display`, `prop_text` and `prop_shape`:
 
 ```python
 from pam import hooks
@@ -1524,7 +1531,7 @@ pam/
 ├── props_core.py            shared prop infrastructure
 ├── props_furniture.py       chair, desk, pocket door, elevator, avatar pod, TV monitor
 ├── props_carried.py         hat, briefcase, folder, phone, backpack, laptop, bug,
-│                            knife, satchel, scroll, quill
+│                            knife, satchel, scroll, quill, rope
 ├── props_flora.py           flowers and floral arrangements
 ├── props_environment.py     buildings, sun, moon, dodecahedron, backdrop, panels
 ├── props_accessories.py     accessory builders such as silver hair
@@ -1727,7 +1734,7 @@ The modules are `pam/timeline.py`, `pam/constraints.py`, and `pam/choreography.p
 
 ### Stateful props and the continuity ledger
 
-Milestone 4 (Stages 4a and 4b) of the Blender roadmap. A prop can have a state, be made of parts that keep their own identity, have a display, bear text, and be kept on an attachment. All of it is opt-in: a prop is stateful when its item says so or a `prop_transition` names it.
+Milestone 4 (Stages 4a, 4b and 4c) of the Blender roadmap. A prop can have a state, be made of parts that keep their own identity, have a display, bear text, change shape on every frame, and be kept on an attachment. All of it is opt-in: a prop is stateful when its item says so or a `prop_transition` names it.
 
 ```json
 [
@@ -1756,7 +1763,7 @@ The full scene is `abe-isaac_knife-break.json`.
 |---|---|
 | `prop_transition` | Puts `prop` in the state `to`, moves it (or, with `parts`, its parts) to a new `attached`, and changes its `display` or (a scroll) its `text`; any one of these or all. With `frames` the move, a number that climbs, and writing take that long, on the frame clock, also as a step of a timed `parallel` block. `rate` eases the move (`smooth`, `linear`, `rush_into`, `rush_from`). |
 | `"prop": "knife.blade"` | Names one part of a composite prop, in `prop_transition`, in a `constrain` step, as an attachment's `to`, or as a camera subject. |
-| `attached` (in a prop item, in `prop_transition`, in `parts`) | Where a prop is kept on every frame: `to` (a character, a prop, or `null`), `joint`, `point`, `by`, `offset`, `x`, `y`, `angle`, `mode` (`held`, `on`, `in`, `embedded`, `free`), `hidden`. |
+| `attached` (in a prop item, in `prop_transition`, in `parts`) | Where a prop is kept on every frame: `to` (a character, a prop, or `null`), `joint` or `joints` (Stage 4c: several joints of a character), `point`, `by`, `offset`, `x`, `y`, `angle`, `mode` (`held`, `on`, `in`, `embedded`, `free`, and from Stage 4c `around`), `hidden`. |
 | `state`, `display`, `parts` in a prop item | The state, display values and part attachments a stateful prop starts with. |
 | `states`, `initial_state`, `transitions` in a prop item | A state machine of the item's own. |
 | Prop types `knife`, `knife_handle`, `knife_blade`, `composite_prop` | The knife is a composite prop: states `intact`, `broken`, `blade_carried`, `blade_embedded`; parts `knife.handle` and `knife.blade`, two props from the start. `composite_prop` builds one from the `parts` its item lists. |
@@ -1766,14 +1773,17 @@ The full scene is `abe-isaac_knife-break.json`.
 | `text` in a `prop_transition` | One op or a list: `{"write": "..."}` (a new last line), `{"write": "...", "line": n}` (at the end of line `n`), `{"cross_out": "..."}`, `{"replace": "...", "with": "..."}`; `line` and `occurrence` say which, when a phrase is said more than once. With `frames` the letters appear one by one and the line through crossed-out words grows, on the frame clock, also as a step of a timed `parallel` block. |
 | `text` in a `scroll` item | What the scroll says before any revision: a list of lines. |
 | Prop type `quill` | A plain prop, to write with. |
+| Prop types `rope`, `rope_piece` (Stage 4c) | A deformable composite prop: states `loose`, `tied`, `tightened`, `snapped`; pieces `rope.piece_a` and `rope.piece_b`, joined end to end, two props from the start. Its shape is worked out on every frame from its attachment: a coil hanging from a shoulder or lying on the ground; a loop with a knot round what it is `around`, following the wrists as they move; after the snap, two pieces that recoil and lie where they fall. `tied` and `tightened` need mode `around`. `attrs.scale` sizes it. |
+| `"joints": ["lwrist", "rwrist"]` in an attachment (Stage 4c) | Several joints of a character: a rope `around` them goes round all of them; any other prop stays on their middle. |
+| `"mode": "around"` in an attachment (Stage 4c) | Wound round the joints, or round a prop. |
 | `continuity` block in the sidecar | The continuity ledger: `scenes` (playing order), `props` (what carries over, as before the first scene), and `ledger` (written by PAM). |
 | `pam-validate --project P`, `--no-ledger` | Validates every scene of a project in order, opening each from the entry the one before wrote; `--no-ledger` reads the ledger and writes nothing. |
 
 Doors, the elevator, the avatar pod's lid and the Governor already had states. They are machines of the same module now, bound to the flag and the methods they always had, so their old actions and `prop_transition` do the same thing through the same code.
 
-**The continuity ledger** is one JSON file per project, the same file as the cast-and-props sidecar (`pam_sidecar.json`). Its `continuity` block lists the scenes in order and the props whose state carries over. A listed scene opens with those props as the scene before left them; playing or validating it writes its closing entry (state, parts, attachments, display, text and its revisions). A scene may override the ledger explicitly, and `pam-validate` reports every override. `./pam-validate --project projects/abe-isaac` walks all six scenes of the example without rendering, and the roadmap's completion test for the knife (every component in its expected state and place in every scene, none lost, none twice) is `test_knife_completion` in `tests/test_prop_states.py`. The scroll's (its expected state, text and place at the end of every scene) is `test_scroll_completion` in `tests/test_scroll.py`.
+**The continuity ledger** is one JSON file per project, the same file as the cast-and-props sidecar (`pam_sidecar.json`). Its `continuity` block lists the scenes in order and the props whose state carries over. A listed scene opens with those props as the scene before left them; playing or validating it writes its closing entry (state, parts, attachments, display, text and its revisions). A scene may override the ledger explicitly, and `pam-validate` reports every override. `./pam-validate --project projects/abe-isaac` walks all six scenes of the example without rendering, and the roadmap's completion test for the knife (every component in its expected state and place in every scene, none lost, none twice) is `test_knife_completion` in `tests/test_prop_states.py`. The scroll's (its expected state, text and place at the end of every scene) is `test_scroll_completion` in `tests/test_scroll.py`, and the rope's (its expected state, pieces and place at the end of every scene) is `test_rope_completion` in `tests/test_rope.py`.
 
-In the trace (version 5), `"prop_states"` gives each stateful prop's identity (the prop objects of its parts), its states and its display frame by frame, and `"prop_events"` lists every `prop_state_changed`. `trace2blender.py` builds each part once from that, follows its attachments, and gives the phone its screens. A scroll's text is in the trace frame by frame (`"text"` in its `"prop_states"` record): every letter as it is written and every line through struck text as it grows. `trace2blender.py` builds the scroll's roll, sheet and ribbon, shows each in its state, and sets the text in the same columns, keyed on the same frames. `abe-isaac_scroll-revision.json` is the scroll by itself. A hand held on a prop (`joint_to_prop`) now holds in Blender too: where the builder puts the prop somewhere other than Manim did (set on the floor, riding on a hand), the hand's samples are moved with it and the elbow solved again by the same rules.
+In the trace (version 5), `"prop_states"` gives each stateful prop's identity (the prop objects of its parts), its states and its display frame by frame, and `"prop_events"` lists every `prop_state_changed`. `trace2blender.py` builds each part once from that, follows its attachments, and gives the phone its screens. A scroll's text is in the trace frame by frame (`"text"` in its `"prop_states"` record): every letter as it is written and every line through struck text as it grows. `trace2blender.py` builds the scroll's roll, sheet and ribbon, shows each in its state, and sets the text in the same columns, keyed on the same frames. `abe-isaac_scroll-revision.json` is the scroll by itself. A rope's pieces carry their shape in the trace frame by frame, as control points (`"shape"` on each piece's prop object: sampled pieces, as for constrained limbs), and `trace2blender.py` builds each piece as a curve object whose points are keyed on the same frames; `abe-isaac_rope-snap.json` is the rope by itself. A hand held on a prop (`joint_to_prop`) now holds in Blender too: where the builder puts the prop somewhere other than Manim did (set on the floor, riding on a hand), the hand's samples are moved with it and the elbow solved again by the same rules.
 
 The key-by-key reference is section 9 of `pam-player_manual.md` ("Stateful props"), and the first page of `pam/prop_states.py`.
 

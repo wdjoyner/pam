@@ -768,11 +768,12 @@ class _Validator:
                          f"not a known character or prop at this step"
                          f"{self._hint(to, 'any')}", index, act,
                          path.rstrip("."))
-            if att.get("kind") == "character" \
-                    and att.get("joint") not in self.joints:
-                self.add(ERROR, "invalid-joint",
-                         f"'{att.get('joint')}' is not a joint name",
-                         index, act, path.rstrip("."))
+            if att.get("kind") == "character":
+                for joint in att.get("joints") or [att.get("joint")]:
+                    if joint not in self.joints:
+                        self.add(ERROR, "invalid-joint",
+                                 f"'{joint}' is not a joint name",
+                                 index, act, path.rstrip("."))
         bound = (st.machine(ch.prop) or {}).get("bound")
         if bound and "state" in ch.changed and timed \
                 and not step.get("frames"):

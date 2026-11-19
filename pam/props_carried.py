@@ -3,7 +3,8 @@ PAM props_carried.py
 ~~~~~~~~~~~~~~~~~~~~
 Props carried or held by characters: hat, briefcase, folder, phone (all
 styles), audio_video_bug, backpack, laptop, knife (with its parts
-knife_handle and knife_blade), satchel, scroll, quill.
+knife_handle and knife_blade), satchel, scroll, quill, rope (with its
+pieces, rope_piece).
 
 version 0.9.8
 
@@ -28,6 +29,21 @@ Text-bearing props (Milestone 4, Stage 4b)
             attachment by the grip (``group.pam_anchor()``).  Its sizes
             (``SCROLL``) are the model trace2blender.py builds.
 ``quill``   a plain prop, to write with.
+
+Deformable props (Milestone 4, Stage 4c)
+----------------------------------------
+``rope``    a curve whose shape changes every frame: a coil hanging
+            from a shoulder or lying on the ground, a loop wound round
+            two wrists with a knot on top, and after it snaps two
+            pieces that recoil and lie where they fall.  It is a
+            composite prop of two pieces that are two props from the
+            start (``rope.piece_a``, ``rope.piece_b``), joined end to
+            end.  ``group.pam_set_shape(points)`` gives a rope or a
+            piece its shape; the shapes themselves (``rope_coil``,
+            ``rope_loop``, ``rope_lying``, ``rope_hanging``,
+            ``rope_recoil``) are plain functions of world positions.
+            Its states are in ``pam/prop_states.py``; its sizes
+            (``ROPE``) go into the trace as each piece's model.
 """
 
 from __future__ import annotations
@@ -941,6 +957,360 @@ def build_scroll(name: str, x=0.0, y=0.0, color=None, ink=None,
         attachments={"centre": a.copy(), "grip": a.copy(),
                      "surface": np.array([a[0], group.get_top()[1], 0])},
         parent=parent, attach=attach, attrs=attrs)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  ROPE  (deformable attachment: loose, tied, tightened, snapped)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#   loose: a coil            tied / tightened: wound round      snapped: two
+#   hanging from what        both wrists, with a knot on top    pieces, each
+#   carries it                 \  /                             lying where
+#      .-~~-.                  _(o)_                            it fell
+#     ( (  ) )               ( (ww) )                         ~~-~   ~-~~
+#      `-~~-'                 `-..-'
+#       |  |                     ^ the break: between the wrists
+#
+# A rope is a curve, and its shape is worked out on every frame from
+# what it is attached to (pam/prop_states.py moves it).  Its two pieces
+# are two props from the start, joined end to end: piece_a is the first
+# half of the curve and piece_b the second, and they share the point
+# where the rope breaks.  Each piece is drawn through its control
+# points; the tracer records the points frame by frame, and
+# trace2blender.py rebuilds each piece as a curve object.
+#
+# The functions below work in world coordinates and return arrays of
+# control points (rows [x, y]); they need no scene.  ROPE goes into the
+# trace as each piece's model.
+
+ROPE = dict(
+    points=17,                  # control points of each piece; the whole
+    #                             rope has 2 * points - 1
+    width=0.024,                # thickness
+    coil_rx=0.11, coil_ry=0.14,     # a coil: its loops,
+    coil_turns=3, coil_drift=0.035,  # how many, how far they spread,
+    coil_tail=0.10,                  # and its two loose ends
+    coil_lie=0.30,              # a coil at rest lies flattened to this
+    wrap=0.034, wrap_tight=0.010,   # a loop round what it is tied to:
+    wraps=3, wrap_spread=0.30,      # how far out past it, how many turns,
+    #                                 and how much the middle turn stands
+    #                                 out
+    knot=0.030, knot_tight=0.019,
+    tail=0.13,                  # the ends of the knot
+    rest_len=0.46,              # a piece at rest: how far along the
+    rest_wave=0.035,            # ground it lies, and how much it curls
+    hang=0.30,                  # a piece hanging from a hand
+    recoil=0.22,                # how far a broken end springs back
+    recoil_until=0.5,           # (fraction of the snap) before it falls
+)
+ROPE_COLORS = dict(rope="#c9a46a", shade="#6b4e2c")
+_DENSE = 480                    # samples of a shape before it is resampled
+# what does not grow with the rope's scale
+_ROPE_FIXED = ("points", "coil_turns", "coil_lie", "wraps", "wrap_spread",
+               "recoil_until")
+
+
+def rope_model(scale=1.0):
+    """ROPE for a rope *scale* times the usual size (its item's
+    ``attrs.scale``): every length and the thickness grow, the numbers
+    of points and turns do not."""
+    s = float(scale or 1.0)
+    return {k: (v if k in _ROPE_FIXED else round(v * s, 6))
+            for k, v in ROPE.items()}
+
+
+def _resample(dense, count):
+    """*count* points evenly spaced along the polyline *dense*."""
+    dense = np.asarray(dense, float)
+    seg = np.linalg.norm(np.diff(dense, axis=0), axis=1)
+    s = np.concatenate([[0.0], np.cumsum(seg)])
+    if s[-1] <= 1e-12:
+        return np.repeat(dense[:1], count, axis=0)
+    u = np.linspace(0.0, s[-1], count)
+    return np.stack([np.interp(u, s, dense[:, 0]),
+                     np.interp(u, s, dense[:, 1])], axis=1)
+
+
+def rope_count(m=ROPE):
+    """Control points of the whole rope."""
+    return 2 * int(m["points"]) - 1
+
+
+def rope_split(whole, m=ROPE):
+    """The two pieces of a whole rope's control points; they share the
+    middle point, where the rope breaks."""
+    n = int(m["points"])
+    whole = np.asarray(whole, float)
+    return whole[:n].copy(), whole[n - 1:].copy()
+
+
+def rope_join(a, b):
+    """The whole rope from its two pieces (the inverse of rope_split)."""
+    return np.concatenate([np.asarray(a, float), np.asarray(b, float)[1:]])
+
+
+def rope_coil(top=None, bottom=None, m=ROPE, count=None):
+    """A coil of rope: hanging from *top* (a shoulder, a hand, a peg),
+    or lying on the ground with its bottom at *bottom*.  Its loops start
+    and end at the bottom, and its two ends hang down (lying: lie along
+    the ground)."""
+    count = count or rope_count(m)
+    lying = top is None
+    f = m["coil_lie"] if lying else 1.0
+    rx, ry = m["coil_rx"], m["coil_ry"] * f
+    if lying:
+        b = np.asarray(bottom if bottom is not None else (0.0, 0.0), float)
+        c = b + np.array([0.0, ry])
+    else:
+        c = np.asarray(top, float) - np.array([0.0, ry])
+    v = np.linspace(0.0, 1.0, _DENSE)
+    th = -np.pi / 2 + 2 * np.pi * m["coil_turns"] * v
+    cx = c[0] + m["coil_drift"] * (2 * v - 1)
+    loops = np.stack([cx + rx * np.cos(th), c[1] + ry * np.sin(th)], axis=1)
+    t = m["coil_tail"]
+    down = np.array([0.0, -1.0]) if not lying else np.array([-1.0, 0.0])
+    tail_a = loops[0] + np.array([-0.015, 0.0]) + t * down
+    end_dir = down if not lying else -down
+    tail_b = loops[-1] + np.array([0.015, 0.0]) + t * end_dir
+    dense = np.concatenate([np.linspace(tail_a, loops[0], 24)[:-1], loops,
+                            np.linspace(loops[-1], tail_b, 24)[1:]])
+    return _resample(dense, count)
+
+
+def rope_loop(points, tight=False, radius=0.0, m=ROPE, count=None):
+    """A rope wound round *points* (two wrists, one wrist, a post): an
+    elongated loop round all of them, ``wraps`` turns, with a knot on
+    top and its two ends sticking out of the knot.  *radius* is how big
+    what it goes round is at each point (a wrist's joint, a post); the
+    loop stands ``wrap`` past it (``wrap_tight`` when tight).  The
+    middle of the curve, where the rope breaks, is under the middle of
+    the loop."""
+    count = count or rope_count(m)
+    P = np.asarray(points, float).reshape(-1, 2)
+    c = P.mean(axis=0)
+    u = np.array([1.0, 0.0])
+    half = 0.0
+    if len(P) > 1:
+        i, j = max(((i, j) for i in range(len(P)) for j in range(len(P))),
+                   key=lambda ij: np.linalg.norm(P[ij[0]] - P[ij[1]]))
+        d = P[j] - P[i]
+        L = float(np.linalg.norm(d))
+        if L > 1e-6:
+            u = d / L
+            if u[0] < 0:
+                u = -u
+            half = L / 2
+    nrm = np.array([-u[1], u[0]])
+    if nrm[1] < 0:
+        nrm = -nrm
+    r = float(radius or 0.0) + (m["wrap_tight"] if tight else m["wrap"]) \
+        + m["width"] / 2
+    k = m["knot_tight"] if tight else m["knot"]
+    a, b = half + r, r
+    spread = m["wrap_spread"] * (0.5 if tight else 1.0)
+    top = c + nrm * b                       # where the knot sits
+    knot_c = top + nrm * k
+
+    def frame(x, y):
+        return c + np.outer(x, u) + np.outer(y, nrm)
+
+    v = np.linspace(0.0, 1.0, _DENSE)
+    th = np.pi / 2 + 2 * np.pi * m["wraps"] * v
+    grow = 1.0 + spread * np.sin(np.pi * v) * 0.5
+    wraps = frame(a * grow * np.cos(th), b * grow * np.sin(th))
+    phi = np.linspace(-np.pi / 2, 3 * np.pi / 2, 60)
+    knot = knot_c + np.outer(k * np.cos(phi), u) + np.outer(k * np.sin(phi),
+                                                            nrm)
+    t = m["tail"]
+    end_a = knot_c + t * (-0.75 * u + 0.66 * nrm)
+    end_b = knot_c + t * (0.75 * u + 0.66 * nrm)
+    dense = np.concatenate([
+        np.linspace(end_a, top, 20)[:-1], knot[:-1], wraps[:-1], knot[:-1],
+        np.linspace(top, end_b, 20)])
+    return _resample(dense, count)
+
+
+def rope_lying(bottom, angle=0.0, flip=False, m=ROPE, count=None):
+    """A piece of rope lying where it fell: along the ground (turned by
+    *angle* degrees), curling a little, its lowest points on *bottom*'s
+    height and centered on it.  *flip* runs it from right to left."""
+    count = count or int(m["points"])
+    b = np.asarray(bottom, float)
+    t = np.linspace(-0.5, 0.5, count)
+    if flip:
+        t = -t
+    x = t * m["rest_len"]
+    y = m["rest_wave"] * 0.5 * (1.0 - np.cos(2 * np.pi * 1.5 * (t + 0.5)))
+    a = np.radians(float(angle or 0.0))
+    ca, sa = np.cos(a), np.sin(a)
+    return np.stack([b[0] + x * ca - y * sa, b[1] + x * sa + y * ca], axis=1)
+
+
+def rope_hanging(top, from_end=False, m=ROPE, count=None):
+    """A piece of rope hanging from *top* (a hand), by its first point,
+    or by its last one when *from_end*."""
+    count = count or int(m["points"])
+    t = np.linspace(0.0, 1.0, count)
+    top = np.asarray(top, float)
+    pts = np.stack([top[0] + 0.035 * np.sin(np.pi * t),
+                    top[1] - m["hang"] * t], axis=1)
+    return pts[::-1].copy() if from_end else pts
+
+
+def rope_recoil(shape0, broken, u, m=ROPE):
+    """How far each point of a piece that has just snapped is thrown,
+    at fraction *u* of the snap: its broken end (index *broken*, 0 or
+    -1) springs back along the piece, away from where it broke, and
+    the throw dies out before the piece lies down."""
+    s0 = np.asarray(shape0, float)
+    n = len(s0)
+    if n < 2:
+        return np.zeros_like(s0)
+    end = s0[broken]
+    away = s0.mean(axis=0) - end
+    L = float(np.linalg.norm(away))
+    away = away / L if L > 1e-9 else np.array([0.0, 1.0])
+    k = np.arange(n) if broken == 0 else np.arange(n)[::-1]
+    w = (1.0 - k / (n - 1)) ** 2
+    g = float(np.sin(np.pi * min(1.0, max(0.0, u) / m["recoil_until"])))
+    return np.outer(w * g * m["recoil"], away)
+
+
+def rope_bottom(points):
+    """Where a rope's shape stands: the middle of it across, at its
+    lowest point (a coil or a piece at rest is placed by this)."""
+    p = np.asarray(points, float)
+    return np.array([float(p[:, 0].mean()), float(p[:, 1].min())])
+
+
+def _rope_mobs(color, m=ROPE):
+    shade = VMobject(stroke_color=ROPE_COLORS["shade"],
+                     stroke_width=m["width"] * 100 * 1.45,
+                     fill_opacity=0.0)
+    core = VMobject(stroke_color=color, stroke_width=m["width"] * 100,
+                    fill_opacity=0.0)
+    return shade, core
+
+
+def build_rope_piece(name: str, x=0.0, y=0.0, color=None, points=None,
+                     parent=None, attach=None, attrs=None,
+                     prop_registry=None, **kwargs) -> VGroup:
+    """Build one piece of rope: a curve through its control points.
+
+    Parameters
+    ----------
+    name   : registry name.
+    x, y   : where it lies (the middle of it, at its lowest point).
+    color  : rope color.  Default ``"#c9a46a"``.
+    points : its control points, rows ``[x, y]`` (default: lying at
+             *x*, *y*).
+    attrs  : ``{"scale": s}``: a rope *s* times the usual size and
+             thickness (``rope_model``).
+
+    ``group.pam_set_shape(points)`` gives it a new shape and
+    ``group.pam_shape()`` returns the one it has; ``group.pam_rope`` is
+    its sizes (``ROPE``, scaled).  A rope's pieces are built by
+    ``build_rope``.
+    """
+    c = color or ROPE_COLORS["rope"]
+    m = rope_model((attrs or {}).get("scale", 1.0))
+    shade, core = _rope_mobs(c, m)
+    group = VGroup(shade, core)
+    group.pam_rope = m
+    group.pam_model = {"kind": "rope_piece", "width": m["width"],
+                       "points": int(m["points"]),
+                       "colors": {"rope": c, "shade": ROPE_COLORS["shade"]}}
+    group.pam_deformable = True
+    group.pam_no_outline = True     # its outline changes every frame
+    state = {"points": None}
+
+    def set_shape(pts):
+        pts = np.asarray(pts, float)
+        p3 = np.concatenate([pts, np.zeros((len(pts), 1))], axis=1)
+        for mob in (shade, core):
+            mob.set_points_smoothly(p3)
+        state["points"] = pts.copy()
+
+    def shape():
+        return state["points"].copy()
+
+    def anchor():
+        b = rope_bottom(state["points"])
+        return np.array([b[0], b[1], 0.0])
+
+    group.pam_set_shape = set_shape
+    group.pam_shape = shape
+    group.pam_anchor = anchor
+    # (attrs.scale is in the sizes, not applied to the drawing: the
+    # shape is set point by point)
+    set_shape(points if points is not None
+              else rope_lying((x, y), m=m))
+    b = rope_bottom(state["points"])
+    return _attach_pam_attrs(
+        group, name, "rope_piece", float(b[0]), float(b[1]),
+        surface_y=float(group.get_top()[1]),
+        attachments={"centre": np.array([b[0], b[1], 0.0])},
+        parent=parent, attach=attach, attrs=attrs)
+
+
+def build_rope(name: str, x=0.0, y=0.0, color=None,
+               parent=None, attach=None, attrs=None,
+               prop_registry=None, **kwargs) -> VGroup:
+    """Build a rope: a deformable composite prop of two pieces,
+    ``<name>.piece_a`` and ``<name>.piece_b``, joined end to end until
+    it snaps (Milestone 4, Stage 4c).
+
+    Parameters
+    ----------
+    name   : registry name.
+    x, y   : where it is built: a coil lying with its bottom at *x*,
+             *y*.
+    color  : rope color.  Default ``"#c9a46a"``.
+    attrs  : ``{"scale": s}``: a rope *s* times the usual size and
+             thickness (its coil, loop, knot, the length of a piece
+             at rest).
+
+    Its states (loose, tied, tightened, snapped) and its shape, worked
+    out on every frame from what it is attached to, are in
+    ``pam/prop_states.py``::
+
+        {"action": "props", "items": {"rope": {"type": "rope",
+            "attached": {"to": "abraham", "joint": "lshoulder",
+                         "mode": "on"}}}}
+        {"action": "prop_transition", "prop": "rope", "to": "tied",
+         "attached": {"to": "isaac", "joints": ["lwrist", "rwrist"],
+                      "mode": "around"}, "frames": 18}
+    """
+    m = rope_model((attrs or {}).get("scale", 1.0))
+    whole = rope_coil(bottom=(x, y), m=m)
+    a, b = rope_split(whole, m)
+    pa = build_rope_piece(f"{name}.piece_a", color=color, points=a,
+                          attrs=attrs)
+    pb = build_rope_piece(f"{name}.piece_b", color=color, points=b,
+                          attrs=attrs)
+    group = VGroup(pa, pb)
+    group.pam_rope = m
+    group.pam_deformable = True
+    group.pam_no_outline = True
+
+    def set_shape(pts):
+        sa, sb = rope_split(pts, m)
+        pa.pam_set_shape(sa)
+        pb.pam_set_shape(sb)
+
+    def shape():
+        return rope_join(pa.pam_shape(), pb.pam_shape())
+
+    def anchor():
+        bt = rope_bottom(shape())
+        return np.array([bt[0], bt[1], 0.0])
+
+    group.pam_set_shape = set_shape
+    group.pam_shape = shape
+    group.pam_anchor = anchor
+    return compose_parts(group, name, "rope", x, y,
+                         {"piece_a": pa, "piece_b": pb},
+                         parent=parent, attach=attach, attrs=attrs)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

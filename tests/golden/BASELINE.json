@@ -140,6 +140,25 @@
         "pam_version": "1.0.1",
         "recorded": "2026-11-19"
       }
+    },
+    "abe-isaac_rope-snap.json": {
+      "golden": "abe-isaac_rope-snap.trace.json",
+      "fixture_sha256": "aef5d440c4d5444f3bc1f272cac804fa642b02d4277a5fe18d5263963b4ae3ca",
+      "trace_version": 5,
+      "hooks_version": 2,
+      "duration": 10.0,
+      "cast": [
+        "isaac",
+        "abraham"
+      ],
+      "plays": 86,
+      "pieces": 25,
+      "recorded_at": {
+        "commit": "9ab29f4abeaac69ca01ebf97f72b31ccc2c6733a",
+        "tracked_files_modified": true,
+        "pam_version": "1.0.1",
+        "recorded": "2026-11-19"
+      }
     }
   },
   "reference": {

@@ -117,6 +117,18 @@
           "mode": "in",
           "hidden": true
         }
+      },
+      "rope": {
+        "type": "rope",
+        "attrs": {
+          "scale": 1.4
+        },
+        "attached": {
+          "to": null,
+          "x": -2.6,
+          "y": -2.6,
+          "hidden": true
+        }
       }
     },
     "ledger": {
@@ -240,6 +252,36 @@
               "angle": 30.0,
               "hidden": true
             }
+          },
+          "rope": {
+            "type": "rope",
+            "state": "loose",
+            "attached": {
+              "to": null,
+              "kind": "world",
+              "x": -2.6,
+              "y": -2.6,
+              "mode": "free",
+              "hidden": true
+            },
+            "parts": {
+              "piece_a": {
+                "type": "rope_piece",
+                "attached": {
+                  "to": "rope",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              },
+              "piece_b": {
+                "type": "rope_piece",
+                "attached": {
+                  "to": "rope",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              }
+            }
           }
         }
       },
@@ -359,6 +401,34 @@
               "mode": "in",
               "angle": 30.0,
               "hidden": true
+            }
+          },
+          "rope": {
+            "type": "rope",
+            "state": "loose",
+            "attached": {
+              "to": "abraham",
+              "kind": "character",
+              "joint": "rshoulder",
+              "mode": "on"
+            },
+            "parts": {
+              "piece_a": {
+                "type": "rope_piece",
+                "attached": {
+                  "to": "rope",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              },
+              "piece_b": {
+                "type": "rope_piece",
+                "attached": {
+                  "to": "rope",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              }
             }
           }
         }
@@ -480,6 +550,34 @@
               "angle": 30.0,
               "hidden": true
             }
+          },
+          "rope": {
+            "type": "rope",
+            "state": "loose",
+            "attached": {
+              "to": "abraham",
+              "kind": "character",
+              "joint": "rshoulder",
+              "mode": "on"
+            },
+            "parts": {
+              "piece_a": {
+                "type": "rope_piece",
+                "attached": {
+                  "to": "rope",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              },
+              "piece_b": {
+                "type": "rope_piece",
+                "attached": {
+                  "to": "rope",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              }
+            }
           }
         }
       },
@@ -599,6 +697,37 @@
               "mode": "in",
               "angle": 30.0,
               "hidden": true
+            }
+          },
+          "rope": {
+            "type": "rope",
+            "state": "tightened",
+            "attached": {
+              "to": "isaac",
+              "kind": "character",
+              "joints": [
+                "lwrist",
+                "rwrist"
+              ],
+              "mode": "around"
+            },
+            "parts": {
+              "piece_a": {
+                "type": "rope_piece",
+                "attached": {
+                  "to": "rope",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              },
+              "piece_b": {
+                "type": "rope_piece",
+                "attached": {
+                  "to": "rope",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              }
             }
           }
         }
@@ -724,6 +853,37 @@
               "mode": "in",
               "angle": 30.0,
               "hidden": true
+            }
+          },
+          "rope": {
+            "type": "rope",
+            "state": "tightened",
+            "attached": {
+              "to": "isaac",
+              "kind": "character",
+              "joints": [
+                "lwrist",
+                "rwrist"
+              ],
+              "mode": "around"
+            },
+            "parts": {
+              "piece_a": {
+                "type": "rope_piece",
+                "attached": {
+                  "to": "rope",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              },
+              "piece_b": {
+                "type": "rope_piece",
+                "attached": {
+                  "to": "rope",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              }
             }
           }
         }
@@ -867,6 +1027,32 @@
               "mode": "in",
               "angle": 30.0,
               "hidden": true
+            }
+          },
+          "rope": {
+            "type": "rope",
+            "state": "snapped",
+            "parts": {
+              "piece_a": {
+                "type": "rope_piece",
+                "attached": {
+                  "to": null,
+                  "kind": "world",
+                  "x": 0.25,
+                  "y": -2.6,
+                  "mode": "free"
+                }
+              },
+              "piece_b": {
+                "type": "rope_piece",
+                "attached": {
+                  "to": null,
+                  "kind": "world",
+                  "x": 2.95,
+                  "y": -2.6,
+                  "mode": "free"
+                }
+              }
             }
           }
         }

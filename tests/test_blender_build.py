@@ -46,6 +46,7 @@ def _command(trace, out):
     "abe-isaac_scene2-gags.json",             # choreography routines
     "abe-isaac_knife-break.json",             # stateful props, a hand on a prop
     "abe-isaac_scroll-revision.json",         # a text-bearing prop
+    "abe-isaac_rope-snap.json",               # a deformable prop
 ])
 def test_blend_builds_from_golden_trace(fixture, tmp_path):
     out = tmp_path / "scene.blend"
@@ -560,3 +561,91 @@ def test_the_scroll_is_in_the_hand_in_blender(scroll_blend):
     last = got[str(1 + 2 * frames[-1])]
     assert last["shapes"] == {"roll": False, "sheet": False,
                               "ribbon": True}
+
+
+# ── the rope (Stage 4c): a curve object per piece ────────────────────────
+
+import numpy as np                          # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def rope_blend(tmp_path_factory):
+    tmp = tmp_path_factory.mktemp("rope_blend")
+    trace = tt.golden_path(tt.ROPE)
+    out = tmp / "rope.blend"
+    log = _build(trace, out, tmp)
+    T = json.loads(trace.read_text())
+    curves = [f"prop.{p}.{tt.prop_object(T, p)['id']}.rope"
+              for p in ("rope.piece_a", "rope.piece_b")]
+    return T, out, tmp, log, curves
+
+
+def _rope_points(rec, frame):
+    """A piece's control points on *frame* from its trace "shape"."""
+    runs = rec["shape"]
+    cur = runs[0]["frames"][0]
+    for r in runs:
+        if r["f0"] <= frame:
+            cur = r["frames"][min(frame, r["f1"]) - r["f0"]]
+    return np.array(cur, float)
+
+
+def test_rope_pieces_are_built_once_each_as_curves(rope_blend):
+    T, blend, tmp, log, curves = rope_blend
+    assert log.count("'kind': 'rope_piece'") == 2
+    got = _probe("blender_prop_probe.py", tmp, blend, tag="PROPS ")
+    rope_things = [n for n in got["objects"] if n.startswith("prop.rope")]
+    # one curve per piece (and its root); nothing for the rope itself
+    assert sorted(n for n in rope_things if n.endswith(".rope")) == \
+        sorted(curves)
+    assert all(n.startswith(("prop.rope.piece_a.", "prop.rope.piece_b."))
+               for n in rope_things)
+
+
+def test_the_rope_in_blender_is_the_rope_in_the_trace(rope_blend):
+    """On the frames of every change and in between, each piece's
+    control points in Blender are the trace's, in the picture plane
+    (Blender x and z), and it is shown exactly when the trace shows it."""
+    T, blend, tmp, log, curves = rope_blend
+    recs = [tt.prop_object(T, p) for p in ("rope.piece_a", "rope.piece_b")]
+    frames = {0, 5}
+    for ev in T["prop_events"]:
+        if ev["prop"] == "rope":
+            n = ev.get("frames") or 0
+            frames |= {ev["f"] + k for k in (0, 1, n // 2, n - 1, n, n + 3)}
+    end = round(T["duration"] * 15)
+    frames = sorted(f for f in frames if 0 <= f <= end)
+    got = _probe("blender_rope_probe.py", tmp, blend, ",".join(curves),
+                 ",".join(str(1 + 2 * f) for f in frames), tag="ROPE ")
+    for f in frames:
+        row = got[str(1 + 2 * f)]["pieces"]
+        for rec, name in zip(recs, curves):
+            g = row[name]
+            assert g["kind"] == "BEZIER"
+            assert g["radius"] == pytest.approx(rec["model"]["width"] / 2,
+                                                abs=1e-5)
+            assert g["shown"] == tt.prop_visible(rec, f), (f, name)
+            pts = np.array(g["points"])[:, [0, 2]]
+            assert np.abs(pts - _rope_points(rec, f)).max() < 2e-3, \
+                (f, name)
+
+
+def test_the_knot_is_round_isaacs_wrists_in_blender(rope_blend):
+    """While the rope is tied, its break (the middle of the loop) is
+    under Isaac's wrists and between them, as Blender places them."""
+    T, blend, tmp, log, curves = rope_blend
+    tie = next(e for e in T["prop_events"] if e.get("to") == "tied")
+    snap = next(e for e in T["prop_events"] if e.get("to") == "snapped")
+    frames = list(range(tie["f"] + tie["frames"], snap["f"], 5))
+    got = _probe("blender_rope_probe.py", tmp, blend, ",".join(curves),
+                 ",".join(str(1 + 2 * f) for f in frames),
+                 "isaac.lwrist", "isaac.rwrist", tag="ROPE ")
+    for f in frames:
+        g = got[str(1 + 2 * f)]
+        brk = g["pieces"][curves[1]]["points"][0]
+        wl, wr = g["joints"]["isaac.lwrist"], g["joints"]["isaac.rwrist"]
+        assert brk[2] < min(wl[2], wr[2]), f
+        assert min(wl[0], wr[0]) - 0.05 <= brk[0] <= \
+            max(wl[0], wr[0]) + 0.05, f
+        # in front of the figure
+        assert brk[1] < wl[1]

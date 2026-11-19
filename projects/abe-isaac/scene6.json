@@ -24,7 +24,8 @@
  {
   "action": "fade_in",
   "who": "isaac",
-  "rt": 0.2
+  "rt": 0.2,
+  "pose": "reach_forward"
  },
  {
   "action": "fade_in",
@@ -46,6 +47,49 @@
  {
   "action": "wait",
   "frames": 9
+ },
+ {
+  "action": "parallel",
+  "id": "s06_snap",
+  "frames": 24,
+  "do": [
+   {
+    "action": "morph",
+    "who": "isaac",
+    "pose": "standing_front",
+    "frames": 8,
+    "beat": "flexes"
+   },
+   {
+    "action": "prop_transition",
+    "prop": "rope",
+    "to": "snapped",
+    "at": 1,
+    "frames": 12,
+    "rate": "rush_into",
+    "beat": "rope_snaps",
+    "parts": {
+     "piece_a": {
+      "attached": {
+       "to": null,
+       "x": 0.25,
+       "y": -2.6
+      }
+     },
+     "piece_b": {
+      "attached": {
+       "to": null,
+       "x": 2.95,
+       "y": -2.6
+      }
+     }
+    }
+   }
+  ]
+ },
+ {
+  "action": "wait",
+  "frames": 6
  },
  {
   "action": "prop_transition",
