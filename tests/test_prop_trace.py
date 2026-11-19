@@ -704,3 +704,46 @@ def test_the_scroll_is_in_the_belt_from_scene_two_to_five(played):
         assert [s for _, s in tt.prop_state(trace, "scroll")["states"]] \
             == ["rolled"], sid
         assert len(_rows(trace)) == 1, sid
+
+
+def test_a_prop_moved_right_after_its_holder_appears_starts_on_its_attachment(
+        tmp_path):
+    """A prop attached to a character is put on its attachment on the
+    first frame played after the character is on stage.  When the very
+    next step moves it over some frames, it is put there first, so that
+    it travels from where it belongs (not from where it was built), and
+    the trace records the attachment it started on.  Here: a quill in a
+    satchel on Abraham's hip, taken out as soon as he has faded in."""
+    actions = [
+        {"action": "cast", "characters": {"abraham": {
+            "pose": "standing_side", "offset": [-1.2, 0, 0],
+            "scale": {"sy": 0.48, "sx": 0.48, "anchor": "lankle"}}}},
+        {"action": "props", "rt": 0.2, "items": {
+            "satchel": {"type": "satchel", "attached": {
+                "to": "abraham", "joint": "lhip", "offset": [0.0, -0.12]}},
+            "quill": {"type": "quill", "attached": {
+                "to": "satchel", "mode": "in", "hidden": True}},
+            "scroll": {"type": "scroll", "attached": {
+                "to": "abraham", "joint": "rhip", "mode": "in"}}}},
+        {"action": "fade_in", "who": "abraham", "rt": 0.2},
+        T("quill", frames=6, attached={"to": "abraham", "joint": "rwrist"}),
+        T("scroll", frames=6, attached={"to": "abraham", "joint": "lwrist"}),
+    ]
+    trace, _ = tt.trace_actions(actions, tmp_path)
+    satchel = tt.prop_object(trace, "satchel")
+    quill = tt.prop_object(trace, "quill")
+    scroll = tt.prop_object(trace, "scroll")
+    f = _when(trace, "quill", cause="prop_transition")
+    # the quill leaves from the satchel ...
+    start = next(m for m in quill["moves"] if m["t1"] > m["t0"])
+    sx, sy = tt.prop_box(trace, satchel, f)[:2]
+    assert dist(start["from"][:2], (sx, sy)) < 0.05
+    assert dist((sx, sy), (0.0, 0.0)) > 1.0, "not from the middle"
+    # ... and the scroll from Abraham's hip, where the trace now says
+    # it was before it moved
+    joints = tt.figure_frames(trace, "abraham")
+    g = _when(trace, "scroll", cause="prop_transition")
+    start = next(m for m in scroll["moves"] if m["t1"] > m["t0"])
+    assert dist(start["from"][:2], joints[g]["rhip"]) < 2e-3
+    assert [a["joint"] for _, a in scroll["attachments"]] == \
+        ["rhip", "lwrist"]

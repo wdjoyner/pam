@@ -2224,6 +2224,11 @@ class StateManager:
         mob = self.mobs.get(target)
         if mob is None:
             return None
+        if travel:
+            # a prop that has not been put on its attachment yet (what
+            # it is on came on stage only now) is put there first, so
+            # that it travels from where it belongs
+            self._settle(target)
         self._release_hold(target)
         link = self.links.get(target)
         if link is None:
@@ -2331,9 +2336,24 @@ class StateManager:
             mgr.step()
             self._place()
 
-    def _place(self):
+    def _settle(self, target, seen=None):
+        """Put *target*, and what it is attached to, where they belong
+        now: a prop on a character who came on stage only now (or on a
+        prop on such a character) has not been put there yet."""
+        seen = set() if seen is None else seen
+        link = self.links.get(target)
+        if link is None or link.start is not None or target in seen:
+            return
+        seen.add(target)
+        to = (link.attach or {}).get("to")
+        if (link.attach or {}).get("kind") == "prop" and to is not None:
+            self._settle(self.world.split(to)[0], seen)
+            self._settle(to, seen)
+        self._place([link])
+
+    def _place(self, links=None):
         import numpy as np
-        for link in list(self.links.values()):
+        for link in list(self.links.values()) if links is None else links:
             att, mob = link.attach, link.mob
             tgt = self._target_xy(link)
             if tgt is None:

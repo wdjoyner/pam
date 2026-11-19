@@ -316,18 +316,18 @@ validator accepts it.
   grip (its near roller), the tracer records the grip as its position, and
   the Blender model is built from the grip, so the hold offset Blender
   uses does not change when the scroll unrolls in the hand.
-- *A prop that has not yet arrived on its attachment travels from where
-  it was built (found here, not changed).* A prop attached to a character
-  is placed on the first frame played after the character is on stage.
-  If the very next step moves the prop over some frames, the move begins
+- *A prop that had not yet arrived on its attachment traveled from where
+  it was built (fixed).* A prop attached to a character is put on its
+  attachment on the first frame played after the character is on stage.
+  If the very next step moved the prop over some frames, the move began
   from where the prop was built (the middle of the stage), and the trace
-  has no record of its first attachment. This is Stage 4a behavior, for
-  every stateful prop; it is left as it is here. `abe-isaac_scroll-revision.json`
-  and Scene 1 of the project wait three frames after Abraham fades in, so
-  that the scroll is in his belt, and the quill in his satchel, before he
-  takes them out. A fix (put such a prop on its attachment
-  before the move begins) changes no golden trace and is proposed in the
-  pull request.
+  had no record of its first attachment. This was Stage 4a behavior, for
+  every stateful prop. A prop that is about to travel is now put on its
+  attachment first, and so is what it is attached to (the quill in the
+  satchel on Abraham's hip). No golden trace changed with the fix: in the
+  seven fixtures before this stage no prop moves in that situation.
+  `test_a_prop_moved_right_after_its_holder_appears_starts_on_its_attachment`
+  in `test_prop_trace.py` checks it.
 - *Fonts.* Installing the TeX fonts needed to rebuild
   `pam-reference-book.pdf` (Debian's `texlive-fonts-extra`) also installs
   `fonts-croscore`, and fontconfig then gives Cousine instead of Liberation

@@ -112,10 +112,6 @@
   "rt": 0.2
  },
  {
-  "action": "wait",
-  "frames": 3
- },
- {
   "action": "prop_transition",
   "prop": "scroll",
   "frames": 6,
