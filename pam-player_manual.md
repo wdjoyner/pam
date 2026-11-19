@@ -864,7 +864,11 @@ A `parallel` block is timed when the block has `frames`, or when any step in its
 ### Limitations
 - Actions that play several animations of their own cannot be steps of a timed block: `wave`, `nod`, `shake_head`, `shrug`, `carry`, `sit_down`, `stand_up`, `rotate`, `prop_say`, and the camera moves `pan-up`, `pan-down`, `descend`, `push-into`. The player skips such a step with a message; `pam-validate` reports it as an error. Put it before or after the block.
 - A `parallel` block cannot be a step of a timed block, and a `sequence` cannot be nested in a `sequence` there.
-- If two steps move the same figure on the same frames, the one written later wins on those frames.
+- Two steps must not move the same figure on the same frames. `morph`, `turn`, `scale`, `slip_on_back`, the walks and runs, and the choreography routines each set the figure's whole pose on every frame they run, so two of them at once make the figure jump: the one written later wins while they overlap, and the other takes over again when it ends. The player plays it anyway; `pam-validate` reports an error. Put the two steps in one `sequence`. A contact constraint is the exception: it repositions one limb on purpose and may run under any move.
+- A step owns the frames from its first up to, not including, the frame it ends on: a 12-frame step that starts on frame 6 owns frames 6 through 17. A step that starts on frame 18 only touches it and is fine.
+- A block's `frames` is a promise. If its steps need more, the player plays them to the end and says how far it ran over, and `pam-validate` reports an error, because every later beat would be that much late.
+- A camera cut frames its subject where the subject is drawn on the frame of the cut, also in the middle of a walk, a sliding `morph` or a routine.
+- A `fade_out` on a figure that another step is moving holds the figure still where it is while it fades; `pam-validate` warns.
 - A bubble shown by `say` stays where it appeared. For a character who talks while walking, use `persist`.
 - `depth` on a walk is ignored, as in an ordinary `parallel` block.
 
@@ -1012,7 +1016,7 @@ PAMPlayer: mismatched_hug 'hug' (abraham -> isaac) ran frames 97-127; arm 0.8648
 - every position is measured on the frame the routine starts, from the figures' joints after body scale, depth rescale and rotation. No routine contains a stage coordinate
 - a routine slides `who` to its stance. If that is more than about a leg and a half away the console says so; walk him closer first
 - the contacts are ordinary constraints, so the four rules of the solver apply. A routine that cannot reach says so and plays anyway
-- two steps that move the same figure at once still collide: `pam-validate` warns when a routine and another step do
+- a routine sets the whole pose of the figures it moves (`who`; for `cork_pop_up` also `target`), so no other step may move them on the same frames: `pam-validate` reports an error
 - `abe-isaac_scene2-gags.json` plays all four routines, two of them inside timed blocks
 
 ## Checking a screenplay first

@@ -503,6 +503,7 @@ class ConstraintManager:
     def add(self, c: Constraint):
         self.release(c.id)          # an id names one constraint at a time
         f = self.frame()
+        c.t0 = float(self.scene.renderer.time)
         c.start(f)
         if getattr(c, "frames", None):
             c.until = f + c.frames
@@ -551,12 +552,25 @@ class ConstraintManager:
         if not self.active:
             return
         t = float(self.scene.renderer.time)
-        frame = _tl.frame_of(t)
-        whole = _tl.on_frame(t)
         ordered = ([c for c in self.active if c.type == "root_lock"]
                    + [c for c in self.active if c.type != "root_lock"])
         touched = []
+        # Each constraint counts frames from the moment it started.  At
+        # 15 fps that is the scene's own frame count.  At 30 or 60 fps
+        # a constraint can start between two frames of the 15 fps
+        # clock; counted from its own start it still lasts exactly its
+        # frames and is sampled once per frame.
+        clock = {}
         for c in ordered:
+            t0 = getattr(c, "t0", None)
+            if t0 is None:
+                clock[c.id] = (_tl.frame_of(t), _tl.on_frame(t))
+            else:
+                el = (t - t0) * _tl.FPS
+                clock[c.id] = (c.f0 + int(math.floor(el + 1e-6)),
+                               abs(el - round(el)) < 1e-6)
+        for c in ordered:
+            frame, whole = clock[c.id]
             placed = c.apply(frame)
             if placed:
                 if c.fig not in touched:
@@ -572,7 +586,7 @@ class ConstraintManager:
         # and ends there, even in the middle of a step
         for c in list(self.active):
             until = getattr(c, "until", None)
-            if until is not None and frame >= until:
+            if until is not None and clock[c.id][0] >= until:
                 self._finish(c, until)
 
 

@@ -283,6 +283,8 @@ pip install manim screenplain
 pip install -e .
 ```
 
+PAM is developed and tested with Manim 0.22.1, and `requirements.txt` pins it: `pip install -r requirements.txt`. The timed parallel blocks depend on details of how Manim redraws a scene, so run the tests (`python -m pytest`) before relying on another version.
+
 ### Verify Manim
 
 ```bash
@@ -1746,9 +1748,12 @@ A step's `sound` (and its character's `sfx`) starts on the frame the step starts
 
 Things to know:
 
-- If two steps move the same figure on the same frames, the one written later wins on those frames. `pam-validate` warns.
+- Two steps must not move the same figure on the same frames. `morph`, `turn`, `scale`, `slip_on_back`, the walks and runs, and the choreography routines each set the figure's whole pose, so two at once make the figure jump where they meet. The player plays it anyway (the one written later wins on the shared frames); `pam-validate` reports an error. Put the two in one `sequence`. A contact constraint may run under any move.
+- A step owns the frames from its first up to, not including, the one it ends on. A step that starts on the frame another ends does not overlap it.
+- A block's `frames` is a promise: `pam-validate` reports an error when the steps need more. The player plays them to the end and says how far it ran over.
+- A camera cut frames its subject where it is drawn on that frame, also in the middle of a walk, a sliding `morph` or a routine.
 - A bubble shown by `say` stays where it appeared. For a character who talks while walking, use `"persist": true`, as before.
-- Within one frame the order is fixed: steps that end on it are finished first, then steps that start on it are started, both in the order they are written. Two renders of the same screenplay are identical frame for frame.
+- Within one frame the order is fixed: steps that end on it are finished first, then contact constraints put held joints back on their targets, then steps that start on it are started, both in the order they are written. Two renders of the same screenplay are identical frame for frame.
 - At medium and high quality (30 and 60 fps) a block takes the same time; each timeline frame is two or four rendered frames.
 
 In the trace (version 5), a timed block is recorded frame by frame, so `trace2blender.py` reproduces overlapping moves, the frame a line starts on, and the frame the camera cuts on without solving or guessing anything. The trace also gets a `blocks` list saying which step ran on which frames.

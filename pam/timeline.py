@@ -106,9 +106,42 @@ whole frame (halves round up, and never to less than one frame), as the
 roadmap prescribes.  ``pam-validate`` lists every duration that had to
 be rounded.
 
-Order within a frame is fixed, so repeated renders are identical: steps
-that end on a frame are finished first, in the order they are written,
-then steps that start on it are started, in the order they are written.
+Which frames a step owns
+------------------------
+A step that starts on frame ``f0`` and lasts ``n`` frames owns the
+frames ``f0`` to ``f0 + n - 1``: the half-open interval ``[f0, f0 + n)``.
+A 12-frame step that starts on frame 6 owns frames 6 through 17, and it
+is finished at the boundary of frame 18.  A step that starts on frame 18
+does not overlap it; the two only touch.
+
+Order within a frame is fixed, so repeated renders are identical.  At a
+boundary:
+
+1. steps that end there are finished, in the order they are written;
+2. the scene's updaters run, so contact constraints put held joints
+   back on their targets;
+3. steps that start there are started, in the order they are written,
+   and see the figures as steps 1 and 2 left them;
+4. the updaters run again, and the next stretch is played.
+
+Who may move a figure
+---------------------
+Each of these sets a figure's whole pose, every joint, on every frame
+it runs: ``morph``, ``turn``, ``scale``, ``slip_on_back``, the three
+locomotion actions, and the choreography routines
+(``action_specs.TIMELINE_POSE_WRITERS``).  Two of them on one figure on
+the same frames cannot both be honored.  The player does not stop (the
+one written later wins on the shared frames, and the figure jumps where
+they meet), but ``pam-validate`` reports it as an error.  Put the two
+in one ``sequence``.  A contact constraint is different: it repositions
+one limb on purpose and may run under any move.
+
+A block's ``frames`` is a promise: a block whose steps need more is
+also an error for ``pam-validate``.  The player plays such a block to
+the end of its steps and says how far it ran over.
+
+A camera cut frames its subject where the subject is drawn on the frame
+of the cut, also in the middle of a walk, a sliding morph or a routine.
 
 How a timed block is played
 ---------------------------
@@ -225,8 +258,16 @@ def is_whole_frames(seconds, eps=1e-6) -> bool:
 
 
 def frame_of(t) -> int:
-    """The frame number of scene time *t* (seconds)."""
-    return int(round(float(t) * FPS))
+    """The frame number of scene time *t* (seconds).
+
+    At 15 fps scene time is always a whole number of frames.  At 30 or
+    60 fps an untimed action can end on a half or a quarter frame, and
+    everything timed after it is shifted by that fraction.  Such a time
+    is given the frame it lies in (fractions up to 0.6 go down), the
+    same way for every step, so that a step written ``"at": 2`` in a
+    block is reported two frames after the block whatever the shift.
+    """
+    return int(math.floor(float(t) * FPS + 0.4))
 
 
 def on_frame(t, eps=1e-6) -> bool:
@@ -1078,8 +1119,11 @@ class Block:
         the contact constraints): tell listeners that a whole frame of
         the 15 fps clock is complete."""
         t = float(self.scene.renderer.time)
-        fr = frame_of(t)
-        if on_frame(t) and self._tick_frame is not None \
+        # frames are counted from the start of the block, which at 30
+        # or 60 fps need not be on a frame of the scene's 15 fps clock
+        el = (t - self.rec["t0"]) * FPS
+        fr = self.F0 + int(round(el))
+        if abs(el - round(el)) < 1e-6 and self._tick_frame is not None \
                 and fr > self._tick_frame:
             self._tick_frame = fr
             _hooks.emit("frame", scene=self.scene, frame=fr, t=t,
@@ -1114,8 +1158,11 @@ class Block:
         scene.mobjects.insert(0, self._anchor)
         _LIVE[self.F0] = self
         ticking = _hooks.active()
+        # (one object for both calls: Manim removes an updater by
+        # identity, and self._tick is a new bound method each time)
+        tick = self._tick
         if ticking:
-            scene.add_updater(self._tick)
+            scene.add_updater(tick)
         want = self.info["frames"] if "frames" in self.step else None
         try:
             while True:
@@ -1134,7 +1181,7 @@ class Block:
                 self._play(want - self.f)       # the rest is stillness
         finally:
             if ticking:
-                scene.remove_updater(self._tick)
+                scene.remove_updater(tick)
             _LIVE.pop(self.F0, None)
             if self._anchor in scene.mobjects:
                 scene.mobjects.remove(self._anchor)

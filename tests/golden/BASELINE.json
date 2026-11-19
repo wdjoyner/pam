@@ -75,10 +75,10 @@
         "isaac",
         "abraham"
       ],
-      "plays": 96,
+      "plays": 90,
       "pieces": 61,
       "recorded_at": {
-        "commit": "ab428390c4c9bba30b1bc313029cfa6e16611c42",
+        "commit": "69712befeba46a51e8f473bdf3119ea448a74306",
         "tracked_files_modified": false,
         "pam_version": "1.0.1",
         "recorded": "2026-11-19"
@@ -94,10 +94,10 @@
         "isaac",
         "abraham"
       ],
-      "plays": 298,
-      "pieces": 97,
+      "plays": 129,
+      "pieces": 93,
       "recorded_at": {
-        "commit": "507c12a98abdc0ccd4e477f92e3d6dd3af6f726f",
+        "commit": "69712befeba46a51e8f473bdf3119ea448a74306",
         "tracked_files_modified": false,
         "pam_version": "1.0.1",
         "recorded": "2026-11-19"
