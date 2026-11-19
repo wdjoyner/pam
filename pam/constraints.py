@@ -1,14 +1,20 @@
 """
 pam.constraints — contact constraints between figures.
 
-First version, built for the vertical slice of *PAM: The Road to
-Blender*.  Two constraint types:
+The four constraint types of *PAM: The Road to Blender* (Milestone 3):
 
 ``joint_to_joint``
-    Keep one figure's hand (or foot) on another figure's joint.  The
-    limb is solved with the analytic two-bone method below.
+    Keep one figure's hand (or foot) on another figure's joint.
+``joint_to_prop``
+    Keep a hand (or foot) on a prop, wherever the prop goes.
+``joint_to_point``
+    Keep a hand (or foot) on a fixed point of the stage.
 ``root_lock``
     Keep a figure where it stands, whatever else tries to move it.
+
+The three ``joint_to_...`` types differ only in where the target is;
+the limb is solved the same way, with the analytic two-bone method
+below and its four rules.
 
 A constraint is a temporary relation between skeletons, with an exact
 first and last frame on the 15 fps clock of ``pam/timeline.py``.  Nothing
@@ -28,15 +34,30 @@ JSON
     {"action": "constrain", "id": "isaac_root", "type": "root_lock",
      "who": "isaac"}
 
+    {"action": "constrain", "id": "on_knife", "type": "joint_to_prop",
+     "who": "isaac", "joint": "rwrist", "prop": "knife", "point": "top"}
+
+    {"action": "constrain", "id": "on_rock", "type": "joint_to_point",
+     "who": "abraham", "joint": "lwrist", "point": [-2.0, -1.4]}
+
 Keys of ``constrain``:
 
 ``id``            name used by ``release`` and in reports (required)
-``type``          ``joint_to_joint`` or ``root_lock``
+``type``          ``joint_to_joint``, ``joint_to_prop``,
+                  ``joint_to_point`` or ``root_lock``
 ``who``           the figure that yields (the *follower*)
 ``joint``         follower's end joint: a wrist or an ankle
                   (root_lock: the joint that stays put, default lankle)
-``target``        the other figure (the *driver*)
-``target_joint``  the driver's joint the hand stays on
+``target``        joint_to_joint: the other figure (the *driver*)
+``target_joint``  joint_to_joint: the driver's joint the hand stays on
+``prop``          joint_to_prop: the prop (or scene object) the hand
+                  stays on.  The prop is the driver: the hand follows
+                  it when it is moved, carried or handed over.
+``point``         joint_to_point: the stage position ``[x, y]``.
+                  joint_to_prop: where on the prop, measured on the
+                  prop as it is drawn on that frame: ``"center"``
+                  (default), ``"top"``, ``"bottom"``, ``"left"``,
+                  ``"right"``, or ``[dx, dy]`` from its center.
 ``blend``         frames over which the hand travels from where it is
                   to the target (default 0: it is there at once)
 ``frames``        release automatically after this many frames; without
@@ -50,16 +71,21 @@ The four rules of the solver (from the roadmap)
 1. **Bend direction.**  Of the two elbow solutions, use the one on the
    side the elbow is on when the constraint starts, and keep to it for
    the life of the constraint, so an elbow or knee never flips mid-move.
-   ``bend`` overrides this.
+   A limb that is bent keeps the way it is bent; a limb that is
+   straight (within 2% of its length) bends to the side of the line to
+   the target that its middle joint is on.  ``bend`` overrides this.
 2. **Out of reach.**  If the target is farther than the limb is long,
    the limb straightens toward the target and stops short.  The
    shortfall is recorded (``Constraint.shortfall``) and reported; it is
    not an error.
 3. **Driver and follower.**  ``who`` yields; ``target`` does not.  The
-   driver's joint goes where its own pose puts it.
+   driver's joint goes where its own pose puts it.  A prop and a point
+   of the stage are always drivers.
 4. **Order of evaluation.**  On every frame, after Manim has advanced
    all key-pose interpolation: root locks first, then followers, in the
-   order they were declared.
+   order they were declared.  (So a hand may hold a wrist that is
+   itself held on a point, if the point's constraint is declared
+   first.)
 
 Bone lengths are measured from the follower's limb, in world
 coordinates (so after body scale and rotation), on the frame the
@@ -77,8 +103,9 @@ figure's logical pose (``fig.pose``, ``fig.offset``) is left alone.
 Hooks
 -----
 ``"constraint"``         phase "begin" / "end": id, type, who, joints,
-                         target, target_joint, frame, t (and on "end"
-                         the largest shortfall).
+                         frame, t, and by type target and target_joint,
+                         prop and point, or point (and on "end" the
+                         largest shortfall).
 ``"constraint_sample"``  on every whole frame while active: id, who,
                          fig, frame, t, joints {name: (x, y)}.  The
                          tracer turns these into a ``sampled`` piece.
@@ -101,7 +128,17 @@ CHAINS = {
     "rankle": ("rhip", "rknee", "rankle"),
 }
 
-TYPES = ("joint_to_joint", "root_lock")
+TYPES = ("joint_to_joint", "joint_to_prop", "joint_to_point", "root_lock")
+
+# rule 1: a limb whose middle joint is farther than this fraction of
+# the limb's length from the line root-end counts as bent
+BENT = 0.02
+
+# joint_to_prop: named places on a prop, as fractions of its bounding
+# box from its center (x to the right, y up)
+PROP_POINTS = {"center": (0.0, 0.0), "centre": (0.0, 0.0),
+               "top": (0.0, 0.5), "bottom": (0.0, -0.5),
+               "left": (-0.5, 0.0), "right": (0.5, 0.0)}
 
 
 # ── the solver ───────────────────────────────────────────────────────────
@@ -237,24 +274,26 @@ class Constraint:
                 "joints": list(self.joints)}
 
 
-class JointToJoint(Constraint):
-    type = "joint_to_joint"
+class _Limb(Constraint):
+    """A wrist or an ankle held on a target: the shared part of
+    joint_to_joint, joint_to_prop and joint_to_point.  A subclass says
+    where the target is on the current frame (``target_xy``)."""
 
-    def __init__(self, cid, who, fig, joint, target, target_fig,
-                 target_joint, blend=0, bend="keep"):
+    def __init__(self, cid, who, fig, joint, blend=0, bend="keep"):
         super().__init__(cid, who, fig)
         if joint not in CHAINS:
             raise ValueError(
-                f"joint_to_joint: '{joint}' does not end a two-bone limb; "
+                f"{self.type}: '{joint}' does not end a two-bone limb; "
                 f"use one of {sorted(CHAINS)}")
         self.joint = joint
         self.root, self.mid, self.end = CHAINS[joint]
         self.joints = (self.root, self.mid, self.end)
-        self.target = target
-        self.target_fig = target_fig
-        self.target_joint = target_joint
         self.blend = max(0, int(blend or 0))
         self.bend = bend
+
+    def target_xy(self):
+        """World (x, y) of the target on this frame."""
+        raise NotImplementedError
 
     def start(self, frame):
         super().start(frame)
@@ -264,14 +303,24 @@ class JointToJoint(Constraint):
         # where the hand is, relative to the shoulder, when the reach
         # begins: the blend starts from here
         self._end0 = e - r
-        tgt = _xy(self.target_fig, self.target_joint)
+        tgt = self.target_xy()
         if self.bend == "up" or self.bend == "down":
             # "up": the middle joint above the root-target line
             want_up = self.bend == "up"
             left_is_up = (tgt[0] - r[0]) >= 0
             self.sign = 1 if (want_up == left_is_up) else -1
         else:                       # rule 1: keep the present side
-            s = side_of(r, tgt, m)
+            # A limb that is visibly bent keeps the way it is bent (the
+            # side of its own root-end line its middle joint is on), so
+            # it does not flip on the first frame of a reach.  A limb
+            # that is straight has no bend to keep: it bends to the
+            # side of the line to the target its middle joint is on.
+            off = ((e[0] - r[0]) * (m[1] - r[1])
+                   - (e[1] - r[1]) * (m[0] - r[0]))
+            span = float(np.linalg.norm(e - r))
+            bent = span > 1e-9 and abs(off) / span > BENT * (self.l1
+                                                             + self.l2)
+            s = side_of(r, e, m) if bent else side_of(r, tgt, m)
             if s == 0:
                 s = side_of(r, e, m)
             if s == 0:              # limb straight: elbows bend back and
@@ -287,7 +336,7 @@ class JointToJoint(Constraint):
 
     def apply(self, frame):
         r = _xy(self.fig, self.root)
-        tgt = _xy(self.target_fig, self.target_joint)
+        tgt = self.target_xy()
         w = self.weight(frame)
         if w < 1.0:
             start = r + self._end0
@@ -303,8 +352,93 @@ class JointToJoint(Constraint):
 
     def describe(self):
         d = super().describe()
-        d.update(joint=self.joint, target=self.target,
-                 target_joint=self.target_joint, blend=self.blend)
+        d.update(joint=self.joint, blend=self.blend)
+        return d
+
+
+class JointToJoint(_Limb):
+    type = "joint_to_joint"
+
+    def __init__(self, cid, who, fig, joint, target, target_fig,
+                 target_joint, blend=0, bend="keep"):
+        super().__init__(cid, who, fig, joint, blend=blend, bend=bend)
+        self.target = target
+        self.target_fig = target_fig
+        self.target_joint = target_joint
+
+    def target_xy(self):
+        return _xy(self.target_fig, self.target_joint)
+
+    def describe(self):
+        d = super().describe()
+        d.update(target=self.target, target_joint=self.target_joint)
+        return d
+
+
+class JointToPoint(_Limb):
+    """A hand or foot held on a point of the stage.
+
+    *point* is ``(x, y)`` in world coordinates.  From Python it may
+    also be a function of no arguments that returns the point for the
+    current frame (the choreography routines use this for a target
+    that is measured on another figure, such as the far side of a
+    torso); the trace then records the point as it was on the first
+    frame.
+    """
+    type = "joint_to_point"
+
+    def __init__(self, cid, who, fig, joint, point, blend=0, bend="keep"):
+        super().__init__(cid, who, fig, joint, blend=blend, bend=bend)
+        self._point = point
+
+    def target_xy(self):
+        p = self._point() if callable(self._point) else self._point
+        return np.array([float(p[0]), float(p[1])])
+
+    def start(self, frame):
+        p = self.target_xy()
+        self.point = [float(p[0]), float(p[1])]
+        super().start(frame)
+
+    def describe(self):
+        d = super().describe()
+        d["point"] = [round(float(v), 4) for v in self.target_xy()]
+        if callable(self._point):
+            d["moving"] = True      # the point is measured every frame
+        return d
+
+
+def prop_point(mob, point="center"):
+    """World (x, y) of a place on a prop as it is drawn now: a name
+    from ``PROP_POINTS`` or ``[dx, dy]`` from the prop's center."""
+    c = mob.get_center()
+    if isinstance(point, str):
+        fx, fy = PROP_POINTS[point]
+        return np.array([float(c[0]) + fx * float(mob.width),
+                         float(c[1]) + fy * float(mob.height)])
+    return np.array([float(c[0]) + float(point[0]),
+                     float(c[1]) + float(point[1])])
+
+
+class JointToProp(_Limb):
+    """A hand or foot held on a prop.  The prop is measured on every
+    frame, as it is drawn, so the hand follows a prop that is moved,
+    scaled, carried or handed over."""
+    type = "joint_to_prop"
+
+    def __init__(self, cid, who, fig, joint, prop, mob, point="center",
+                 blend=0, bend="keep"):
+        super().__init__(cid, who, fig, joint, blend=blend, bend=bend)
+        self.prop = prop
+        self.mob = mob
+        self.point = point
+
+    def target_xy(self):
+        return prop_point(self.mob, self.point)
+
+    def describe(self):
+        d = super().describe()
+        d.update(prop=self.prop, point=self.point)
         return d
 
 
@@ -451,10 +585,18 @@ def get(scene) -> ConstraintManager:
     return mgr
 
 
-def build(step: dict, get_fig) -> Constraint | None:
+def _is_xy(v) -> bool:
+    return (isinstance(v, (list, tuple)) and len(v) >= 2
+            and all(isinstance(c, (int, float)) and not isinstance(c, bool)
+                    and math.isfinite(c) for c in v[:2]))
+
+
+def build(step: dict, get_fig, get_prop=None) -> Constraint | None:
     """Make a constraint from a ``constrain`` step.  *get_fig(name)*
-    returns the live figure or None.  Problems are reported and None is
-    returned; a bad constraint never stops the render."""
+    returns the live figure or None; *get_prop(name)* returns the live
+    prop mobject or None (needed for joint_to_prop only).  Problems are
+    reported and None is returned; a bad constraint never stops the
+    render."""
     cid = step.get("id")
     ctype = step.get("type")
     who = step.get("who")
@@ -473,6 +615,39 @@ def build(step: dict, get_fig) -> Constraint | None:
 
     if ctype == "root_lock":
         c = RootLock(cid, who, fig, joint=step.get("joint", "lankle"))
+    elif ctype in ("joint_to_prop", "joint_to_point"):
+        joint = step.get("joint")
+        if joint not in CHAINS or joint not in fig.dots:
+            print(f"PAMPlayer: constrain '{cid}' — 'joint' must be one "
+                  f"of {sorted(CHAINS)}, got {joint!r}; skipping.")
+            return None
+        point = step.get("point")
+        kw = dict(blend=step.get("blend", 0), bend=step.get("bend", "keep"))
+        if ctype == "joint_to_point":
+            if not _is_xy(point):
+                print(f"PAMPlayer: constrain '{cid}' — joint_to_point "
+                      f"needs 'point': [x, y], got {point!r}; skipping.")
+                return None
+            c = JointToPoint(cid, who, fig, joint,
+                             (float(point[0]), float(point[1])), **kw)
+        else:
+            pname = step.get("prop")
+            mob = get_prop(pname) if (get_prop and pname) else None
+            if mob is None or not hasattr(mob, "get_center"):
+                print(f"PAMPlayer: constrain '{cid}' — no live prop "
+                      f"'{pname}', skipping.")
+                return None
+            if point is None:
+                point = "center"
+            if not (_is_xy(point) or (isinstance(point, str)
+                                      and point in PROP_POINTS)):
+                print(f"PAMPlayer: constrain '{cid}' — 'point' must be "
+                      f"one of {sorted(set(PROP_POINTS) - {'centre'})} "
+                      f"or [dx, dy], got {point!r}; skipping.")
+                return None
+            if not isinstance(point, str):
+                point = [float(point[0]), float(point[1])]
+            c = JointToProp(cid, who, fig, joint, pname, mob, point, **kw)
     else:
         target = step.get("target")
         tfig = get_fig(target) if target else None

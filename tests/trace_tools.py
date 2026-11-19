@@ -44,6 +44,10 @@ FIXTURES = (
     # Milestone 2: a timed parallel block (overlapping moves, dialogue
     # and camera cuts on set frames, a walk, a contact constraint).
     "abe-isaac_overlap_timeline.json",
+    # Milestone 3: the Scene 2 choreography routines (pull_immovable,
+    # slip_on_back, cork_pop_up, mismatched_hug), two of them as steps
+    # of timed parallel blocks.
+    "abe-isaac_scene2-gags.json",
 )
 
 # Fixtures written before the timeline existed.  They must keep tracing
@@ -51,6 +55,7 @@ FIXTURES = (
 LEGACY_FIXTURES = FIXTURES[:3]
 SLICE = FIXTURES[3]
 OVERLAP = FIXTURES[4]
+SCENE2 = FIXTURES[5]
 
 # Traces are rounded to 4 decimals (3 for outlines), so two machines can
 # legitimately differ by one unit in the last place; 2e-3 leaves room
@@ -259,3 +264,69 @@ def compare_traces(golden, fresh, tol=DEFAULT_TOL, mode="strict",
     if len(diffs) >= max_diffs:
         diffs.append(f"... stopped after {max_diffs} differences")
     return diffs
+
+
+# ── reading a version 5 trace frame by frame ─────────────────────────────
+
+LIMBS = {
+    "lelbow": ("lshoulder", "lelbow", "lwrist"),
+    "relbow": ("rshoulder", "relbow", "rwrist"),
+    "lknee": ("lhip", "lknee", "lankle"),
+    "rknee": ("rhip", "rknee", "rankle"),
+}
+
+
+class _Frames(dict):
+    def __missing__(self, frame):
+        last = max(self)
+        if frame > last:
+            return self[last]
+        raise KeyError(frame)
+
+
+def figure_frames(trace, name):
+    """World joints of figure *name* on every frame of a version 5
+    trace: ``{frame: {joint: [x, y]}}``.
+
+    Exact on the frames of timed blocks and routines (which are traced
+    frame by frame) and at the end of every other move; in the middle
+    of an ordinary move the figure is shown where the move began.
+    Sampled pieces (constrained limbs) are laid on top.  A frame after
+    the figure's last move gives the figure as that move left it."""
+    track = trace["tracks"][name]
+    state = dict(trace["initial"][name])
+    out = _Frames()
+    if not track:
+        out[0] = state
+        return out
+    pieces = sorted((p for p in track if p["kind"] != "sampled"),
+                    key=lambda p: p["f1"])
+    last = max(p["f1"] for p in track)
+    i = 0
+    for f in range(last + 1):
+        while i < len(pieces) and pieces[i]["f1"] <= f:
+            state = {**state, **pieces[i]["to"]}
+            i += 1
+        out[f] = dict(state)
+    for p in track:
+        if p["kind"] == "sampled":
+            for k, fr in enumerate(p["frames"]):
+                out[p["f0"] + k].update(fr)
+    return out
+
+
+def bend_side(joints, limb, straight=0.02):
+    """Which way a limb is bent in one frame: +1 or -1 (the side of the
+    line from its root to its end that the middle joint is on), or 0
+    when it is straight to within *straight* of its length."""
+    r, m, e = (joints[j] for j in LIMBS[limb])
+    span = ((e[0] - r[0]) ** 2 + (e[1] - r[1]) ** 2) ** 0.5
+    length = (((m[0] - r[0]) ** 2 + (m[1] - r[1]) ** 2) ** 0.5
+              + ((e[0] - m[0]) ** 2 + (e[1] - m[1]) ** 2) ** 0.5)
+    if span < 1e-9:
+        return 0
+    off = ((e[0] - r[0]) * (m[1] - r[1])
+           - (e[1] - r[1]) * (m[0] - r[0])) / span
+    if abs(off) <= straight * length:
+        return 0
+    return 1 if off > 0 else -1

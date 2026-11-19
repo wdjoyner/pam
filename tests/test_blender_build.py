@@ -43,6 +43,7 @@ def _command(trace, out):
     "wdj_nona-vs-governor-venus3.json",       # props, a held prop, the Governor
     "abe-isaac_wrist-pull_slice.json",        # trace version 5, sampled piece
     "abe-isaac_overlap_timeline.json",        # a timed parallel block
+    "abe-isaac_scene2-gags.json",             # choreography routines
 ])
 def test_blend_builds_from_golden_trace(fixture, tmp_path):
     out = tmp_path / "scene.blend"
@@ -177,3 +178,35 @@ def test_hand_stays_on_the_wrist_in_a_timed_block_in_blender(tmp_path):
     grip = json.loads(line[6:])["constraints"]["grip"]
     assert grip["frames_held"] == 14
     assert grip["keyed"] < 2e-3 and grip["between"] < 1e-2
+
+
+def test_scene2_contacts_hold_in_blender(tmp_path):
+    """Milestone 3: the routines' contacts survive the trip into
+    Blender.  Abraham's hand stays on Isaac's wrist through the pull,
+    Isaac's offered hand stays on its point, and the two hands stay
+    together through the pop, on keyed and interpolated frames."""
+    trace = tt.golden_path(tt.SCENE2)
+    out = tmp_path / "scene2.blend"
+    cmd = _command(trace, out)
+    if cmd is None:
+        pytest.skip("Blender is not available")
+    proc = subprocess.run(cmd, cwd=tmp_path, env=tt._env(),
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr[-4000:]
+    assert "2 speech bubbles" in proc.stdout
+
+    probe = _run(tt.REPO / "tests" / "blender_probe.py", out, trace)
+    proc = subprocess.run(probe, cwd=tmp_path, env=tt._env(),
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr[-4000:]
+    line = next(l for l in proc.stdout.splitlines() if l.startswith("PROBE "))
+    got = json.loads(line[6:])["constraints"]
+    # (the hug's two targets are measured on Isaac every frame, and its
+    # arms stop short of them; they are not probed)
+    assert set(got) == {"pull.grip", "cork.offer", "cork.grip"}
+    assert got["pull.grip"]["frames_held"] == 24
+    assert got["cork.offer"]["frames_held"] == 6
+    assert got["cork.grip"]["frames_held"] == 3
+    for cid, g in got.items():
+        assert g["keyed"] < 2e-3, f"{cid}: off its target on a keyed frame"
+        assert g["between"] < 1e-2, f"{cid}: off its target between frames"

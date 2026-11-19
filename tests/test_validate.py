@@ -448,6 +448,7 @@ EXPECTED = {
     "wdj_nona-vs-governor-venus3.json": ([], 31),
     "abe-isaac_wrist-pull_slice.json": ([], 0),
     "abe-isaac_overlap_timeline.json": ([], 0),
+    "abe-isaac_scene2-gags.json": ([], 0),
 }
 
 

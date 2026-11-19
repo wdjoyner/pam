@@ -1,0 +1,61 @@
+[
+  {"action": "set_background", "color": "#a9c8e6"},
+  {"action": "cast", "characters": {
+    "isaac": {
+      "figure_type": "human", "build": "broad", "gender": "male",
+      "pose": "standing_front",
+      "scale": {"sy": 0.8, "sx": 0.92, "anchor": "lankle"},
+      "offset": [1.6, 0, 0],
+      "torso_color": "#b3261e",
+      "shoe_color": "#5a3b22",
+      "style": {"head_label": "Isaac",
+                "edge_color": "#b07d48", "edge_width": 4.0,
+                "node_color": "#a67c52", "node_stroke": "#e0bc94",
+                "head_color": "#c69c6d", "head_stroke": "#5a3b22",
+                "highlight_color": "#e0bc94"}
+    },
+    "abraham": {
+      "figure_type": "human", "build": "narrow", "gender": "male",
+      "pose": "standing_side",
+      "scale": {"sy": 0.48, "sx": 0.48, "anchor": "lankle"},
+      "offset": [-0.28, 0, 0],
+      "torso_color": "#3d5a80",
+      "shoe_color": "#5a3b22",
+      "style": {"head_label": "Abe",
+                "edge_color": "#b07d48", "edge_width": 4.0,
+                "node_color": "#a67c52", "node_stroke": "#e0bc94",
+                "head_color": "#c69c6d", "head_stroke": "#5a3b22",
+                "highlight_color": "#e0bc94"}
+    }
+  }},
+  {"action": "fade_in", "who": "isaac", "rt": 0.2},
+  {"action": "fade_in", "who": "abraham", "rt": 0.2},
+  {"action": "sequence", "id": "s02_pull", "do": [
+    {"action": "pull_immovable", "id": "pull", "who": "abraham", "target": "isaac",
+     "frames_reach": 6, "frames_pull": 12, "frames_strain": 12},
+    {"action": "slip_on_back", "who": "abraham", "frames": 4, "beat": "slip"},
+    {"action": "wait", "frames": 9, "beat": "comic_hold"}
+  ]},
+  {"action": "parallel", "id": "s02_cork", "frames": 42, "do": [
+    {"action": "cork_pop_up", "id": "cork", "who": "isaac", "target": "abraham", "at": 3},
+    {"action": "say", "who": "isaac", "text": "Up you get.", "at": 0, "frames": 18,
+     "frames_in": 3, "frames_out": 3, "beat": "isaac_line"},
+    {"_subscene_marker": "s02_cork_medium", "at": 15,
+     "_shot_meta": {"framing": "medium", "subject": "abraham", "move": "static"}},
+    {"_subscene_marker": "s02_cork_wide", "at": 33,
+     "_shot_meta": {"framing": "wide", "subject": "ensemble", "move": "static"}}
+  ]},
+  {"action": "parallel", "id": "s02_hug", "do": [
+    {"action": "sequence", "id": "abraham_hugs", "do": [
+      {"action": "mismatched_hug", "id": "hug", "who": "abraham", "target": "isaac",
+       "frames_squeeze": 18, "release": false},
+      {"action": "wait", "frames": 12, "beat": "holds_on"},
+      {"action": "release", "id": "hug.upper"},
+      {"action": "release", "id": "hug.lower"},
+      {"action": "morph", "who": "abraham", "pose": "standing_side", "frames": 6}
+    ]},
+    {"action": "say", "who": "abraham", "text": "My boy.", "side": "left", "at": 12, "frames": 24,
+     "frames_in": 3, "frames_out": 3, "beat": "abraham_line"}
+  ]},
+  {"action": "wait", "t": 0.4}
+]

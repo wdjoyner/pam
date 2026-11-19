@@ -565,6 +565,7 @@ from pam.actions import ACTION_REGISTRY, _resolve_speaker
 from pam import hooks as _pam_hooks
 from pam import timeline as _pam_timeline
 from pam import constraints as _pam_constraints
+from pam import choreography as _pam_choreography
 
 
 BG_COLOR    = "#0a0e1a"
@@ -3164,8 +3165,18 @@ class PAMPlayer(MovingCameraScene):
         # a function that builds the piece's animations when the piece
         # begins.  Nothing here runs for a screenplay without timeline
         # syntax.
+        def _tl_prop(pname: str):
+            """The live mobject of a prop or scene object (None if
+            there is none), for a joint_to_prop constraint."""
+            mob = props.get_raw(pname)
+            if mob is None and pname in _scene_objects:
+                mob = _scene_objects[pname].get("mob")
+            if mob is not None and not hasattr(mob, "get_center"):
+                mob = getattr(mob, "group", None)   # governor, dog
+            return mob
+
         def _tl_constrain(step: dict) -> None:
-            _c = _pam_constraints.build(step, _get_fig)
+            _c = _pam_constraints.build(step, _get_fig, _tl_prop)
             if _c is not None:
                 _seq = _pam_timeline.get(self).stack
                 _c.sequence = _seq[-1]["id"] if _seq else None
@@ -3404,6 +3415,19 @@ class PAMPlayer(MovingCameraScene):
                         "end": _tl_sound(step, sa)}
             if kind == "say":
                 return _tl_say(step, info)
+            if kind == "routine":
+                # a choreography routine (pam/choreography.py): it
+                # measures the figures now and returns its phases
+                _seq = _pam_timeline.get(self).stack
+                started = _pam_choreography.start(
+                    step, info, _pam_choreography.Env(
+                        self, _get_fig, _seq[-1]["id"] if _seq else None),
+                    block)
+                if started is not None and not block.quiet:
+                    # (a routine on its own had its cue baked by the
+                    # main loop, like every top-level step)
+                    started["end"] = _tl_sound(step, sa)
+                return started
             if kind == "loco":
                 return _tl_loco(step, info)
             if kind != "anim":
@@ -5311,11 +5335,13 @@ class PAMPlayer(MovingCameraScene):
             # ── timed parallel block, timed say (pam/timeline.py) ─────────
             # A parallel block whose steps carry "at" or "frames" runs on
             # the frame clock, and so does a say whose length is given in
-            # frames.  Every other parallel block and say is untouched.
+            # frames, and a choreography routine (pam/choreography.py).
+            # Every other parallel block and say is untouched.
             if _timeline_on and (
                     (act == "parallel"
                      and _pam_timeline.is_timed_parallel(step))
-                    or (act == "say" and _pam_timeline.is_timed_say(step))):
+                    or (act == "say" and _pam_timeline.is_timed_say(step))
+                    or _pam_timeline.is_routine(step)):
                 # a beat on the step itself: inside a sequence it has
                 # been noted already (note_step, above)
                 if step.get("beat") and not (_tl is not None and _tl.stack):
@@ -5325,7 +5351,9 @@ class PAMPlayer(MovingCameraScene):
                     _tl_run(step)
                 else:
                     _tl_run({"action": "parallel",
-                             "id": f"say_{step.get('who')}",
+                             "id": (f"say_{step.get('who')}" if act == "say"
+                                    else step.get("id")
+                                    or f"{act}_{step.get('who')}"),
                              "do": [{k: v for k, v in step.items()
                                      if k not in ("at", "beat")}]},
                             quiet=True)
