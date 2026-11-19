@@ -22,7 +22,9 @@ something extra and are skipped without it:
 | File | What it checks |
 |---|---|
 | `test_golden_traces.py` | A fresh `pam_trace.py` trace of each fixture matches the stored one within 0.002. One comparison covers scaling, locomotion, poses, prop attachment and handoff, camera moves, and speech bubbles. |
-| `test_blender_build.py` | `trace2blender.py` builds a `.blend` from a stored golden trace without error. |
+| `test_blender_build.py` | `trace2blender.py` builds a `.blend` from a stored golden trace without error; in the built scene a constrained hand stays on the wrist it holds, including a wrist that moves. |
+| `test_timeline.py` | The 15 fps frame clock: a duration in `frames` lasts exactly that many frames, sequences and beats land on their frames, and legacy screenplays are not touched. |
+| `test_constraints.py` | The two-bone solver, `joint_to_joint` and `root_lock`, release on a set frame, the fall and the comic hold, the `sampled` trace piece, and the same gag at other character scales. |
 | `test_validate.py` | The JSON validator and the `pam-validate` command, including what they report for each fixture. |
 | `test_action_specs.py` | `pam/action_specs.py` lists exactly the actions `pam_player.py` dispatches. |
 | `test_fountain2pam_warnings.py` | `fountain2pam.py --warnings-json`, and that the validator reports the same `# REVIEW` comments. |
@@ -31,11 +33,16 @@ something extra and are skipped without it:
 
 ## Fixtures and golden traces
 
-The fixtures are three screenplays in the repository root:
+The fixtures are four screenplays in the repository root:
 
 - `screenplay_alice-meets-bob.json`
 - `lucy-meets-lenny2_pam.json`
 - `wdj_nona-vs-governor-venus3.json`
+- `abe-isaac_wrist-pull_slice.json` (the vertical slice: timeline, contact
+  constraint, sampled trace piece; trace version 5)
+
+The first three predate the timeline. They are the proof that it is opt-in:
+they must keep tracing as version 4 and keep matching their golden traces.
 
 Their traces are stored in `tests/golden/`. `tests/golden/BASELINE.json` records
 the reference commit (`8af434d`, the code the baseline protects), the PAM
@@ -118,3 +125,25 @@ In `tntd_screenplay+sound_2026-07-12.json` this meant three corrections:
 _comment entries at bottom of JSON.)", but it appends the hints after the
 JSON file has been written, so they are not in the file. The compiler's
 output is unchanged here; `--warnings-json` captures the hints.
+
+**Frame counts in Manim (vertical slice).** Manim renders
+`len(numpy.arange(0, run_time, 1/fps))` frames for a play, and for some whole
+numbers of frames the plain quotient is a hair too large: 23/15 and 31/15
+seconds render 24 and 32 frames. A wait during which nothing can change is
+counted differently again (`int(run_time * fps)` copies of one frozen frame).
+`pam/timeline.py` therefore passes `n/15` seconds less one nanosecond, and the
+player steps a wait given in frames frame by frame. `test_timeline.py` checks
+every count from 1 to 45.
+
+**Two tracer fixes found on the way.** `Scene.wait` plays through `Scene.play`,
+and the tracer wraps both, so a change during a wait was recorded twice; the
+duplicate is now dropped. Overlay ids for gloves and shoes were handed out in
+set order, which varies from run to run, so two traces of the same scene could
+differ; the order is now sorted. Neither changes the three legacy golden
+traces.
+
+**What the Blender check does and does not show.** The tests measure, inside
+the built `.blend`, the distance between the constrained hand and the wrist on
+every frame: zero for the wrist-pull, under 0.002 on keyed frames and under
+0.01 between them when the wrist itself moves. They do not judge how the scene
+looks.

@@ -45,6 +45,25 @@
       ],
       "plays": 399,
       "pieces": 31
+    },
+    "abe-isaac_wrist-pull_slice.json": {
+      "golden": "abe-isaac_wrist-pull_slice.trace.json",
+      "fixture_sha256": "4abe9dd1ef378aae7f5f8545415b05f0ac6a2cb03a7526e4043ad1c0b21d48e0",
+      "trace_version": 5,
+      "hooks_version": 2,
+      "duration": 4.0667,
+      "cast": [
+        "isaac",
+        "abraham"
+      ],
+      "plays": 16,
+      "pieces": 4,
+      "recorded_at": {
+        "commit": "f971c936f798698f242a9b2c00b11ff07b70ef4f",
+        "tracked_files_modified": true,
+        "pam_version": "1.0.1",
+        "recorded": "2026-11-19"
+      }
     }
   },
   "reference": {
@@ -55,7 +74,7 @@
   },
   "environment": {
     "python": "3.13.18",
-    "platform": "Linux-6.18.44-fc-v595-x86_64-with-glibc2.39",
+    "platform": "Linux-6.18.44-fc-v653-x86_64-with-glibc2.39",
     "manim": "0.22.1",
     "manimpango": "0.7.1",
     "numpy": "2.5.3",

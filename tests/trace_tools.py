@@ -39,7 +39,14 @@ FIXTURES = (
     "screenplay_alice-meets-bob.json",
     "lucy-meets-lenny2_pam.json",
     "wdj_nona-vs-governor-venus3.json",
+    # The vertical slice: timeline, contact constraint, sampled piece.
+    "abe-isaac_wrist-pull_slice.json",
 )
+
+# Fixtures written before the timeline existed.  They must keep tracing
+# as version 4, and the player must not touch their action lists.
+LEGACY_FIXTURES = FIXTURES[:3]
+SLICE = FIXTURES[3]
 
 # Traces are rounded to 4 decimals (3 for outlines), so two machines can
 # legitimately differ by one unit in the last place; 2e-3 leaves room
@@ -91,21 +98,36 @@ def record_trace(fixture, out_path, workdir):
     """Run ``pam_trace.py`` on *fixture* and write the trace to
     *out_path*.  Runs in *workdir* so that nothing Manim writes lands in
     the repository.  Returns the tracer's console output."""
-    env = _env()
     # Trace a private copy: the player looks for "<script>_prompts.json"
     # and "pam_sidecar.json" next to the script, and a stray local file
     # of either kind would change the trace.
     script = Path(workdir) / Path(fixture).name
     shutil.copyfile(REPO / fixture, script)
+    return trace_script(script, out_path, workdir)
+
+
+def trace_script(script, out_path, workdir):
+    """Run ``pam_trace.py`` on the screenplay file *script*."""
+    env = _env()
     env["PAM_SCRIPT"] = str(script)
     proc = subprocess.run(
         [sys.executable, str(REPO / "pam_trace.py"), str(out_path)],
         cwd=str(workdir), env=env, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(
-            f"pam_trace.py failed on {fixture} (exit {proc.returncode}):\n"
+            f"pam_trace.py failed on {script} (exit {proc.returncode}):\n"
             f"{proc.stdout[-2000:]}\n{proc.stderr[-4000:]}")
     return proc.stdout
+
+
+def trace_actions(actions, workdir, name="scene.json"):
+    """Trace an action list.  Returns (trace dict, console output)."""
+    workdir = Path(workdir)
+    script = workdir / name
+    script.write_text(json.dumps(actions))
+    out = workdir / (Path(name).stem + ".trace.json")
+    log = trace_script(script, out, workdir)
+    return json.loads(out.read_text()), log
 
 
 def text_probe():

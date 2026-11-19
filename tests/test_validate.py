@@ -181,6 +181,86 @@ def test_rejects_steps_the_player_cannot_read():
     assert codes({"action": "cast"}) == ["bad-file"]
 
 
+# ── timeline and constraints ─────────────────────────────────────────────
+
+GRIP = {"action": "constrain", "id": "grip", "type": "joint_to_joint",
+        "who": "alice", "joint": "rwrist",
+        "target": "bob", "target_joint": "lwrist", "blend": 6}
+
+
+def test_sequence_steps_are_validated_like_top_level_steps():
+    seq = {"action": "sequence", "id": "gag", "do": [
+        GRIP,
+        {"action": "morph", "who": "alice", "pose": "pull_lean",
+         "frames": 12, "beat": "pull"},
+        {"action": "release", "id": "grip"},
+        {"action": "slip_on_back", "who": "alice", "frames": 4},
+        {"action": "wait", "frames": 9, "beat": "comic_hold"},
+    ]}
+    report = validate_actions([CAST, seq])
+    assert report.findings == []
+
+    bad = {"action": "sequence", "id": "gag", "do": [
+        {"action": "say", "who": "carol", "text": "Hi"},
+        {"action": "moonwalk", "who": "alice"}]}
+    report = validate_actions([CAST, bad])
+    assert [(f.code, f.path) for f in report.errors] == [
+        ("missing-character", "do[0].who"),
+        ("unknown-action", "do[1].action")]
+
+
+def test_sequence_needs_a_do_list_and_cannot_sit_in_a_parallel_block():
+    assert codes([CAST, {"action": "sequence", "id": "s"}]) == ["bad-step"]
+    assert codes([CAST, {"action": "parallel", "do": [
+        {"action": "sequence", "id": "s", "do": []}]}]) == ["bad-step"]
+
+
+@pytest.mark.parametrize("value", [-1, 2.5, "6", True])
+def test_rejects_frames_that_are_not_a_whole_number(value):
+    assert codes([CAST, {"action": "wait", "frames": value}]) == \
+        ["invalid-frames"]
+    assert codes([CAST, dict(GRIP, blend=value)]) == ["invalid-frames"]
+
+
+def test_frames_warnings():
+    assert codes([CAST, {"action": "wait", "frames": 6, "t": 0.4}],
+                 level="warning") == ["frames-and-seconds"]
+    assert codes([CAST, {"action": "walk_to", "who": "alice", "x": 1.0,
+                         "frames": 20}], level="warning") == \
+        ["frames-unsupported"]
+    assert codes([CAST, {"action": "wait", "frames": 6}],
+                 level="warning") == []
+
+
+def test_rejects_bad_constraints():
+    assert codes([CAST, dict(GRIP, id="")]) == ["bad-constraint"]
+    assert codes([CAST, dict(GRIP, type="magnet")]) == ["bad-constraint"]
+    assert codes([CAST, dict(GRIP, target="carol")]) == ["missing-character"]
+    assert codes([CAST, dict(GRIP, joint="head")]) == ["invalid-joint"]
+    assert codes([CAST, dict(GRIP, joint="hand")]) == ["invalid-joint"]
+    assert codes([CAST, dict(GRIP, target_joint="wrist")]) == ["invalid-joint"]
+    no_target = {k: v for k, v in GRIP.items() if k != "target_joint"}
+    assert codes([CAST, no_target]) == ["bad-constraint"]
+    assert codes([CAST, {"action": "constrain", "id": "lock",
+                         "type": "root_lock", "who": "alice"}]) == []
+
+
+def test_release_must_name_a_constraint_in_force():
+    assert codes([CAST, GRIP, {"action": "release", "id": "grip"}],
+                 level="warning") == []
+    assert codes([CAST, {"action": "release", "id": "grip"}],
+                 level="warning") == ["unknown-constraint"]
+    # a constraint started inside a sequence ends with it
+    seq = {"action": "sequence", "id": "s", "do": [GRIP]}
+    assert codes([CAST, seq, {"action": "release", "id": "grip"}],
+                 level="warning") == ["unknown-constraint"]
+
+
+def test_internal_markers_are_not_valid_in_a_screenplay():
+    assert codes([CAST, {"action": "_sequence_begin", "id": "s"}]) == \
+        ["unknown-action"]
+
+
 # ── warnings ─────────────────────────────────────────────────────────────
 
 def test_reports_unresolved_review_and_patch_comments():
@@ -242,6 +322,7 @@ EXPECTED = {
     "screenplay_alice-meets-bob.json": ([], 0),
     "lucy-meets-lenny2_pam.json": ([], 12),
     "wdj_nona-vs-governor-venus3.json": ([], 31),
+    "abe-isaac_wrist-pull_slice.json": ([], 0),
 }
 
 
