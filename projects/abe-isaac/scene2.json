@@ -1,0 +1,214 @@
+[
+ {
+  "action": "set_background",
+  "color": "#a9c8e6"
+ },
+ {
+  "action": "props",
+  "rt": 0.2,
+  "items": {
+   "bowl": {
+    "type": "bowl",
+    "x": -0.55,
+    "y": -2.6
+   }
+  }
+ },
+ {
+  "action": "fade_in",
+  "who": "isaac",
+  "rt": 0.2
+ },
+ {
+  "action": "fade_in",
+  "who": "abraham",
+  "rt": 0.2
+ },
+ {
+  "action": "prop_transition",
+  "prop": "phone",
+  "beat": "checks_clips",
+  "attached": {
+   "to": "isaac",
+   "joint": "rwrist",
+   "by": "bottom"
+  }
+ },
+ {
+  "action": "wait",
+  "frames": 9
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "What are you sacrificing me with?",
+  "frames": 24,
+  "frames_in": 3,
+  "frames_out": 3
+ },
+ {
+  "action": "sequence",
+  "id": "s02_knife",
+  "do": [
+   {
+    "action": "morph",
+    "who": "abraham",
+    "pose": "look_up_point",
+    "frames": 6
+   },
+   {
+    "action": "prop_transition",
+    "prop": "knife",
+    "beat": "display",
+    "attached": {
+     "to": "abraham",
+     "joint": "rwrist",
+     "by": "blade",
+     "angle": 180
+    }
+   },
+   {
+    "action": "wait",
+    "frames": 9
+   },
+   {
+    "action": "constrain",
+    "id": "take",
+    "type": "joint_to_prop",
+    "who": "isaac",
+    "joint": "lwrist",
+    "prop": "knife.handle",
+    "blend": 6
+   },
+   {
+    "action": "wait",
+    "frames": 9,
+    "beat": "takes_handle"
+   },
+   {
+    "action": "parallel",
+    "id": "s02_break",
+    "frames": 30,
+    "do": [
+     {
+      "action": "release",
+      "id": "take",
+      "at": 3
+     },
+     {
+      "action": "prop_transition",
+      "prop": "knife",
+      "to": "broken",
+      "at": 3,
+      "frames": 6,
+      "beat": "break",
+      "parts": {
+       "handle": {
+        "attached": {
+         "to": "isaac",
+         "joint": "lwrist"
+        }
+       },
+       "blade": {
+        "attached": {
+         "to": "bowl",
+         "point": "top",
+         "mode": "in",
+         "angle": 250,
+         "offset": [
+          0,
+          -0.02
+         ]
+        },
+        "rate": "rush_into"
+       }
+      }
+     },
+     {
+      "action": "morph",
+      "who": "isaac",
+      "pose": "standing_front",
+      "at": 3,
+      "frames": 9
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "standing_side",
+      "at": 9,
+      "frames": 6
+     },
+     {
+      "action": "say",
+      "who": "isaac",
+      "text": "That'll be a short ceremony.",
+      "at": 18,
+      "frames": 12,
+      "frames_in": 3,
+      "frames_out": 3
+     }
+    ]
+   },
+   {
+    "action": "prop_transition",
+    "prop": "knife.handle",
+    "frames": 6,
+    "beat": "handle_down",
+    "attached": {
+     "to": "bowl",
+     "point": "top",
+     "mode": "in",
+     "offset": [
+      0.08,
+      0.0
+     ]
+    }
+   },
+   {
+    "action": "wait",
+    "frames": 6
+   },
+   {
+    "action": "prop_transition",
+    "prop": "knife",
+    "frames": 9,
+    "beat": "gather",
+    "parts": {
+     "handle": {
+      "attached": {
+       "to": "abraham",
+       "joint": "rwrist"
+      }
+     },
+     "blade": {
+      "attached": {
+       "to": "abraham",
+       "joint": "lwrist",
+       "angle": 180
+      }
+     }
+    }
+   },
+   {
+    "action": "wait",
+    "frames": 9,
+    "beat": "hold"
+   }
+  ]
+ },
+ {
+  "action": "prop_transition",
+  "prop": "phone",
+  "frames": 6,
+  "beat": "pockets_phone",
+  "attached": {
+   "to": "isaac",
+   "joint": "rhip",
+   "hidden": true
+  }
+ },
+ {
+  "action": "wait",
+  "frames": 6
+ }
+]

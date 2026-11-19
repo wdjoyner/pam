@@ -1,0 +1,147 @@
+[
+ {
+  "action": "set_background",
+  "color": "#a9c8e6"
+ },
+ {
+  "action": "props",
+  "rt": 0.2,
+  "items": {
+   "altar": {
+    "type": "altar",
+    "x": 1.6,
+    "y": -2.6
+   },
+   "rock": {
+    "type": "rock",
+    "x": -3.2,
+    "y": -2.6,
+    "width": 0.5,
+    "height": 0.45
+   },
+   "satchel": {
+    "type": "satchel",
+    "attached": {
+     "to": "abraham",
+     "joint": "lhip",
+     "offset": [
+      0.0,
+      -0.12
+     ]
+    }
+   }
+  }
+ },
+ {
+  "action": "fade_in",
+  "who": "isaac",
+  "rt": 0.2
+ },
+ {
+  "action": "fade_in",
+  "who": "abraham",
+  "rt": 0.2
+ },
+ {
+  "action": "prop_transition",
+  "prop": "phone",
+  "to": "live",
+  "display": {
+   "viewers": 3
+  },
+  "beat": "goes_live"
+ },
+ {
+  "action": "prop_transition",
+  "prop": "phone",
+  "display": {
+   "viewers": 240
+  },
+  "frames": 30,
+  "beat": "count_climbs"
+ },
+ {
+  "action": "prop_transition",
+  "prop": "phone",
+  "frames": 9,
+  "attached": {
+   "to": "rock",
+   "point": "top",
+   "by": "bottom"
+  }
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "Dad. We're on.",
+  "frames": 18,
+  "frames_in": 3,
+  "frames_out": 3
+ },
+ {
+  "action": "parallel",
+  "id": "s05_blade",
+  "frames": 30,
+  "do": [
+   {
+    "action": "prop_transition",
+    "prop": "satchel",
+    "frames": 5,
+    "rate": "rush_into",
+    "beat": "satchel_slips",
+    "attached": {
+     "to": null,
+     "x": -1.25,
+     "y": -2.47
+    }
+   },
+   {
+    "action": "prop_transition",
+    "prop": "knife",
+    "to": "blade_embedded",
+    "at": 3,
+    "frames": 9,
+    "beat": "blade_sticks",
+    "parts": {
+     "blade": {
+      "attached": {
+       "to": "altar",
+       "point": [
+        -0.2998,
+        0.176
+       ],
+       "by": "bottom",
+       "mode": "embedded",
+       "angle": 270,
+       "offset": [
+        0,
+        -0.08
+       ]
+      },
+      "rate": "rush_into"
+     }
+    }
+   },
+   {
+    "action": "wait",
+    "frames": 18,
+    "at": 12,
+    "beat": "silence"
+   }
+  ]
+ },
+ {
+  "action": "prop_transition",
+  "prop": "phone",
+  "display": {
+   "viewers": 480,
+   "comment": "IS THAT A REAL KNIFE"
+  },
+  "frames": 15,
+  "beat": "count_doubles"
+ },
+ {
+  "action": "wait",
+  "frames": 9
+ }
+]

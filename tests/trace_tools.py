@@ -48,6 +48,10 @@ FIXTURES = (
     # slip_on_back, cork_pop_up, mismatched_hug), two of them as steps
     # of timed parallel blocks.
     "abe-isaac_scene2-gags.json",
+    # Milestone 4, Stage 4a: the breakaway knife (a composite prop that
+    # changes state, a hand held on a prop, parts that go from hand to
+    # hand and into a bowl), and a phone in a hand.
+    "abe-isaac_knife-break.json",
 )
 
 # Fixtures written before the timeline existed.  They must keep tracing
@@ -56,6 +60,19 @@ LEGACY_FIXTURES = FIXTURES[:3]
 SLICE = FIXTURES[3]
 OVERLAP = FIXTURES[4]
 SCENE2 = FIXTURES[5]
+KNIFE = FIXTURES[6]
+
+# The six-scene project whose prop continuity the ledger tests walk
+# (Milestone 4): scenes and a sidecar with a "continuity" block.
+PROJECT = REPO / "projects" / "abe-isaac"
+
+
+def copy_project(dest):
+    """A private copy of the project (the ledger is written into its
+    sidecar; nothing is ever written into the repository)."""
+    dest = Path(dest)
+    shutil.copytree(PROJECT, dest)
+    return dest
 
 # Traces are rounded to 4 decimals (3 for outlines), so two machines can
 # legitimately differ by one unit in the last place; 2e-3 leaves room
@@ -330,3 +347,50 @@ def bend_side(joints, limb, straight=0.02):
     if abs(off) <= straight * length:
         return 0
     return 1 if off > 0 else -1
+
+
+# ── props in a trace ─────────────────────────────────────────────────────
+
+def prop_object(trace, name):
+    """The one prop object called *name* (fails if there are none or
+    several: a prop must never be there twice)."""
+    recs = [p for p in trace["prop_objects"] if p["name"] == name]
+    assert len(recs) == 1, f"{len(recs)} prop objects named {name!r}"
+    return recs[0]
+
+
+def prop_box(trace, rec, frame):
+    """A prop object's bounding box ``[x, y, w, h]`` on *frame* of a
+    version 5 trace: exact at the end of every move (and so on every
+    frame of a timed block)."""
+    t = frame / trace.get("fps", 15)
+    box = rec["initial"]
+    for m in rec["moves"]:
+        if m["t1"] <= t + 1e-4:     # (trace times are rounded to 0.1 ms)
+            box = m["to"]
+    return box
+
+
+def prop_visible(rec, frame, fps=15):
+    """Is the prop object on stage on *frame*?"""
+    t = frame / fps
+    on = False
+    for tv, vis, _ in rec["visibility"]:
+        if tv <= t + 1e-4:
+            on = bool(vis)
+    return on
+
+
+def prop_state(trace, name):
+    """The "prop_states" record of stateful prop *name*."""
+    return next(p for p in trace["prop_states"] if p["name"] == name)
+
+
+def state_at(rows, frame):
+    """The value in force on *frame* in a ``[[frame, value], ...]``
+    list ("states", "display")."""
+    cur = None
+    for f, v in rows:
+        if f <= frame:
+            cur = v
+    return cur

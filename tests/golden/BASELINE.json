@@ -102,6 +102,25 @@
         "pam_version": "1.0.1",
         "recorded": "2026-11-19"
       }
+    },
+    "abe-isaac_knife-break.json": {
+      "golden": "abe-isaac_knife-break.trace.json",
+      "fixture_sha256": "2d4215271a274435e49573ac82cde92144a6235625136e81539cc7076cbd061d",
+      "trace_version": 5,
+      "hooks_version": 2,
+      "duration": 8.2,
+      "cast": [
+        "isaac",
+        "abraham"
+      ],
+      "plays": 83,
+      "pieces": 18,
+      "recorded_at": {
+        "commit": "a4fa19a279ee9305477469c820e11342bfcb1cb0",
+        "tracked_files_modified": true,
+        "pam_version": "1.0.1",
+        "recorded": "2026-11-19"
+      }
     }
   },
   "reference": {

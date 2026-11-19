@@ -6,8 +6,8 @@ joint it is held on.  Used by test_blender_build.py.
     blender --background --python blender_probe.py -- scene.blend trace.json
 
 Prints one line: PROBE {json}.  For every joint_to_joint constraint in
-the trace, and every joint_to_point constraint whose point does not
-move, it reports the largest distance between the follower's joint and
+the trace, every joint_to_prop constraint (a hand held on a prop), and
+every joint_to_point constraint whose point does not move, it reports the largest distance between the follower's joint and
 its target over the frames the hand is held (after any blend-in): on
 the frames keyed from the trace, and on the frames Blender interpolates
 between them.
@@ -26,8 +26,19 @@ def main(blend, trace_path):
     out = {"fps": sc.render.fps, "constraints": {}}
     for c in T.get("constraints", []):
         a = bpy.data.objects[f"{c['who']}.{c['joint']}"]
+        plane = False
         if c["type"] == "joint_to_joint":
             b = bpy.data.objects[f"{c['target']}.{c['target_joint']}"]
+            where = lambda: b.matrix_world.translation
+        elif c["type"] == "joint_to_prop":
+            # the builder marks the held point on the prop with an empty
+            # (None: the prop was never on stage).  Depth is layering:
+            # the hand is on the prop when they meet in the picture
+            # plane, x-z.
+            b = bpy.data.objects.get(f"contact.{c['id']}")
+            if b is None:
+                continue
+            plane = True
             where = lambda: b.matrix_world.translation
         elif c["type"] == "joint_to_point" and not c.get("moving"):
             # a point of the stage does not move: measure how far the
@@ -46,7 +57,10 @@ def main(blend, trace_path):
             subs = range(int(step)) if f < c["f1"] else range(1)
             for k in subs:
                 sc.frame_set(int(round(base)) + k)
-                d = (a.matrix_world.translation - where()).length
+                d = a.matrix_world.translation - where()
+                if plane:
+                    d.y = 0.0
+                d = d.length
                 if k == 0:
                     keyed = max(keyed, d)
                 else:

@@ -1,0 +1,121 @@
+[
+ {
+  "action": "set_background",
+  "color": "#a9c8e6"
+ },
+ {
+  "action": "props",
+  "rt": 0.2,
+  "items": {
+   "altar": {
+    "type": "altar",
+    "x": 1.6,
+    "y": -2.6
+   },
+   "rock": {
+    "type": "rock",
+    "x": -3.2,
+    "y": -2.6,
+    "width": 0.5,
+    "height": 0.45
+   },
+   "satchel": {
+    "type": "satchel",
+    "attached": {
+     "to": "abraham",
+     "joint": "lhip",
+     "offset": [
+      0.0,
+      -0.12
+     ]
+    }
+   }
+  }
+ },
+ {
+  "action": "fade_in",
+  "who": "isaac",
+  "rt": 0.2
+ },
+ {
+  "action": "fade_in",
+  "who": "abraham",
+  "rt": 0.2
+ },
+ {
+  "action": "prop_transition",
+  "prop": "phone",
+  "to": "recording",
+  "frames": 9,
+  "beat": "props_phone",
+  "attached": {
+   "to": "rock",
+   "point": "top",
+   "by": "bottom"
+  }
+ },
+ {
+  "action": "wait",
+  "frames": 6
+ },
+ {
+  "action": "prop_transition",
+  "prop": "knife",
+  "frames": 6,
+  "beat": "takes_pieces_out",
+  "parts": {
+   "handle": {
+    "attached": {
+     "to": "abraham",
+     "joint": "rwrist"
+    }
+   },
+   "blade": {
+    "attached": {
+     "to": "abraham",
+     "joint": "lwrist"
+    }
+   }
+  }
+ },
+ {
+  "action": "wait",
+  "frames": 6
+ },
+ {
+  "action": "prop_transition",
+  "prop": "knife",
+  "to": "blade_carried",
+  "frames": 6,
+  "beat": "blade_into_satchel",
+  "parts": {
+   "blade": {
+    "attached": {
+     "to": "satchel",
+     "mode": "in",
+     "hidden": true
+    }
+   }
+  }
+ },
+ {
+  "action": "wait",
+  "frames": 9
+ },
+ {
+  "action": "prop_transition",
+  "prop": "phone",
+  "frames": 9,
+  "beat": "picks_up_phone",
+  "attached": {
+   "to": "abraham",
+   "joint": "lwrist",
+   "by": "bottom"
+  }
+ },
+ {
+  "action": "wait",
+  "frames": 9,
+  "beat": "red_button"
+ }
+]

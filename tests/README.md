@@ -1,12 +1,15 @@
 # PAM tests
 
 Regression tests for *PAM: The Road to Blender*: the Milestone 1 baseline,
-the vertical slice, the Milestone 2 timeline, and the Milestone 3 constraints
-and choreography routines.
+the vertical slice, the Milestone 2 timeline, the Milestone 3 constraints
+and choreography routines, and Stage 4a of Milestone 4 (stateful props and
+the continuity ledger).
 None of them writes a video, and none writes into the repository.
 
 ```bash
-python -m pytest             # all tests (about four minutes)
+python -m pytest             # all tests (about five minutes)
+python -m pytest -k prop_states   # Milestone 4: the ledger and the knife's
+                                  # completion test (no rendering, 3 seconds)
 python -m pytest -k choreography  # Milestone 3, with its completion test
 python -m pytest -k golden   # golden-trace comparison only
 python -m pytest -k validate # validator only (a few seconds)
@@ -25,13 +28,15 @@ something extra and are skipped without it:
 | File | What it checks |
 |---|---|
 | `test_golden_traces.py` | A fresh `pam_trace.py` trace of each fixture matches the stored one within 0.002. One comparison covers scaling, locomotion, poses, prop attachment and handoff, camera moves, and speech bubbles. |
-| `test_blender_build.py` | `trace2blender.py` builds a `.blend` from a stored golden trace without error; in the built scene a constrained hand stays on the wrist it holds, including a wrist that moves, and the contacts of the Scene 2 routines hold (the pull, the offered hand, the pop). |
+| `test_blender_build.py` | `trace2blender.py` builds a `.blend` from a stored golden trace without error; in the built scene a constrained hand stays on the wrist it holds, including a wrist that moves, and the contacts of the Scene 2 routines hold (the pull, the offered hand, the pop). Stateful props: the knife's handle and blade are built once each and are where the trace has them before and after the break; a hand held on a prop is on it in Blender, also on a prop the builder moves (a door set on the floor); a stateful phone gets its screens. |
 | `test_blender_mouth.py` | Talking mouths in the Blender export: shown only while the character's bubble is showing, kept with `--no-bubbles`, removed by `--no-mouths`. |
 | `test_timeline.py` | The 15 fps frame clock: a duration in `frames` lasts exactly that many frames, sequences and beats land on their frames, and legacy screenplays are not touched. |
 | `test_timeline_blocks.py` | Timed `parallel` blocks (Milestone 2): overlapping moves start and end on their frames and keep their easing, a line of dialogue and a camera cut land on their frames, walks take exactly their frames, constraints start and end inside a block, repeated runs are identical, a block is exact at 30 fps, and ordinary `parallel` blocks and `say` lines are not touched. |
 | `test_timeline_hardening.py` | The corrections from the referee report on Milestone 2: every overlapping pair of moves of one figure is found and two pose moves at once are an error; a block that would run over is an error; a camera cut in the middle of a walk or a slide frames the drawn figure; a move ending, a move starting, a cut and a release on one frame; the block's frame listener ends with the block; a block that starts off the 15 fps grid at 30 fps. |
 | `test_constraints.py` | The two-bone solver, `joint_to_joint` and `root_lock`, release on a set frame, the fall and the comic hold, the `sampled` trace piece, and the same gag at other character scales. |
 | `test_choreography.py` | Milestone 3. `joint_to_point` and `joint_to_prop` (a hand on a point, a foot planted, a hand that follows a moving prop, a hand on a wrist that is itself held). How a routine's `frames` are shared over its phases. The Scene 2 routines `pull_immovable`, `cork_pop_up` and `mismatched_hug`: phases on their frames, a routine as a step of a timed block, and what each gag must show. The roadmap's completion test (below). |
+| `test_prop_states.py` | Milestone 4, Stage 4a, without a renderer. The prop state machines (the knife, the phone, an item's own, and doors, lids and the Governor as machines of the same kind); what a `prop_transition` may and may not do; the validator on stateful props, also in timed blocks; the continuity ledger file (written, read by the next scene, overrides reported, nothing rewritten when nothing changed); and the six-scene project, with the roadmap's completion test for the knife (below). |
+| `test_prop_trace.py` | The same things as the player plays them: prop identities and `prop_state_changed` events in the trace, where every part is on every frame of the knife break, a transition as a step of a timed block, a hand held on a part of the knife, the phone's display changing while the phone stays put (and the reverse), the blade stuck in the altar, the ledger written by playing equal to the one written by validating, and doors, a lid and the Governor through `prop_transition`. |
 | `test_validate.py` | The JSON validator and the `pam-validate` command, including what they report for each fixture. |
 | `test_action_specs.py` | `pam/action_specs.py` lists exactly the actions `pam_player.py` dispatches. |
 | `test_fountain2pam_warnings.py` | `fountain2pam.py --warnings-json`, and that the validator reports the same `# REVIEW` comments. |
@@ -40,7 +45,7 @@ something extra and are skipped without it:
 
 ## Fixtures and golden traces
 
-The fixtures are six screenplays in the repository root:
+The fixtures are seven screenplays in the repository root:
 
 - `screenplay_alice-meets-bob.json`
 - `lucy-meets-lenny2_pam.json`
@@ -53,6 +58,14 @@ The fixtures are six screenplays in the repository root:
 - `abe-isaac_scene2-gags.json` (Milestone 3: `pull_immovable`, `slip_on_back`,
   `cork_pop_up` and `mismatched_hug`; the last two run inside timed parallel
   blocks, under dialogue and camera cuts)
+- `abe-isaac_knife-break.json` (Milestone 4, Stage 4a: the breakaway knife of
+  Scene 2. Abraham shows the knife, Isaac takes it by the handle with a
+  `joint_to_prop` constraint, the handle comes away and the blade drops into
+  the bowl inside a timed parallel block, and Abraham gathers the pieces)
+
+`projects/abe-isaac/` is a seventh kind of fixture: six scenes and a sidecar
+with a `continuity` block. The tests always work on a private copy of it,
+since validating or playing a scene writes to the ledger.
 
 The first three predate the timeline. They are the proof that it is opt-in:
 they must keep tracing as version 4 and keep matching their golden traces.
@@ -145,6 +158,49 @@ scene mirrored, and with an Isaac small enough that the hug reaches around.
 "Reads" here means these measurable properties. Whether a gag is funny at a
 given size is still a judgment for someone watching the render.
 
+## The Milestone 4 completion test (the knife)
+
+The roadmap's test reads: *every knife component reaches its expected state
+and location in every scene, with no disappearing or duplicated pieces; the
+ledger tests pass independently of the renderer.* It is
+`test_knife_completion` in `test_prop_states.py`, and it imports nothing that
+draws.
+
+`projects/abe-isaac/scene1.json` to `scene6.json` are validated in order with
+`validate_project` (which is what `pam-validate --project` runs). Each scene
+opens from the closing entry the one before wrote. The test then reads the
+ledger and compares it with a table taken from Draft 3 of the script
+(`writing-guides`, `shorts/abe-and-isaac/script.fountain`):
+
+| Scene | Knife | Handle | Blade | Phone |
+|---|---|---|---|---|
+| 1 | `intact` | joined; on Abraham, out of sight | joined | `standby`, with Isaac, out of sight |
+| 2 | `broken` | held by Abraham | held by Abraham | `standby`, with Isaac, out of sight |
+| 3 | `broken` | in the satchel | in the satchel | `standby`, with Isaac, out of sight |
+| 4 | `blade_carried` | held by Abraham | in the satchel | `recording`, held by Abraham |
+| 5 | `blade_embedded` | held by Abraham | embedded in the altar | `live`, on its rock, 480 viewers |
+| 6 | `blade_embedded` | at rest on the ground | embedded in the altar | `live`, held by Isaac, 900 viewers |
+
+For every scene it also checks that the knife has exactly its two parts, each
+attached to something, that no second knife or stray part is in the entry,
+and that the validator found nothing lost or misplaced.
+`test_knife_goes_through_the_script_inside_each_scene` checks every change
+between the scene ends (the handle in Isaac's fingers and the blade in the
+bowl, before Abraham gathers them). `test_prop_trace.py` then plays the six
+scenes: the ledger the player writes is equal to the validator's, no scene's
+trace has a piece twice, and each piece is drawn at the end of a scene
+exactly when the ledger says it is not hidden.
+
+Three choices in those scenes are blocking decisions, not the script's:
+Isaac puts the handle in the bowl before Abraham gathers the pieces; Isaac
+pockets his phone as he leaves the cave; and in Scene 4 Abraham takes both
+pieces out of the satchel before he drops the blade back in (the script has
+them in the satchel at the end of Scene 3 and the blade going *into* it in
+Scene 4). The one place the scenes override the ledger is the script's own:
+Scene 2 ends with the pieces in Abraham's hands and Scene 3 opens with them
+in his satchel. The validator reports those two overrides, and a test checks
+that they are the only ones.
+
 ## Findings recorded while building the baseline
 
 **Updaters in dry-run mode (Milestone 1, task 7).** Manim does advance
@@ -178,6 +234,29 @@ figure class has that method, so a `{"action": "scale", ...}` step raises
 screenplay in the repository uses it; characters get their scale from the
 `cast` step. It is listed among the actions a timed block can run, and the
 validator accepts it.
+
+**Stateful props (Milestone 4, Stage 4a).** Five things turned up.
+
+- *A display may only be redrawn between two plays* (the same Manim rule as
+  for bubbles in timed blocks). A viewer count that climbs is therefore one
+  play per frame, and the phone's screen is redrawn after each.
+- *A prop moved by something else's updater is not redrawn.* Manim paints
+  everything before the first "moving" mobject once per play. A prop kept
+  on an attachment gets an updater of its own that does nothing, which marks
+  it as moving.
+- *A prop on a hand and a hand on a prop.* Attachments are placed, then the
+  contact constraints are solved, then attachments are placed again, on
+  every frame, so a prop in a constrained hand and a hand constrained to a
+  held prop both come out right.
+- *A turned blade's bounding box is not centered on the blade.* Manim keeps
+  the box center on the target; the Blender model is shifted back by the
+  difference at each angle (up to 0.016 units).
+- *The elevator's doors slide inside its own outline*, so the prop's box in
+  the trace never showed them opening. Its state does now.
+
+The README's "Stateful props" examples named `open_doors` and `close_doors`
+as actions. Those are methods of the prop; the actions are `elevator_open`
+and `elevator_close`. The examples are corrected.
 
 **The referee report on Milestone 2.** `test_timeline_hardening.py` holds what
 came out of it:
