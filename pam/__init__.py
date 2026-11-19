@@ -1,7 +1,7 @@
 """
 PAM — Pose And Motion library for the humanoid skeleton graph.
 
-version 0.9.13
+version 1.0.1
 
 A manim-based toolkit for animating stick-figure characters as graphs.
 
@@ -103,4 +103,4 @@ from .paired_poses import (               # noqa: F401
     describe_template as describe_paired_template,
 )
 
-__version__ = "0.9.13"
+__version__ = "1.0.1"

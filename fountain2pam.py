@@ -1802,7 +1802,8 @@ def _find_character_in_text(text, characters, last_who=None):
     return None
 
 
-def _interpret_action(text, characters, prop_names, last_who=None):
+def _interpret_action(text, characters, prop_names, last_who=None,
+                      dog_names=None):
     all_actions = []
     clauses = [text]
     if ". " in text:
@@ -1824,7 +1825,8 @@ def _interpret_action(text, characters, prop_names, last_who=None):
         else:
             expanded.append(c)
     for clause in expanded:
-        result = _interpret_clause(clause, characters, prop_names, last_who)
+        result = _interpret_clause(clause, characters, prop_names, last_who,
+                                   dog_names=dog_names)
         all_actions.extend(result)
         who_in_result = next((a.get("who") for a in result
                               if "who" in a and a.get("who")), None)
@@ -1950,7 +1952,17 @@ def _interpret_action(text, characters, prop_names, last_who=None):
     return all_actions
 
 
-def _interpret_clause(text, characters, prop_names, last_who=None):
+def _interpret_clause(text, characters, prop_names, last_who=None,
+                      dog_names=None):
+    """Interpret one clause of an action line.
+
+    *dog_names* maps the lowercase name of each dog character to its
+    prop key (``{"ramis": "dog"}``).  ``trot_to`` only moves dogs and
+    addresses them by prop key, so when the map is given, the trot rule
+    below uses it and leaves a human who "jogs" or "trots" to the
+    humanoid rules further down.  Without the map (older callers) the
+    rule behaves as it did before PAM 1.0.1.
+    """
     actions = []
     tl = text.lower()
     who = _find_character_in_text(text, characters, last_who)
@@ -1986,6 +1998,10 @@ def _interpret_clause(text, characters, prop_names, last_who=None):
         dest_phrase = m_trot.group(2)
         t = _fuzzy_prop_match(dest_phrase, prop_names)
         dog_key = who
+        if dog_names is not None:
+            # The character's name ("ramis") is not the prop key ("dog");
+            # None for a human, which skips this rule.
+            dog_key = dog_names.get(who)
         if dog_key and t:
             return [{"action": "trot_to", "prop": dog_key, "x": t}]
         elif dog_key:
@@ -4133,6 +4149,9 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
     # ── Tracking state ───────────────────────────────────────────────────
     faded_in = set()
     prop_char_keys = set(prop_char_map.values())
+    # Lowercase character name → prop key, for dogs ("ramis" → "dog").
+    dog_names = {cname.lower(): ptype
+                 for cname, ptype in prop_char_map.items() if ptype == "dog"}
     prop_char_spawned = set()
     prop_names = {pn.replace(" ", "_") for pn in prop_nouns} | prop_nouns
 
@@ -4554,8 +4573,19 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
             if who_found:
                 last_who = who_found
 
-            pam_acts = _interpret_action(text, characters, prop_names, last_who)
+            pam_acts = _interpret_action(text, characters, prop_names, last_who,
+                                         dog_names=dog_names)
             is_review = all("_comment" in a or "_hint" in a for a in pam_acts)
+
+            # ── A dog must exist before its first trot ───────────────────
+            # trot_to on a dog that has not been spawned is skipped by the
+            # player, so spawn the dog here if this line is where it first
+            # moves.
+            for a in pam_acts:
+                for sub in [a] + list(a.get("do") or []):
+                    if (sub.get("action") == "trot_to"
+                            and sub.get("prop") in prop_char_keys):
+                        _ensure_prop_char_spawned(sub["prop"])
 
             # ── If a walk_to_prop is present and a dog is spawned, wrap it ──
             # A dog companion should trot to the same destination alongside
@@ -5051,6 +5081,79 @@ def _validate(actions: list, cast_spec: dict) -> list[str]:
     return warnings
 
 
+class _StderrTee:
+    """Pass stderr through unchanged while keeping a copy of each line
+    (used by ``--warnings-json`` to capture conversion messages such as
+    ``[CAMERA] warning: ...``)."""
+
+    def __init__(self, stream):
+        self._stream = stream
+        self._buf = ""
+        self.lines: list[str] = []
+
+    def write(self, data):
+        n = self._stream.write(data)
+        self._buf += data
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            if line.strip():
+                self.lines.append(line.strip())
+        return n
+
+    def flush(self):
+        self._stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+def collect_warnings(written_actions: list, *, fountain: str = None,
+                     pam_output: str = None, messages: list = None,
+                     validation: list = None,
+                     patch_hints: list = None) -> dict:
+    """Gather everything a conversion wants a human to look at into one
+    JSON-friendly report (see ``--warnings-json``).
+
+    *written_actions* is the action list as written to the PAM JSON
+    file, so each ``index`` is a position in that file.
+
+    Report keys
+    -----------
+    review_comments      every unresolved ``# REVIEW`` comment:
+                         ``{"index", "text", "action"}``.  ``action`` is
+                         set when the comment sits on a real action
+                         step; pam_player skips such a step entirely.
+    validation_warnings  the messages printed under VALIDATION WARNINGS
+    patch_hints          the messages printed under PATCH GUIDE
+    messages             warnings printed to stderr during conversion
+    counts               the length of each list
+    """
+    reviews = []
+    for i, a in enumerate(written_actions):
+        c = a.get("_comment") if isinstance(a, dict) else None
+        if isinstance(c, str) and "REVIEW" in c:
+            text = c.split("REVIEW:", 1)[1] if "REVIEW:" in c else c
+            reviews.append({"index": i, "text": text.strip(),
+                            "action": a.get("action")})
+    report = {
+        "fountain": fountain,
+        "pam_output": pam_output,
+        "review_comments": reviews,
+        "validation_warnings": [w.strip() for w in (validation or [])],
+        "patch_hints": [h.strip() for h in (patch_hints or [])],
+        "messages": list(messages or []),
+    }
+    report["counts"] = {k: len(report[k]) for k in
+                        ("review_comments", "validation_warnings",
+                         "patch_hints", "messages")}
+    return report
+
+
+def write_warnings(report: dict, output_path: str) -> None:
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2, ensure_ascii=False)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Convert a Fountain screenplay to PAM JSON + AI prompts."
@@ -5132,6 +5235,18 @@ def main():
         help="Skip post-conversion validation checks.",
     )
 
+    parser.add_argument(
+        "--warnings-json",
+        metavar="PATH",
+        help=(
+            "Also write everything that needs a human look to PATH as "
+            "JSON: unresolved # REVIEW comments (with their position in "
+            "the PAM JSON), validation warnings, patch-guide hints, and "
+            "warnings printed during conversion.  Console output and the "
+            "other output files are unchanged."
+        ),
+    )
+
     args = parser.parse_args()
 
     # --csv implies --shot-count
@@ -5143,9 +5258,17 @@ def main():
         Path(args.fountain).parent / "characters.json"
     )
 
-    actions, prompts = convert_fountain(
-        args.fountain, scale=args.scale, title_override=args.title,
-        clip_mode=args.clip_mode, shot_count=shot_count)
+    _tee = None
+    if args.warnings_json:
+        _tee = _StderrTee(sys.stderr)
+        sys.stderr = _tee
+    try:
+        actions, prompts = convert_fountain(
+            args.fountain, scale=args.scale, title_override=args.title,
+            clip_mode=args.clip_mode, shot_count=shot_count)
+    finally:
+        if _tee is not None:
+            sys.stderr = _tee._stream
 
     # ── load characters.json → backfill missing cast fields ──────────────
     cast_block = next((a for a in actions if a.get("action") == "cast"), {})
@@ -5163,6 +5286,12 @@ def main():
         if args.csv:
             n_rows = export_shots_csv(prompts, args.csv)
             print(f"Shot list:  {args.csv}  ({n_rows} rows)")
+        if args.warnings_json:
+            write_warnings(
+                collect_warnings([], fountain=args.fountain,
+                                 messages=_tee.lines),
+                args.warnings_json)
+            print(f"Warnings:   {args.warnings_json}")
         return
 
     # ── normal mode ───────────────────────────────────────────────────────
@@ -5210,6 +5339,7 @@ def main():
         print(f"Shot list CSV: {args.csv}  ({n_rows} rows)")
 
     # ── validation ────────────────────────────────────────────────────────
+    val_warnings = []
     if not args.no_validate:
         val_warnings = _validate(actions, cast_spec)
         if val_warnings:
@@ -5223,11 +5353,32 @@ def main():
         else:
             print("Validation: OK — no issues found.")
 
-    _patch_hints(actions, prompts)
+    # What was written to the PAM JSON (the patch guide below appends to
+    # *actions* only after the file is on disk).
+    written = [a for a in actions
+               if "_subscene_marker" in a or not args.no_comments
+               or not ("_comment" in a or "_hint" in a)]
+
+    hints = _patch_hints(actions, prompts)
+
+    if args.warnings_json:
+        report = collect_warnings(
+            written, fountain=args.fountain, pam_output=pam_out,
+            messages=_tee.lines, validation=val_warnings,
+            patch_hints=hints)
+        write_warnings(report, args.warnings_json)
+        c = report["counts"]
+        print(f"Warnings:   {args.warnings_json}  "
+              f"({c['review_comments']} review, "
+              f"{c['validation_warnings']} validation, "
+              f"{c['patch_hints']} patch, {c['messages']} conversion)")
 
 
-def _patch_hints(actions: list, prompts: dict) -> None:
-    """Print patch guide to console and append as _comment entries in actions."""
+def _patch_hints(actions: list, prompts: dict) -> list:
+    """Print patch guide to console and append as _comment entries in actions.
+
+    Returns the console lines of the guide (empty when there are none).
+    """
     hints, json_comments = [], []
 
     def _note(console_line, json_line=None):
@@ -5378,6 +5529,8 @@ def _patch_hints(actions: list, prompts: dict) -> None:
             "# FOUNTAIN+ TODO = improve .fountain file for next conversion."})
         for jc in json_comments:
             actions.append({"_comment": jc})
+
+    return hints
 
 
 if __name__ == "__main__":
