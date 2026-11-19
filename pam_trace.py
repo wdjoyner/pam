@@ -142,6 +142,16 @@ as version 4, byte for byte as before.  Version 5 adds:
                 "measured": {...}}],     # routines (pam/choreography.py);
                                          # only present when there are any;
                                          # for information only
+  "prop_states": [{"name", "type", "machine",   # stateful props
+                   "parts": {part: prop id},     # (pam/prop_states.py);
+                   "object": prop id,            # only present when
+                   "states": [[f, state], ...],  # there are any
+                   "display": [[f, {"state", "screen", field: value}],
+                               ...]}],
+  "prop_events": [{"event": "prop_state_changed", "prop", "f", "t",
+                   "frames", "changed": ["state" | "attached" |
+                   "display"], "from", "to", "attached": {prop or
+                   prop.part: attachment}, "display", "cause"}],
 and one more kind of piece in "tracks":
 
   {"kind": "sampled", "source": "constraint", "constraint": id,
@@ -155,6 +165,27 @@ figure, camera, bubble, prop and overlay move there is a run of linear
 one-frame pieces (source "play"), which is exactly what Manim drew at
 15 fps.  Which step ran on which frames is in "blocks".  A line of
 dialogue starts on the frame its bubble's "visibility" turns on.
+
+Stateful props.  "prop_states" names every prop that has a state and
+says which prop objects it is made of: "object" for a simple prop,
+"parts" for a composite one (the knife: {"handle": 3, "blade": 4}).  A
+composite prop has no prop object of its own, so nothing is drawn
+twice, and its parts are the same two objects before and after it
+breaks.  "states" is the state from each frame on; "display" is what a
+display shows from each frame on (the phone's screen, viewer count and
+comment).  "prop_events" lists every change in order, with the frame it
+happened on.  The prop objects of such props carry, besides the usual
+keys:
+  "part_of", "part"     the composite prop a part belongs to
+  "model"               what to build ({"kind": "knife_blade", ...})
+  "attachments"         [[t, attachment], ...]: from t the prop is on
+                        this attachment (as in pam/prop_states.py: to,
+                        kind, joint or point, mode, hidden, ...)
+  "angles"              [{"t0", "t1", "rate", "from", "to"}]: turns, in
+                        degrees
+and a hold made by a prop_transition has "offset": [dx, dy], where the
+prop sits from the joint.  The Governor's "states" list is read through
+the same function (prop_states.state_of) as every other prop's state.
 
 A sampled piece holds the resolved world position of a constrained
 limb's joints on every frame while the constraint was in force.  It
@@ -175,6 +206,7 @@ from manim import tempconfig
 from manim.scene.scene import Scene
 
 from pam import hooks
+from pam import prop_states as _prop_states
 
 TRACE_VERSION = 4
 # Written instead of TRACE_VERSION when the screenplay uses the timeline
@@ -343,9 +375,11 @@ class PropTracker:
     @staticmethod
     def _skip(mob):
         # dogs live in the prop registry too, but they are traced as
-        # characters
+        # characters; a composite prop has no geometry of its own, only
+        # its parts do (each is a prop object; see "prop_states")
         return getattr(mob, "pam_dog", None) is not None \
-            or not hasattr(mob, "get_center")
+            or not hasattr(mob, "get_center") \
+            or bool(getattr(mob, "pam_composite", False))
 
     def _spec_for(self, name):
         """The screenplay item that created prop *name*: the current step
@@ -406,6 +440,14 @@ class PropTracker:
             "_mob": mob, "_box": None, "_vis": None, "_parent": None,
             "_follows": None, "_follow_rows": [],
         }
+        # identity of a part of a composite prop, and what to build it
+        # as (stateful props only; see "prop_states" in the docstring)
+        if getattr(mob, "pam_part_of", None):
+            rec["part_of"] = mob.pam_part_of
+            rec["part"] = getattr(mob, "pam_part", None)
+        if isinstance(getattr(mob, "pam_model", None), dict):
+            rec["model"] = _json_safe(mob.pam_model)
+        rec["_angle"] = float(getattr(mob, "pam_angle", 0.0) or 0.0)
         gov = getattr(mob, "pam_governor", None)
         if gov is not None:
             rec["governor"] = {
@@ -496,6 +538,14 @@ class PropTracker:
             if parent != rec["_parent"]:
                 rec["parents"].append([_r4(t1), parent])
                 rec["_parent"] = parent
+            # orientation (only props turned by a prop_transition)
+            ang = float(getattr(mob, "pam_angle", 0.0) or 0.0)
+            if abs(ang - rec["_angle"]) > 1e-6:
+                rec.setdefault("angles", []).append(
+                    {"t0": _r4(t0), "t1": _r4(t1),
+                     "rate": rate if t1 > t0 else "linear",
+                     "from": _r4(rec["_angle"]), "to": _r4(ang)})
+                rec["_angle"] = ang
             # pam_follows (hats, tags, backpacks ride on a figure)
             fol = getattr(mob, "pam_follows", None)
             if fol != rec["_follows"]:
@@ -506,12 +556,15 @@ class PropTracker:
             gov = rec.get("governor")
             if gov is not None:
                 self._step_governor(gov, getattr(mob, "pam_governor", None),
-                                    t0, t1, rate)
+                                    t0, t1, rate,
+                                    _prop_states.state_of(mob))
             if not visible and key not in seen:
                 self.active.pop(key, None)       # removed and gone
 
     @staticmethod
-    def _step_governor(g, gov, t0, t1, rate):
+    def _step_governor(g, gov, t0, t1, rate, state=None):
+        """*state* is the Governor's state as pam/prop_states.py reports
+        it (``state_of``), the one place that knows a prop's state."""
         if gov is None:
             return
         st = PropTracker._gov_state(gov)
@@ -522,7 +575,6 @@ class PropTracker:
                                "rate": rate if t1 > t0 else "linear",
                                "from": g["_gstate"], "to": st})
         g["_gstate"] = st
-        state = getattr(gov, "_state", None)
         if state != g["_state"]:
             g["states"].append([_r4(t0), state])
             g["_state"] = state
@@ -538,6 +590,17 @@ class PropTracker:
     def on_prop_event(self, event, data, t, char):
         mob = data.get("prop")
         name = data.get("prop_name") or getattr(mob, "pam_name", None)
+        parts = getattr(mob, "pam_parts", None) \
+            if getattr(mob, "pam_composite", False) else None
+        if parts:
+            # a composite prop is held part by part: each part is the
+            # prop object that is drawn
+            ev = None
+            for part, pmob in parts.items():
+                ev = self.on_prop_event(
+                    event, {**data, "prop": pmob,
+                            "prop_name": f"{name}.{part}"}, t, char)
+            return ev
         pid = None
         if mob is not None and not self._skip(mob):
             rec = self.by_id.get(id(mob))
@@ -554,6 +617,9 @@ class PropTracker:
         ev = {"t": _r4(t), "kind": event[5:], "char": char, "prop": name,
               "pid": pid, "joints": data.get("joints") or [],
               "hand": data.get("hand"), "mode": data.get("mode")}
+        if data.get("offset") is not None:
+            # where the prop sits from the joint (a prop_transition)
+            ev["offset"] = _xy(data["offset"])
         self.events.append(ev)
         return ev
 
@@ -595,6 +661,8 @@ class PropTracker:
                     cur = {"char": ev["char"], "joints": joints or
                            ["lwrist", "rwrist"], "hand": ev.get("hand"),
                            "t0": ev["t"], "t1": None, "start": ev.get("mode")}
+                    if ev.get("offset") is not None:
+                        cur["offset"] = ev["offset"]
                     continue
                 if cur is None:
                     continue
@@ -994,6 +1062,10 @@ class Tracer:
         self._in_block = 0          # > 0 while one is playing
         self._open_plays = []       # [t0, pre, stepped by frames] per play
         self._open_constraints = {}     # id -> record with "_samples"
+        # stateful props (pam/prop_states.py): filled only when a
+        # screenplay has any
+        self.prop_states = {}       # name -> record, see the docstring
+        self.prop_events = []       # state, attachment, display changes
         self.stats = {"plays": 0, "pieces_hook": 0, "pieces_pose_target": 0,
                       "pieces_play": 0, "pieces_cut": 0, "segments_stale": 0,
                       "max_target_mismatch": 0.0}
@@ -1247,6 +1319,61 @@ class Tracer:
                  if data.get(k) is not None})
         elif event == "frame":
             self._on_frame(data)
+        elif event in ("prop_declared", "prop_state_changed",
+                       "prop_attached", "prop_display"):
+            self.timeline = True
+            self._on_prop_state(event, data)
+
+    # ── stateful props (trace version 5) ─────────────────────────────────
+    def _on_prop_state(self, event, data):
+        name = data.get("prop")
+        f = data.get("frame")
+        if event == "prop_declared":
+            mob = data.get("mob")
+            rec = {"name": name, "type": data.get("type"),
+                   "machine": data.get("machine"), "states": [],
+                   "display": []}
+            parts = data.get("parts") or {}
+            if parts:
+                # identities: the prop object of every part
+                rec["parts"] = {
+                    part: self.pt.ensure(f"{name}.{part}", pmob,
+                                         "props")["id"]
+                    for part, pmob in parts.items()}
+            elif mob is not None and not self.pt._skip(mob):
+                rec["object"] = self.pt.ensure(name, mob, "props")["id"]
+            if data.get("state") is not None:
+                rec["states"].append([f, data["state"]])
+            self.prop_states[name] = rec
+        elif event == "prop_state_changed":
+            ev = {"event": "prop_state_changed", "prop": name, "f": f,
+                  "t": _r4(data.get("t", self.now()))}
+            for k in ("frames", "changed", "from", "to", "attached",
+                      "display", "cause"):
+                if data.get(k) is not None:
+                    ev[k] = _json_safe(data[k])
+            self.prop_events.append(ev)
+            rec = self.prop_states.get(name)
+            if rec is not None and "state" in (data.get("changed") or ()):
+                rec["states"].append([f, data.get("to")])
+        elif event == "prop_attached":
+            mob = data.get("mob")
+            if mob is None or self.pt._skip(mob):
+                return
+            rec = self.pt.ensure(name, mob, "props")
+            rec.setdefault("attachments", []).append(
+                [_r4(data.get("t", self.now())),
+                 _json_safe(data.get("attach") or {})])
+        elif event == "prop_display":
+            rec = self.prop_states.get(name)
+            if rec is not None:
+                row = {"state": data.get("state"),
+                       "screen": data.get("screen")}
+                row.update(_json_safe(data.get("display") or {}))
+                if rec["display"] and rec["display"][-1][0] == f:
+                    rec["display"][-1] = [f, row]
+                else:
+                    rec["display"].append([f, row])
 
     # ── timeline: frame by frame inside a timed block ────────────────────
     def _on_frame(self, data):
@@ -1583,6 +1710,9 @@ class Tracer:
                 out["blocks"] = self.blocks
             if self.routines:
                 out["routines"] = self.routines
+            if self.prop_states:
+                out["prop_states"] = list(self.prop_states.values())
+                out["prop_events"] = self.prop_events
         return out
 
 

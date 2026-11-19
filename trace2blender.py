@@ -81,6 +81,28 @@ floor-standing props are set on the floor, and a prop placed on a table
 lies on its top.  The Governor spins (when its step asks for "spin"),
 glows gold, flares word by word while it speaks, and dims to amber and
 slows down in its low-power state.
+
+Stateful props (trace version 5, "prop_states"; pam/prop_states.py):
+each part of a composite prop is built once, from the prop object the
+trace gives it, and is the same object before and after the prop
+breaks; the composite itself has no geometry, so nothing is built
+twice.  A knife's handle and blade get simple 3D models.  A part
+follows the attachments the trace records: on a hand it rides on the
+joint at the offset Manim had it; on or in another prop it shares that
+prop's place in depth and its lift onto the floor; hidden, it is not
+shown.  A turn ("angles") turns it in the picture plane.  A phone with
+a state shows its screen: the red LIVE button, the LIVE badge, the
+viewer count as it climbs, and a comment.
+
+A hand held on a prop (constraint type joint_to_prop).  The trace holds
+the hand where Manim drew it, on the prop as Manim placed it.  Blender
+may place the prop elsewhere: set on the floor, or riding on another
+hand.  The prop is the driver, so the hand goes to the prop: every
+sample of the constrained limb is moved by the prop's displacement and
+its elbow (or knee) is solved again with the same two-bone rules, the
+bend kept on the side it was on.  Where Blender leaves the prop where
+Manim had it, the samples are used untouched.  An empty named
+"contact.<constraint id>" marks the held point on the prop.
 """
 import json
 import math
@@ -1027,7 +1049,8 @@ def assemble_character(name, T, rates, opt, native):
         # A constrained limb does not follow the piece's own curve: bake
         # the piece and lay the samples over it.
         held = sampled_overlaps(T, name, p["t0"], p["t1"])
-        if held or drives_constraint(T, name, p["t0"], p["t1"]):
+        if held or drives_constraint(T, name, p["t0"], p["t1"]) \
+                or drives_prop_contact(T, name, p["t0"], p["t1"]):
             nat = None
         if nat is not None:
             keys.add(p["t0"], a0, (nat[0], nat[1]))
@@ -2278,6 +2301,61 @@ BACK_TYPES = {"door": WALL_Y - 0.06, "pocket_door": WALL_Y - 0.06,
               "moon": WALL_Y - 0.15}
 
 
+# Parts of stateful props that have a 3D model (the trace says which
+# in a prop object's "model").
+MODEL_KINDS = ("knife_handle", "knife_blade")
+ATTACH_FRONT = 0.05          # a prop on another sits this far in front
+BLADE_THICK, HANDLE_THICK = 0.012, 0.035
+
+
+def is_stateful(rec):
+    """True for a prop object that pam/prop_states.py placed (it has
+    attachments, turns, a model, or is a part of a composite prop)."""
+    return bool(rec.get("attachments") or rec.get("angles")
+                or rec.get("model") or rec.get("part_of"))
+
+
+def attachment_at(rec, t):
+    """The attachment a prop object is on at time t (None before its
+    first one)."""
+    cur = None
+    for ta, att in rec.get("attachments") or ():
+        if ta <= t + 1e-6:
+            cur = att
+        else:
+            break
+    return cur
+
+
+def angle_at(rec, rates, t):
+    """A prop object's turn at time t, in degrees."""
+    rows = rec.get("angles") or []
+    if not rows:
+        return 0.0
+    return float(_move_eval([rows[0]["from"]], rows, rates, t,
+                            key=lambda v: np.atleast_1d(
+                                np.asarray(v, float)))[0])
+
+
+def blade_outline(length, width):
+    """The knife blade's outline at angle 0 (as props_carried draws
+    it), about the center of its bounding box: point toward +x."""
+    h, w = length / 2, width / 2
+    return [(-h, -w), (-h, w), (h * 0.45, w * 0.9), (h, 0.0),
+            (h * 0.45, -w * 0.9)]
+
+
+def box_center_shift(points, angle_deg):
+    """Center of the bounding box of *points* turned by *angle_deg*
+    about the origin.  Manim keeps a turned prop's bounding-box center
+    on its target, so the model is shifted back by this much."""
+    a = math.radians(angle_deg)
+    c, sn = math.cos(a), math.sin(a)
+    xs = [x * c - y * sn for x, y in points]
+    ys = [x * sn + y * c for x, y in points]
+    return ((max(xs) + min(xs)) / 2, (max(ys) + min(ys)) / 2)
+
+
 def prop_type(rec):
     spec = rec.get("spec") or {}
     t = spec.get("type") if spec.get("action") != "spawn_prop" or \
@@ -2289,6 +2367,9 @@ def prop_kind(rec):
     """Which builder makes this prop: "governor", "dodecahedron", "desk",
     "table", "door", "chair", "phone" or the generic "cutout"."""
     t = prop_type(rec)
+    model = (rec.get("model") or {}).get("kind")
+    if model in MODEL_KINDS:
+        return model            # a part with a 3D model of its own
     if rec.get("governor"):
         return "governor"
     if t == "dodecahedron":
@@ -2406,12 +2487,226 @@ def _find_plan(plans, name, t):
     for p in plans:
         if p.rec["name"] == name and (p.t_vis is None or p.t_vis <= t + 1e-6):
             best = p
+    if best is None:
+        # a composite prop is its parts: any of them stands for it
+        for p in plans:
+            if p.rec.get("part_of") == name and (
+                    p.t_vis is None or p.t_vis <= t + 1e-6):
+                return p
     return best
+
+
+def make_prop_plans(T):
+    """The PropPlan of every prop object that is ever visible (pure
+    Python; used by the builder and by apply_prop_contacts)."""
+    sched = floor_schedule(T)
+    if not sched:
+        g = ground_level(T)
+        sched = [(0.0, g)] if g is not None else []
+    recs = [r for r in T.get("prop_objects", []) if _visible_from(r)
+            is not None]
+    plans = [PropPlan(r, sched) for r in recs]
+    # unparented props resting on a snapped table/desk share its lift
+    for p in plans:
+        if p.kind in ("desk", "table", "door", "chair") or p.rec.get("parents"):
+            continue
+        for q in plans:
+            if q.kind in ("desk", "table") and abs(q.dz) > 1e-6 and \
+                    abs(p.bottom - q.top_manim) < 0.25 and \
+                    abs(p.rec["initial"][0] - (q.meta.get("x", q.cx))) < q.w / 2:
+                p.dz, p.depth = q.dz, q.rest_y()
+    return plans
+
+
+# ── a hand held on a prop (constraint type joint_to_prop) ────────────────
+
+LIMB_CHAINS = {
+    "lwrist": ("lshoulder", "lelbow", "lwrist"),
+    "rwrist": ("rshoulder", "relbow", "rwrist"),
+    "lankle": ("lhip", "lknee", "lankle"),
+    "rankle": ("rhip", "rknee", "rankle"),
+}
+PROP_POINTS = {"center": (0.0, 0.0), "top": (0.0, 0.5),
+               "bottom": (0.0, -0.5), "left": (-0.5, 0.0),
+               "right": (0.5, 0.0)}
+CONTACT_EPS = 1e-3           # a prop moved less than this is not moved
+
+
+def prop_box_at(rec, rates, t):
+    """A prop object's Manim bounding box [x, y, w, h] at time t."""
+    return _move_eval(rec["initial"], rec.get("moves") or [], rates, t)
+
+
+def prop_blender_xz(plan, plans, T, rates, opt, t):
+    """Where the builder puts a prop's root at time t, as (x, z) in
+    Manim units: on the joint that holds it (plus the hold's offset),
+    else its Manim box center with the placement's lift."""
+    rec = plan.rec
+    for h in rec.get("holds") or ():
+        if h.get("t1") is None or not (h["t0"] - 1e-6 <= t < h["t1"] - 1e-6):
+            continue
+        joints = T["cast"].get(h["char"], {}).get("joints") or []
+        js = [j for j in h["joints"] if j in joints]
+        if not js:
+            continue
+        X = sample_character(h["char"], T, rates, opt, [1 + t * opt.fps])[0]
+        xy = np.mean([X[joints.index(j)] for j in js], axis=0)
+        off = h.get("offset") or [0.0, 0.0]
+        return float(xy[0] + off[0]), float(xy[1] + off[1])
+    box = prop_box_at(rec, rates, t)
+    _, zo, dz, _ = prop_placement(plan, plans, _parent_changes(rec), t)
+    return float(box[0]), float(zo if zo is not None else box[1] + dz)
+
+
+def contact_target(T, plans, c, rates):
+    """(plan, [dx, dy]) for a joint_to_prop constraint: the prop object
+    that stands for the prop, and the held point from that object's box
+    center, measured when the constraint starts."""
+    fps = float(T.get("fps", 15))
+    t0 = c["f0"] / fps
+    name = c.get("prop")
+    members = [p for p in plans if p.rec["name"] == name
+               and (p.t_vis is None or p.t_vis <= c["f1"] / fps + 1e-6)]
+    if not members:
+        members = [p for p in plans if p.rec.get("part_of") == name]
+    if not members:
+        return None, None
+    boxes = [prop_box_at(p.rec, rates, t0) for p in members]
+    x0 = min(b[0] - b[2] / 2 for b in boxes)
+    x1 = max(b[0] + b[2] / 2 for b in boxes)
+    y0 = min(b[1] - b[3] / 2 for b in boxes)
+    y1 = max(b[1] + b[3] / 2 for b in boxes)
+    pt = c.get("point", "center")
+    if isinstance(pt, str):
+        fx, fy = PROP_POINTS.get(pt, (0.0, 0.0))
+        world = ((x0 + x1) / 2 + fx * (x1 - x0),
+                 (y0 + y1) / 2 + fy * (y1 - y0))
+    else:
+        world = ((x0 + x1) / 2 + pt[0], (y0 + y1) / 2 + pt[1])
+    ref = members[-1] if members[-1].rec["name"] == name else members[0]
+    b = prop_box_at(ref.rec, rates, t0)
+    return ref, [world[0] - b[0], world[1] - b[1]]
+
+
+def resolve_limb(root, mid, end, target):
+    """Two-bone solve (the rules of pam/constraints.py): the limb
+    root-mid-end, with its bone lengths, reaches for *target*; the
+    middle joint stays on the side of the line root-end it is on.  Out
+    of reach, the limb straightens toward the target and stops short.
+    Returns (mid, end)."""
+    root, mid, end, target = (np.asarray(v, float)
+                              for v in (root, mid, end, target))
+    l1 = float(np.linalg.norm(mid - root))
+    l2 = float(np.linalg.norm(end - mid))
+    d = target - root
+    dist = float(np.linalg.norm(d))
+    if dist < 1e-9 or l1 < 1e-9 or l2 < 1e-9:
+        return mid, end
+    u = d / dist
+    if dist >= l1 + l2 - 1e-9:
+        return root + u * l1, root + u * (l1 + l2)
+    dist = max(dist, abs(l1 - l2) + 1e-9)
+    a = (l1 * l1 - l2 * l2 + dist * dist) / (2 * dist)
+    hgt = math.sqrt(max(l1 * l1 - a * a, 0.0))
+    e = end - root
+    side = e[0] * (mid[1] - root[1]) - e[1] * (mid[0] - root[0])
+    sign = 1.0 if side >= 0 else -1.0
+    perp = np.array([-u[1], u[0]]) * sign
+    new_mid = root + u * a + perp * hgt
+    return new_mid, root + u * dist
+
+
+def drives_prop_contact(T, name, t0, t1):
+    """True when figure *name* holds a prop that another figure's hand
+    is held on (joint_to_prop) during part of [t0, t1]: its motion is
+    then baked frame by frame, like a joint_to_joint driver's."""
+    holders = T.get("_contact_holders")
+    if holders is None:
+        holders = T["_contact_holders"] = []
+        fps = float(T.get("fps", 15))
+        for c in T.get("constraints") or ():
+            if c.get("type") != "joint_to_prop" or c.get("f1") is None:
+                continue
+            for r in T.get("prop_objects") or ():
+                if r["name"] != c.get("prop") \
+                        and r.get("part_of") != c.get("prop"):
+                    continue
+                for h in r.get("holds") or ():
+                    if h.get("t1") is None:
+                        continue
+                    a = max(h["t0"], c["f0"] / fps)
+                    b = min(h["t1"], c["f1"] / fps)
+                    if b > a - 1e-9:
+                        holders.append((h["char"], a, b))
+    return any(n == name and a < t1 + 1e-9 and b > t0 - 1e-9
+               for n, a, b in holders)
+
+
+def apply_prop_contacts(T, rates, opt):
+    """The Blender side of joint_to_prop: move the samples of every
+    hand held on a prop to where the builder puts that prop.
+
+    Returns {constraint id: {"moved": largest displacement, "frames"}}.
+    Sampled pieces of T are changed in place; a contact whose prop the
+    builder leaves where Manim had it is not touched.
+    """
+    out = {}
+    cons = [c for c in T.get("constraints") or ()
+            if c.get("type") == "joint_to_prop" and c.get("f1") is not None]
+    if not cons or not T.get("prop_objects"):
+        return out
+    fps = float(T.get("fps", 15))
+    plans = make_prop_plans(T)
+    for c in cons:
+        chain = LIMB_CHAINS.get(c.get("joint"))
+        piece = next((p for p in (T.get("sampled") or {}).get(c["who"], ())
+                      if p.get("constraint") == c["id"]), None)
+        ref, off = contact_target(T, plans, c, rates)
+        if chain is None or piece is None or ref is None \
+                or not all(j in piece["joints"] for j in chain):
+            continue
+        blend = int(c.get("blend") or 0)
+        deltas, points = [], []
+        for i in range(len(piece["frames"])):
+            t = (piece["f0"] + i) / fps
+            bx, bz = prop_blender_xz(ref, plans, T, rates, opt, t)
+            box = prop_box_at(ref.rec, rates, t)
+            deltas.append((bx - box[0], bz - box[1]))
+            points.append((bx + off[0], bz + off[1]))
+        moved = max(math.hypot(dx, dy) for dx, dy in deltas)
+        out[c["id"]] = {"moved": round(moved, 5),
+                        "frames": len(piece["frames"])}
+        if moved < CONTACT_EPS:
+            continue
+        root, mid, end = chain
+        for i, fr in enumerate(piece["frames"]):
+            w = 1.0 if blend <= 0 else min(
+                1.0, max(0.0, (piece["f0"] + i - c["f0"]) / blend))
+            dx, dy = deltas[i]
+            # once the hand has arrived it aims at the held point
+            # itself (so a hand that fell short in Manim reaches a prop
+            # the builder brought closer); on its way there it is
+            # carried along by its share of the prop's displacement
+            target = points[i] if w >= 1.0 else (
+                fr[end][0] + w * dx, fr[end][1] + w * dy)
+            m, e = resolve_limb(fr[root], fr[mid], fr[end], target)
+            fr[mid] = [float(m[0]), float(m[1])]
+            fr[end] = [float(e[0]), float(e[1])]
+    return out
 
 
 def prop_placement(plan, plans, pchanges, t):
     """(depth y, z of the box center for Manim center y=None, lying) at
     time t.  Returns (y, z_override, dz, lying)."""
+    att = attachment_at(plan.rec, t)
+    if att is not None:
+        # placed by a prop_transition: on or in another prop it shares
+        # that prop's lift onto the floor and sits just in front of it
+        if att.get("kind") == "prop":
+            P = _find_plan(plans, att.get("to"), t)
+            if P is not None and P is not plan:
+                return P.depth - ATTACH_FRONT, None, P.dz, False
+        return plan.depth, None, plan.dz, False
     parent = None
     for te, pn in pchanges:
         if te <= t + 1e-6:
@@ -2766,6 +3061,221 @@ class PropBuilder:
         out[-1].location = (0, -Tk / 2 - 0.004, H / 2 - H * 0.07)
         return out
 
+    def build_knife_handle(self, plan, root, tag):
+        """A wooden grip lying along x (angle 0), about its center."""
+        m = plan.rec.get("model") or {}
+        L, W = m.get("length", plan.w), m.get("width", plan.h)
+        wood = plan.rec["colors"].get("fill") or "#6b4423"
+        ob = self.obj(tag + ".grip", _box_mesh(self.bpy, tag + ".grip",
+                      L, HANDLE_THICK, W), root,
+                      self.mat("knife wood " + wood, hex_rgba(wood),
+                               roughness=0.7))
+        bev = ob.modifiers.new("round", "BEVEL")
+        bev.width = min(W, HANDLE_THICK) * 0.3
+        bev.segments = 3
+        return [ob]
+
+    def build_knife_blade(self, plan, root, tag):
+        """A flat steel blade whose point is at +x (angle 0)."""
+        m = plan.rec.get("model") or {}
+        pts = blade_outline(m.get("length", plan.w), m.get("width", plan.h))
+        n, y = len(pts), BLADE_THICK / 2
+        verts = [(x, -y, z) for x, z in pts] + [(x, y, z) for x, z in pts]
+        faces = [tuple(range(n)), tuple(range(2 * n - 1, n - 1, -1))]
+        faces += [(i, (i + 1) % n, n + (i + 1) % n, n + i) for i in range(n)]
+        me = self.bpy.data.meshes.new(tag + ".steel")
+        me.from_pydata(verts, [], faces)
+        me.update()
+        steel = plan.rec["colors"].get("fill") or "#9aa0a6"
+        return [self.obj(tag + ".steel", me, root,
+                         self.mat("knife steel " + steel, hex_rgba(steel),
+                                  roughness=0.25, metallic=0.9))]
+
+    def turn_keys(self, plan):
+        """Keys for a turned prop's pivot: columns angle (degrees) and
+        the shift (x, z) that keeps the turned model's bounding-box
+        center on the root, where Manim had it."""
+        rec = plan.rec
+        rows = rec.get("angles") or []
+        if not rows:
+            return None
+        m = rec.get("model") or {}
+        pts = blade_outline(m.get("length", plan.w),
+                            m.get("width", plan.h)) \
+            if plan.kind == "knife_blade" else None
+
+        def vec(a):
+            sx, sz = box_center_shift(pts, a) if pts else (0.0, 0.0)
+            return [a, -sx, -sz]
+
+        keys = KeyList(self.opt.fps)
+        keys.add(0.0, vec(rows[0]["from"]))
+        for r in rows:
+            if r["t1"] <= r["t0"]:
+                keys.add(r["t0"], vec(r["from"]))
+                keys.add(r["t0"], vec(r["to"]))
+                continue
+            rate = self.rates.get(r["rate"]) or self.rates["linear"]
+            ts = _inner_times(r["t0"], r["t1"], self.opt.fps)
+            tt = np.concatenate([[r["t0"]], ts, [r["t1"]]])
+            al = rate((tt - r["t0"]) / (r["t1"] - r["t0"]))
+            for t, x in zip(tt, al):
+                keys.add(t, vec(r["from"] + float(x) * (r["to"] - r["from"])))
+        return keys
+
+    # ── a phone's display (stateful phones only) ───────────────────────
+    def text(self, name, body, parent, loc, max_w, max_h, mat):
+        """A flat line of text facing the camera, scaled to fit."""
+        bpy = self.bpy
+        if self.font is None:
+            self.font = _font(bpy) or False
+        cu = bpy.data.curves.new(name, "FONT")
+        if self.font:
+            cu.font = self.font
+        cu.body = body
+        cu.align_x = "CENTER"
+        cu.align_y = "CENTER"
+        cu.size = 1.0
+        ob = self.obj(name, cu, parent, mat)
+        bpy.context.view_layer.update()
+        dx, dy = max(ob.dimensions.x, 1e-6), max(ob.dimensions.y, 1e-6)
+        k = min(max_w / dx, max_h / dy)
+        ob.scale = (k, k, k)
+        ob.rotation_euler = (math.pi / 2, 0, 0)
+        ob.location = loc
+        return ob
+
+    def display_rows(self, rec):
+        """[(t, row)] of what a prop's display shows, from the trace's
+        "prop_states"; empty for a prop without a display."""
+        fps = float(self.T.get("fps", 15))
+        for ps in self.T.get("prop_states") or ():
+            if ps.get("object") == rec["id"]:
+                return [(f / fps, row) for f, row in ps.get("display") or ()]
+        return []
+
+    def show_when(self, objs, rows, test, rec):
+        """Key *objs* visible while the display row passes *test* and
+        the prop itself is visible."""
+        vis = [(t, bool(on)) for t, on, _ in rec.get("visibility", [])]
+
+        def prop_on(t):
+            cur = False
+            for tv, on in vis:
+                if tv <= t + 1e-6:
+                    cur = on
+            return cur
+
+        def row_on(t):
+            cur = False
+            for tr, row in rows:
+                if tr <= t + 1e-6:
+                    cur = bool(test(row))
+            return cur
+
+        times = sorted({0.0} | {t for t, _ in vis} | {t for t, _ in rows})
+        seq, last = [], None
+        for t in times:
+            on = prop_on(t) and row_on(t)
+            if on != last:
+                seq.append((t, on))
+                last = on
+        key_visibility(objs, seq, self.opt.fps)
+
+    def build_phone_display(self, plan, root, tag, rows):
+        """The screens of a stateful phone: a lit screen, the red LIVE
+        button (recording), and the LIVE badge, the viewer count and
+        the comment (live).  One text object per value shown."""
+        rec = plan.rec
+        W, H, Tk = plan.w, plan.h, plan.thick
+        front = -Tk / 2 - 0.006
+        k = W / 0.22
+        white = self.mat("phone text", hex_rgba("#ffffff"), roughness=0.4,
+                         emission=hex_rgba("#ffffff"), strength=1.0)
+        red = self.mat("phone red", hex_rgba("#e02020"), roughness=0.4,
+                       emission=hex_rgba("#e02020"), strength=0.8)
+        amber = self.mat("phone comment", hex_rgba("#ffe08a"),
+                         roughness=0.4, emission=hex_rgba("#ffe08a"),
+                         strength=1.0)
+        lit = self.mat("phone screen lit", hex_rgba("#12404a"),
+                       roughness=0.15, emission=hex_rgba("#1af0c4"),
+                       strength=0.6)
+        made = []
+        on = self.obj(tag + ".screen_on", _box_mesh(
+            self.bpy, tag + ".screen_on", W * 0.82, 0.004, H * 0.80,
+            (0, -Tk / 2 - 0.003, H * 0.03)), root, lit)
+        self.show_when([on], rows, lambda r: r.get("screen") in (
+            "record_button", "live"), rec)
+        made.append(on)
+        # recording: the big red button
+        button = self.obj(tag + ".live_button", _cyl_mesh(
+            self.bpy, tag + ".live_button", 0.050 * k, -0.003, 0.003, 0, 0),
+            root, red)
+        button.rotation_euler = (math.pi / 2, 0, 0)
+        button.location = (0, front, -0.26 * H)
+        label = self.text(tag + ".live_button_text", "LIVE", root,
+                          (0, front - 0.004, -0.26 * H), 0.070 * k,
+                          0.030 * k, white)
+        self.show_when([button, label], rows,
+                       lambda r: r.get("screen") == "record_button", rec)
+        made += [button, label]
+        # live: badge, viewer count, comment
+        badge = self.obj(tag + ".live_badge", _box_mesh(
+            self.bpy, tag + ".live_badge", 0.105 * k, 0.004, 0.042 * k,
+            (0, front, 0.27 * H)), root, red)
+        btext = self.text(tag + ".live_badge_text", "LIVE", root,
+                          (0, front - 0.004, 0.27 * H), 0.075 * k,
+                          0.026 * k, white)
+        self.show_when([badge, btext], rows,
+                       lambda r: r.get("screen") == "live", rec)
+        made += [badge, btext]
+        live = [r for _, r in rows if r.get("screen") == "live"]
+        for n in sorted({int(r.get("viewers") or 0) for r in live}):
+            ob = self.text(f"{tag}.viewers.{n}", f"{n:,}", root,
+                           (0, front, 0.08 * H), 0.150 * k, 0.050 * k,
+                           white)
+            self.show_when([ob], rows, lambda r, n=n: (
+                r.get("screen") == "live"
+                and int(r.get("viewers") or 0) == n), rec)
+            made.append(ob)
+        for i, text in enumerate(sorted({r["comment"] for r in live
+                                         if r.get("comment")})):
+            lines, cur = [], ""
+            for word in text.split():
+                if cur and len(cur) + 1 + len(word) > 10:
+                    lines.append(cur)
+                    cur = word
+                else:
+                    cur = (cur + " " + word).strip()
+            lines.append(cur)
+            ob = self.text(f"{tag}.comment.{i}", "\n".join(lines[:4]),
+                           root, (0, front, -0.20 * H), 0.150 * k,
+                           0.090 * k, amber)
+            self.show_when([ob], rows, lambda r, text=text: (
+                r.get("screen") == "live" and r.get("comment") == text),
+                rec)
+            made.append(ob)
+        return made
+
+    def build_contacts(self, plans, roots):
+        """An empty on the prop for every hand held on one (constraint
+        type joint_to_prop): "contact.<id>", at the held point."""
+        out = {}
+        for c in self.T.get("constraints") or ():
+            if c.get("type") != "joint_to_prop" or c.get("f1") is None:
+                continue
+            ref, off = contact_target(self.T, plans, c, self.rates)
+            if ref is None or id(ref) not in roots:
+                continue
+            mk = self.bpy.data.objects.new(f"contact.{c['id']}", None)
+            mk.empty_display_size = 0.05
+            self.col.objects.link(mk)
+            mk.parent = roots[id(ref)]
+            # in the prop's own plane; the picture plane is x-z
+            mk.location = (off[0], 0.0, off[1])
+            out[c["id"]] = ref.rec["name"]
+        return out
+
     def build_governor(self, plan, root, tag):
         """Gold dodecahedron with accent edges; returns (parts, spin
         empty, scale empty, face material)."""
@@ -3009,33 +3519,36 @@ class PropBuilder:
 
     def build(self, bubbles, empties):
         T, opt = self.T, self.opt
-        sched = floor_schedule(T)
-        if not sched:
-            g = ground_level(T)
-            sched = [(0.0, g)] if g is not None else []
-        recs = [r for r in T.get("prop_objects", []) if _visible_from(r)
-                is not None]
-        plans = [PropPlan(r, sched) for r in recs]
-        # unparented props resting on a snapped table/desk share its lift
-        for p in plans:
-            if p.kind in ("desk", "table", "door", "chair") or p.rec.get("parents"):
-                continue
-            for q in plans:
-                if q.kind in ("desk", "table") and abs(q.dz) > 1e-6 and \
-                        abs(p.bottom - q.top_manim) < 0.25 and \
-                        abs(p.rec["initial"][0] - (q.meta.get("x", q.cx))) < q.w / 2:
-                    p.dz, p.depth = q.dz, q.rest_y()
+        plans = make_prop_plans(T)
         joints_of = {n: set(i["joints"]) for n, i in T["cast"].items()}
         stats = {}
+        roots = {}
         for plan in plans:
             rec = plan.rec
             tag = f"prop.{rec['name']}.{rec['id']}"
             root = self.bpy.data.objects.new(tag, None)
             root.empty_display_size = 0.15
             self.col.objects.link(root)
+            roots[id(plan)] = root
             k = plan.kind
             gov = None
-            if k in ("desk", "table"):
+            # a prop that turns is built on a pivot, so that the turn
+            # does not disturb the root's own keys
+            turn = self.turn_keys(plan) if rec.get("angles") else None
+            body = root
+            if turn is not None:
+                body = self.bpy.data.objects.new(tag + ".pivot", None)
+                body.empty_display_size = 0.05
+                self.col.objects.link(body)
+                body.parent = root
+            rows = self.display_rows(rec) if k == "phone" else []
+            if k == "knife_handle":
+                parts = self.build_knife_handle(plan, body, tag)
+            elif k == "knife_blade":
+                parts = self.build_knife_blade(plan, body, tag)
+            elif k == "phone" and (rows or turn is not None):
+                parts = self.build_phone(plan, body, tag)
+            elif k in ("desk", "table"):
                 parts = self.build_desk(plan, root, tag)
             elif k == "door":
                 parts = self.build_door(plan, root, tag)
@@ -3047,7 +3560,14 @@ class PropBuilder:
                 parts, spin, pulse, fmat = self.build_governor(plan, root, tag)
                 gov = (spin, pulse, fmat)
             else:
-                parts = self.build_cutout(plan, root, tag)
+                parts = self.build_cutout(plan, body, tag)
+            if turn is not None:
+                # Manim turns counterclockwise in x-y; seen from the
+                # camera that is a negative turn about Blender's y
+                apply_keys(self.bpy, body, "rotation_euler",
+                           [(1, 0, lambda v: -np.radians(v))], turn)
+                apply_keys(self.bpy, body, "location",
+                           [(0, 1, lambda v: v), (2, 2, lambda v: v)], turn)
             keys, cons = prop_keys(plan, plans, T, self.rates, opt,
                                    self.native, joints_of)
             for ci, (char, joint) in enumerate(cons):
@@ -3078,9 +3598,17 @@ class PropBuilder:
                         plan.type in BACK_TYPES:
                     o.visible_shadow = False
             self.visibility(parts, rec)
+            if rows:
+                # the screens come and go with the phone's state
+                parts += self.build_phone_display(plan, body, tag, rows)
             stats[tag] = {"kind": k, "keys": len(keys.f),
                           "holds": len(rec.get("holds", [])),
                           "dz": round(plan.dz, 3)}
+            if is_stateful(rec):
+                stats[tag]["stateful"] = True
+        marks = self.build_contacts(plans, roots)
+        if marks:
+            stats["contacts"] = marks
         return stats
 
 
@@ -3659,6 +4187,10 @@ def build(trace_path, out_path, opt=None):
                [(0, 0, lambda v: v), (2, 1, lambda v: v + ylift)], ck)
     apply_keys(bpy, cd, "ortho_scale", [(0, 2, lambda v: v)], ck)
 
+    # hands held on props go where the props are built (see the module
+    # docstring); this must happen before the characters are keyed
+    contacts = apply_prop_contacts(T, rates, opt) if opt.props else {}
+
     bone_me = unit_bone_mesh(bpy)
     ball_me = unit_ball_mesh(bpy)
     stats = {}
@@ -3946,6 +4478,8 @@ def build(trace_path, out_path, opt=None):
     print("keys:", stats)
     if pstats:
         print("props:", pstats)
+    if contacts:
+        print("prop contacts:", contacts)
     if ostats:
         print("overlays:", ostats)
     return stats
