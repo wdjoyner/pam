@@ -1,0 +1,14 @@
+# What PAM is developed and tested with.
+#
+#   pip install -r requirements.txt
+#
+# Manim is pinned on purpose.  The timed parallel blocks (pam/timeline.py)
+# lean on details of how Manim redraws a scene and finishes an animation,
+# and the golden traces in tests/golden were recorded with this version
+# (tests/golden/BASELINE.json).  Before moving to a newer Manim, run the
+# test suite with it; see "Manim version" in tests/README.md.
+manim==0.22.1
+numpy
+
+# tests only
+pytest

@@ -150,6 +150,14 @@ ROUTINE_OPTIONAL_PHASE = {
 }
 
 
+# Timed steps that set a figure's whole pose (every joint) on each
+# frame they run.  Two of them on one figure on the same frames cannot
+# both be honored: the validator makes that an error.  (fade_out is
+# left out: it is reported as a warning.)
+TIMELINE_POSE_WRITERS = ((TIMELINE_ANIMATED - {"fade_out"})
+                         | TIMELINE_LOCOMOTION | TIMELINE_ROUTINES)
+
+
 def routine_phase_keys():
     """Every "frames_<phase>" key a routine understands."""
     return frozenset(f"frames_{name}" for phases in ROUTINE_PHASES.values()

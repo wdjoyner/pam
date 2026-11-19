@@ -29,6 +29,7 @@ something extra and are skipped without it:
 | `test_blender_mouth.py` | Talking mouths in the Blender export: shown only while the character's bubble is showing, kept with `--no-bubbles`, removed by `--no-mouths`. |
 | `test_timeline.py` | The 15 fps frame clock: a duration in `frames` lasts exactly that many frames, sequences and beats land on their frames, and legacy screenplays are not touched. |
 | `test_timeline_blocks.py` | Timed `parallel` blocks (Milestone 2): overlapping moves start and end on their frames and keep their easing, a line of dialogue and a camera cut land on their frames, walks take exactly their frames, constraints start and end inside a block, repeated runs are identical, a block is exact at 30 fps, and ordinary `parallel` blocks and `say` lines are not touched. |
+| `test_timeline_hardening.py` | The corrections from the referee report on Milestone 2: every overlapping pair of moves of one figure is found and two pose moves at once are an error; a block that would run over is an error; a camera cut in the middle of a walk or a slide frames the drawn figure; a move ending, a move starting, a cut and a release on one frame; the block's frame listener ends with the block; a block that starts off the 15 fps grid at 30 fps. |
 | `test_constraints.py` | The two-bone solver, `joint_to_joint` and `root_lock`, release on a set frame, the fall and the comic hold, the `sampled` trace piece, and the same gag at other character scales. |
 | `test_choreography.py` | Milestone 3. `joint_to_point` and `joint_to_prop` (a hand on a point, a foot planted, a hand that follows a moving prop, a hand on a wrist that is itself held). How a routine's `frames` are shared over its phases. The Scene 2 routines `pull_immovable`, `cork_pop_up` and `mismatched_hug`: phases on their frames, a routine as a step of a timed block, and what each gag must show. The roadmap's completion test (below). |
 | `test_validate.py` | The JSON validator and the `pam-validate` command, including what they report for each fixture. |
@@ -155,21 +156,51 @@ looks at the scene only before and after each `play`, so it does not yet *see*
 the frames in between. Recording a `sampled` piece needs a per-frame sampler,
 and an updater is a workable place for one.
 
-**A frame listener that outlives its block (found in Milestone 3, not
-changed).** `pam.timeline.Block.run` adds a scene updater while a tracer is
-listening and removes it with `scene.remove_updater(self._tick)`. Manim removes
+**A frame listener that outlived its block (fixed in the timeline
+hardening).** `pam.timeline.Block.run` adds a scene updater while a tracer is
+listening and removed it with `scene.remove_updater(self._tick)`. Manim removes
 updaters by identity, and `self._tick` is a new bound-method object each time it
-is written, so the updater stays. After the first timed block of a scene the
-tracer therefore goes on recording frame by frame to the end of the scene.
-The positions are right (it is what Manim drew), and ordinary renders are not
-affected, because the updater is only added while tracing. The cost is a larger
-trace, and moves after the block lose their pose names and easing in it. The
-fix is to keep the bound method in a variable and use it for both calls. It
-has not been made here because it changes one number in a golden trace
-(`stats.plays` of `abe-isaac_overlap_timeline.json`, 96 to 90: the frames of the
-closing wait are no longer counted one by one), and the goldens were to stay
-as they are. Making it means recording that trace and
-`abe-isaac_scene2-gags.json` again.
+is written, so the updater stayed. After the first timed block of a scene the
+tracer went on recording frame by frame to the end of the scene. The positions
+were right, and ordinary renders were never affected, because the updater is
+only added while tracing; but the trace was larger than it had to be, and moves
+after the block lost their pose names and easing in it. `Block.run` now keeps
+the bound method in a variable and uses it for both calls. Two golden traces
+were recorded again for this: in `abe-isaac_overlap_timeline.json` only
+`stats.plays` changed (96 to 90: the six frames of the closing wait are one
+wait again), and in `abe-isaac_scene2-gags.json` Abraham's four-frame slip is
+one piece with its easing instead of four straight ones.
+
+**The `scale` action does not run (found in the timeline hardening, not
+changed).** `act_scale` in `pam/actions.py` calls `fig.set_scale(...)`, and no
+figure class has that method, so a `{"action": "scale", ...}` step raises
+`AttributeError`, at the top level and in any `parallel` block. No fixture or
+screenplay in the repository uses it; characters get their scale from the
+`cast` step. It is listed among the actions a timed block can run, and the
+validator accepts it.
+
+**The referee report on Milestone 2.** `test_timeline_hardening.py` holds what
+came out of it:
+
+- Overlap detection compared only neighboring moves of a figure, so a long move
+  with two short ones inside it was reported once. Every pair is compared now.
+- Two steps that set the whole pose of one figure on the same frames are an
+  error, and so is a block whose `frames` is shorter than its steps need. Both
+  were warnings. The player is unchanged and plays such a block.
+- A camera cut in the middle of a move framed the figure where the move would
+  leave it: one stride ahead in a walk, the whole distance in a sliding
+  `morph`. It frames the drawn figure now. A cut on a figure at rest is
+  unchanged. One cut in `abe-isaac_scene2-gags.json` falls on the first frame
+  of Abraham's pop and moved with this (camera center 0.24 to -0.72).
+- On a frame where one move ends, another begins, the camera cuts and a
+  constraint is released, the order is: ends, constraints, starts.
+- At 30 fps an untimed action can leave the scene half a frame off the 15 fps
+  clock. Lengths were already exact. Reported frame numbers could be off by
+  one, and a constraint with `frames` could be released half a frame early or
+  late; frames are now counted from where the block or the constraint starts.
+  The tracer always runs at 15 fps, where this cannot happen.
+- A `fade_out` on a figure that another step is moving is still a warning. It
+  holds the figure still where it is while it fades.
 
 **The fixtures themselves.** `pam-validate` finds no errors in the three
 fixtures. `lucy-meets-lenny2_pam.json` originally had two dead steps left by
@@ -249,3 +280,15 @@ the built `.blend`, the distance between the constrained hand and the wrist on
 every frame: zero for the wrist-pull, under 0.002 on keyed frames and under
 0.01 between them when the wrist itself moves. They do not judge how the scene
 looks.
+
+## Manim version
+
+`requirements.txt` pins Manim 0.22.1, the version the golden traces were
+recorded with. The timed blocks rely on three things about that version: a
+mobject added or removed in the middle of a play is not redrawn, an animation's
+`finish()` puts a constrained joint back where the pose has it, and a fade-out
+expects its mobject in the scene. `pam/timeline.py` works around each inside
+the block runner. To try a newer Manim, install it and run `python -m pytest`:
+`test_timeline_blocks.py`, `test_timeline_hardening.py` and
+`test_choreography.py` exercise all three, and `test_golden_traces.py` says
+whether anything else moved.

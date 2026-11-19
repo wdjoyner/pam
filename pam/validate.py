@@ -33,9 +33,13 @@ Warnings (reported, not rejected unless ``strict``)
       does not use;
     * in a timed ``parallel`` block (see ``pam/timeline.py``): a duration
       in seconds that is not a whole number of frames, with the number
-      of frames it is rounded to; two steps that move the same figure
-      on the same frames; a block whose ``frames`` is shorter than its
-      steps; ``at`` where it has no meaning.
+      of frames it is rounded to; a ``fade_out`` on a figure another
+      step is moving; ``at`` where it has no meaning.
+
+Also errors, in a timed block: two steps that set the whole pose of one
+figure on the same frames (every such pair is reported; a step owns the
+frames from its first up to, not including, the one it ends on), and a
+block whose ``frames`` is shorter than its steps need.
 
 A step of a timed block that cannot run on the frame clock (``wave``,
 ``carry``, a nested block, ...) is an error: the player skips it.
@@ -332,7 +336,8 @@ class _Validator:
                     names = names + [sub.get("target")]
                 for name in names:
                     if isinstance(name, str) and start is not None:
-                        moves.append((name, start, end, p.rstrip(".")))
+                        moves.append((name, start, end, p.rstrip("."),
+                                      act))
             return end
 
         kids = iter(info.get("steps") or [])
@@ -344,24 +349,49 @@ class _Validator:
             at = at if isinstance(at, int) and not isinstance(at, bool)                 and at >= 0 else 0
             one(sub, d, f"{path}do[{i}].", at, False)
 
-        # two steps that move the same figure on the same frames
+        # Two steps that move the same figure on the same frames.  A
+        # step owns the frames [start, end): one that starts on the
+        # frame another ends does not overlap it.  Every pair is
+        # compared, so a long move is checked against each short one
+        # inside it.
         moves.sort(key=lambda m: (m[0], m[1]))
-        for a, b in zip(moves, moves[1:]):
-            if a[0] != b[0]:
-                continue
-            if a[2] is None or b[1] < a[2]:
-                span = (f"from frame {a[1]}" if a[2] is None
-                        else f"frames {a[1]} to {a[2]}")
-                self.add(WARNING, "timeline-overlap",
-                         f"'{a[0]}' is moved by two steps at once: "
-                         f"{a[3]} ({span}) and {b[3]} (from frame "
-                         f"{b[1]}); the one written later wins on the "
-                         f"frames they share", index, "parallel", b[3])
+        for i, a in enumerate(moves):
+            for b in moves[i + 1:]:
+                if a[0] != b[0]:
+                    break
+                if a[2] is not None and b[1] >= a[2]:
+                    continue
+                if b[2] is not None and b[2] <= b[1]:
+                    continue            # (b takes no frames)
+                if a[2] is not None and a[2] <= a[1]:
+                    continue
+
+                def span(m):
+                    return (f"from frame {m[1]}" if m[2] is None
+                            else f"frames {m[1]} to {m[2]}")
+                both_pose = (a[4] in specs.TIMELINE_POSE_WRITERS
+                             and b[4] in specs.TIMELINE_POSE_WRITERS)
+                if both_pose:
+                    self.add(ERROR, "timeline-overlap",
+                             f"'{a[0]}' is moved by two steps at once: "
+                             f"{a[3]} ({a[4]}, {span(a)}) and {b[3]} "
+                             f"({b[4]}, {span(b)}). Each sets the whole "
+                             f"pose, so the figure would jump where they "
+                             f"meet; put them one after the other in a "
+                             f"sequence", index, "parallel", b[3])
+                else:
+                    self.add(WARNING, "timeline-overlap",
+                             f"'{a[0]}' is moved by two steps at once: "
+                             f"{a[3]} ({a[4]}, {span(a)}) and {b[3]} "
+                             f"({b[4]}, {span(b)}); the figure holds "
+                             f"still where it is while it fades",
+                             index, "parallel", b[3])
         if "frames" in step and info.get("content") is not None                 and isinstance(info["frames"], int)                 and info["content"] > info["frames"]:
-            self.add(WARNING, "block-too-short",
+            self.add(ERROR, "block-too-short",
                      f"the block's 'frames' is {info['frames']} but its "
-                     f"steps need {info['content']}; it will run "
-                     f"{info['content'] - info['frames']} frames over",
+                     f"steps need {info['content']}; it would run "
+                     f"{info['content'] - info['frames']} frames over, "
+                     f"and every later beat would be that much late",
                      index, "parallel", f"{path}frames")
 
     def check_constrain(self, step, index, path):

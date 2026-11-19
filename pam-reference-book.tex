@@ -4673,8 +4673,28 @@ player both read it.
   A \texttt{parallel} block cannot be a step of a timed block, and a
   \texttt{sequence} cannot be nested in a \texttt{sequence} there.
 \item
-  If two steps move the same figure on the same frames, the one written
-  later wins on those frames.
+  Two steps must not move the same figure on the same frames.
+  \texttt{morph}, \texttt{turn}, \texttt{scale},
+  \texttt{slip\_on\_back}, the walks and runs, and the choreography
+  routines each set the figure's whole pose on every frame they run, so
+  two at once make the figure jump where they meet. The player plays it
+  anyway (the one written later wins on the shared frames);
+  \texttt{pam-validate} reports an error. Put the two in one
+  \texttt{sequence}. A contact constraint is the exception: it
+  repositions one limb on purpose and may run under any move.
+\item
+  A step owns the frames from its first up to, not including, the frame
+  it ends on: the half-open interval $[f_0, f_0+n)$. A 12-frame step
+  that starts on frame 6 owns frames 6 through 17; a step that starts
+  on frame 18 only touches it.
+\item
+  A block's \texttt{frames} is a promise. If its steps need more, the
+  player plays them to the end and says how far it ran over, and
+  \texttt{pam-validate} reports an error.
+\item
+  A camera cut frames its subject where the subject is drawn on the
+  frame of the cut, also in the middle of a walk, a sliding
+  \texttt{morph} or a routine.
 \item
   \texttt{depth} on a walk is ignored, as in an ordinary
   \texttt{parallel} block.
@@ -4853,10 +4873,17 @@ the stretch starts, and keeps its one smooth curve across the cuts.
 Steps start and end between plays, which is where Manim allows mobjects
 to come and go.
 
-Within one frame the order is fixed: steps that end on it are finished
-first, then steps that start on it are started, both in the order they
-are written. Two renders of the same screenplay are therefore identical
-frame for frame.
+Within one frame the order is fixed. Steps that end on it are finished
+first, in the order they are written. Then the scene's updaters run, so
+contact constraints put held joints back on their targets. Then steps
+that start on it are started, in the order they are written; they see
+the figures as the first two stages left them. Two renders of the same
+screenplay are therefore identical frame for frame.
+
+At 30 or 60 fps an untimed action can end between two frames of the
+15 fps clock. A block that follows is shifted by that fraction of a
+frame and is otherwise exact: its length, the frames of its steps and
+of the constraints in it are counted from where it starts.
 
 The player supplies what each step does through \texttt{\_tl\_start}
 in \texttt{pam\_player.py}, which returns the step's timed pieces
@@ -4919,10 +4946,12 @@ constraints, a choreography routine without its two figures, steps of a
 timed block that cannot run on the frame clock, and references to
 characters or props that do not exist at that step.
 
-For a timed block it also warns about a duration in seconds that is
-rounded (with the number of frames it becomes), two steps that move the
-same figure on the same frames, a block whose \texttt{frames} is
-shorter than its steps, and \texttt{at} where it has no meaning.
+In a timed block two more things are errors: two steps that set the
+whole pose of one figure on the same frames (every such pair is
+reported), and a block whose \texttt{frames} is shorter than its steps
+need. It warns about a duration in seconds that is rounded (with the
+number of frames it becomes), a \texttt{fade\_out} on a figure that
+another step is moving, and \texttt{at} where it has no meaning.
 \texttt{--frames} lists every duration in the screenplay that is not a
 whole number of frames at 15 fps, with the value it rounds to; these
 are notes and never fail a file.

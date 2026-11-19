@@ -3119,6 +3119,34 @@ class PAMPlayer(MovingCameraScene):
             sid = step["_subscene_marker"]
             return _subscene_index.get(sid) or step.get("_shot_meta") or {}
 
+        def _drawn_x(fig) -> float:
+            """The x a camera should frame a figure at: where it is
+            drawn on this frame.
+
+            ``fig.offset`` is where the figure's current move will
+            leave it, which is the same thing whenever the figure is at
+            rest.  In the middle of a move (a camera cut inside a timed
+            block, while a walk, a sliding morph or a routine is under
+            way) the figure has not arrived yet, so the offset is
+            corrected by how far the drawn hips are from where the move
+            will put them.  Hips are used because no contact constraint
+            repositions them."""
+            x = float(fig.offset[0])
+            try:
+                pose = fig._apply_scale(fig.pose)
+                hips = [j for j in ("lhip", "rhip")
+                        if j in fig.dots and j in pose]
+                if not hips:
+                    return x
+                drawn = sum(float(fig.dots[j].get_center()[0])
+                            for j in hips) / len(hips)
+                final = sum(float(fig._to_world(pose[j], fig.offset)[0])
+                            for j in hips) / len(hips)
+            except Exception:
+                return x                # (a figure of another kind)
+            lag = drawn - final
+            return x if abs(lag) < 1e-6 else x + lag
+
         def _marker_context(step: dict):
             """Prepare a ``_subscene_marker`` step for a camera move:
             set the background color if the marker names one, and
@@ -3136,7 +3164,7 @@ class PAMPlayer(MovingCameraScene):
             for ckey, cspec in cast.items():
                 fig = cspec.get("fig")
                 if fig is not None:
-                    char_x[ckey] = float(fig.offset[0])
+                    char_x[ckey] = _drawn_x(fig)
             char_x.update(props.x_positions())
             # Merge scene_objects so SUBJECT can reference them
             for oname, odata in _scene_objects.items():

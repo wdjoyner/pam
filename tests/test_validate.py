@@ -292,12 +292,17 @@ def test_timed_block_warnings():
             "frames": 12}
     up = {"action": "morph", "who": "alice", "pose": "standing_side",
           "frames": 6}
-    assert warned(lean, {**up, "at": 6}) == ["timeline-overlap"]
-    assert warned(lean, {**up, "at": 12}) == []
-    assert warned({"action": "walk_to", "who": "alice", "x": 1},
+    def errors(*steps, **block):
+        return codes(timed(*steps, **block), level="error")
+    # two moves of one figure at once, and a block that would run over,
+    # are errors (tests/test_timeline_hardening.py has the details)
+    assert errors(lean, {**up, "at": 6}) == ["timeline-overlap"]
+    assert warned(lean, {**up, "at": 6}) == []
+    assert errors(lean, {**up, "at": 12}) == []
+    assert errors({"action": "walk_to", "who": "alice", "x": 1},
                   {**up, "at": 30}) == ["timeline-overlap"]
-    assert warned(lean, frames=8) == ["block-too-short"]
-    assert warned(lean, frames=12) == []
+    assert errors(lean, frames=8) == ["block-too-short"]
+    assert errors(lean, frames=12) == []
     assert warned({"action": "sequence", "do": [{**lean, "at": 2}]}) \
         == ["at-ignored"]
     assert warned({"action": "say", "who": "bob", "text": "Hi",
