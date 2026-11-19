@@ -5,7 +5,8 @@ This is the one place that lists the valid action names and the keys
 whose values the validator checks (roadmap Milestone 1).  The validator
 (``pam/validate.py``) reads all of it.  The timeline (``pam/timeline.py``,
 Milestone 2) reads the lists of actions that can run in a timed block,
-so the validator and the player agree on them by construction.  For the
+and the phases of the choreography routines (Milestone 3), so the
+validator and the player agree on them by construction.  For the
 rest, ``tests/test_action_specs.py`` compares this module with the
 dispatcher in ``pam_player.py`` and fails if they disagree.
 

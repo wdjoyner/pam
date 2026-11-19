@@ -9,7 +9,7 @@ The key architectural point is this:
 **`pam_player.py` does not define its own argparse-style command-line flags.**
 You run it through **Manim’s CLI**, and you control PAM-specific behavior mainly with **environment variables**.
 
-This manual describes the player as of PAM 1.0.1, including the frame clock, sequences, timed parallel blocks and contact constraints added for the Blender roadmap (section 9). Module docstrings in `pam/timeline.py` and `pam/constraints.py` hold the design notes; the README has worked examples.
+This manual describes the player as of PAM 1.0.1, including the frame clock, sequences, timed parallel blocks, contact constraints and choreography routines added for the Blender roadmap (section 9). Module docstrings in `pam/timeline.py`, `pam/constraints.py` and `pam/choreography.py` hold the design notes; the README has worked examples.
 
 ---
 
@@ -788,7 +788,7 @@ Other multi-step choreography (`wave`, `sit_down`, `stand_up`, `carry`) degrades
 
 ---
 
-## 9. The timeline: frames, sequences, timed parallel blocks, constraints
+## 9. The timeline: frames, sequences, timed parallel blocks, constraints, choreography routines
 
 All of this is opt-in. A screenplay that uses none of the keys and actions below is loaded and played exactly as before.
 
@@ -803,7 +803,7 @@ The timeline counts in frames at **15 per second**, the frame rate of `manim -ql
 {"action": "wait", "frames": 9, "beat": "comic_hold"}
 ```
 
-At the top level and in a `sequence`, `frames` is understood by `wait`, `morph`, `turn`, `scale`, `slip_on_back`, `fade_out`, `say`, and a timed `parallel` block. More actions accept it inside a timed block (below).
+At the top level and in a `sequence`, `frames` is understood by `wait`, `morph`, `turn`, `scale`, `slip_on_back`, `fade_out`, `say`, the choreography routines (`pull_immovable`, `cork_pop_up`, `mismatched_hug`), and a timed `parallel` block. More actions accept it inside a timed block (below).
 
 ## `sequence`
 
@@ -820,7 +820,7 @@ A named run of steps on the frame clock.
 
 ## Timed `parallel` blocks
 
-A `parallel` block is timed when the block has `frames`, or when any step in its `do` list has `at`, `frames`, `frames_in` or `frames_out`, is a `sequence`, or is a camera marker. Each step then starts on its own frame and lasts its own number of frames.
+A `parallel` block is timed when the block has `frames`, or when any step in its `do` list has `at`, `frames`, `frames_in` or `frames_out`, is a `sequence`, is a camera marker, or is a choreography routine. Each step then starts on its own frame and lasts its own number of frames.
 
 ```json
 {"action": "parallel", "id": "s02_overlap", "frames": 84, "do": [
@@ -857,6 +857,7 @@ A `parallel` block is timed when the block has `frames`, or when any step in its
 | `say` | the bubble fades in, holds, and fades out as three timed pieces. `frames` is the whole line, `frames_in` and `frames_out` the fades (defaults 6 and 5). With `persist` there is no fade-out. Human, alien and dog characters |
 | `wait` | stillness; with a `sound` key and no length, a sound effect on an exact frame |
 | `constrain`, `release` | the contact starts or ends on that frame |
+| `pull_immovable`, `cork_pop_up`, `mismatched_hug` | a choreography routine (below): its phases follow one another, each a set number of frames; `frames` is the whole routine |
 | `_subscene_marker` | a camera cut on that frame; with `frames`, or an animated `move` (`push`, `pull`, `pan-follow`, `drift`, `zoom`), the camera travels for that long |
 | `sequence` | a track: its steps follow one another, the first starting on the sequence's `at`. Use one per actor |
 
@@ -875,22 +876,45 @@ A `parallel` block is timed when the block has `frames`, or when any step in its
 
 ## `constrain`
 
-Start a contact constraint between figures. See `pam/constraints.py` for the solver's rules.
+Start a contact constraint: a hand or foot held on another figure's joint, on a prop, or on a point of the stage, or a figure held where it stands. See `pam/constraints.py` for the solver's rules.
+
+```json
+{"action": "constrain", "id": "grip", "type": "joint_to_joint",
+ "who": "abraham", "joint": "rwrist", "target": "isaac", "target_joint": "lwrist", "blend": 6}
+{"action": "constrain", "id": "on_knife", "type": "joint_to_prop",
+ "who": "isaac", "joint": "rwrist", "prop": "knife", "point": "top"}
+{"action": "constrain", "id": "on_rock", "type": "joint_to_point",
+ "who": "abraham", "joint": "lwrist", "point": [-2.0, -1.4]}
+{"action": "constrain", "id": "isaac_root", "type": "root_lock", "who": "isaac"}
+```
 
 ### Keys
 - `id` — name used by `release` and in reports (required)
-- `type` — `joint_to_joint` or `root_lock`
+- `type` — `joint_to_joint`, `joint_to_prop`, `joint_to_point` or `root_lock`
 - `who` — the figure that yields
 - `joint` — the wrist or ankle that is held on the target (`root_lock`: the joint that stays put, default `lankle`)
-- `target`, `target_joint` — the other figure and the joint the hand stays on (`joint_to_joint`)
+- `target`, `target_joint` — `joint_to_joint`: the other figure and the joint the hand stays on
+- `prop` — `joint_to_prop`: the prop or scene object the hand stays on
+- `point` — `joint_to_point`: the stage position `[x, y]`. `joint_to_prop`: where on the prop, `center` (default), `top`, `bottom`, `left`, `right`, or `[dx, dy]` from its center
 - `blend` — frames the hand takes to reach the target (default 0: at once)
 - `frames` — release by itself after this many frames
 - `bend` — `keep` (default), `up` or `down`: which way the elbow or knee bends
 
+### The four constraint types
+
+| Type | What it does |
+|---|---|
+| `joint_to_joint` | keeps `who`'s hand or foot on `target`'s `target_joint`, wherever that joint goes |
+| `joint_to_prop` | keeps it on a prop. The prop is measured as it is drawn on every frame, so the hand follows a prop that is moved, carried or handed over |
+| `joint_to_point` | keeps it on a fixed point of the stage while the rest of the body moves |
+| `root_lock` | keeps a figure where it stands, whatever else tries to move it |
+
 ### Notes
-- `joint_to_joint` solves the elbow or knee on every frame; bone lengths do not change and the joint never flips side
-- if the target is out of reach the limb straightens toward it, and the shortfall is reported
-- `root_lock` keeps a figure where it stands, whatever else tries to move it
+- the three `joint_to_...` types solve the elbow or knee on every frame with the same two-bone solver; bone lengths do not change and the joint never flips side
+- which way it bends: a limb that is bent when the constraint starts keeps the way it is bent. A limb that is straight then (within 2% of its length) bends to the side of the line to the target that its elbow or knee is on. `bend` overrides both
+- if the target is out of reach the limb straightens toward it and stops short; the shortfall is reported and is not an error
+- the figure named by `who` yields; the other figure, the prop, or the point does not. Root locks are applied first on every frame, then the other constraints in the order they were declared, so a hand may hold a wrist that is itself held on a point if the point's constraint comes first
+- a constraint with a bad joint, prop or point is skipped with a message; it never stops the render
 
 ## `release`
 
@@ -898,6 +922,98 @@ End a constraint on the current frame.
 
 ### Keys
 - `id` — the constraint to end
+
+## Choreography routines
+
+A routine is an action that works out its own blocking from the figures as they stand: their scale, their limb lengths, where their hands and feet are. Change a character's size or position and the same step still plays. The routines are in `pam/choreography.py`.
+
+```json
+{"action": "pull_immovable", "who": "abraham", "target": "isaac", "frames": 30}
+{"action": "slip_on_back", "who": "abraham", "frames": 4}
+{"action": "cork_pop_up", "who": "isaac", "target": "abraham"}
+{"action": "mismatched_hug", "who": "abraham", "target": "isaac", "frames_squeeze": 18}
+```
+
+A routine is a step like any other: at the top level, in a `sequence`, or in a timed `parallel` block (with `at`), where it overlaps dialogue, camera cuts and other actors.
+
+### Phases
+
+The three two-figure routines are made of phases that follow one another, each a whole number of frames.
+
+| Routine | Phases and their default lengths in frames |
+|---|---|
+| `pull_immovable` | `reach` 6, `pull` 12, `strain` 12 |
+| `cork_pop_up` | `offer` 6, `accept` 6, `pop` 3, `land` 2, `hold` 9 |
+| `mismatched_hug` | `approach` 6, `reach` 6, `squeeze` 12, `release` 6 |
+
+- `"frames_<phase>": n` sets one phase, for example `"frames_strain": 20`. `0` skips the phase
+- `"frames": n` sets the whole routine. The phases that were not set one by one share what is left, in proportion to their defaults, at least one frame each
+- each phase starts a beat named `<id>.<phase>` (`pull.strain`), reported on the console and written to the trace
+
+### Keys common to the three routines
+- `who`, `target` — the two figures (required; human figures)
+- `id` — name for reports, beats and the routine's constraints (default `<action>_<who>`)
+- `frames`, `frames_<phase>` — see above
+- `at`, `beat` — as for any step of a timed block
+
+## `pull_immovable`
+
+`who` turns to face `target`, takes hold (`reach`), leans back until his arm is taut (`pull`), and heaves (`strain`). `target` is root-locked and does not move. When the routine ends the grip and the lock are released; follow it with `slip_on_back`.
+
+### Keys
+- `joint` — the hand that grips (default: the one the lean reaches with)
+- `target_joint` — what it grips (default: the wrist of `target` nearest `who`; if that is out of reach from where `who` can stand, the nearest knee, then ankle)
+- `cycles` — number of heaves in `strain` (default 2; 0 holds still)
+- `lock` — `false`: do not root-lock `target`
+- `release` — `false`: keep the grip (constraint `<id>.grip`) and the lock (`<id>.root`) after the routine; end them with `release`
+
+### What it measures
+The arm of `who` and the position of the gripped joint. The stance is worked out so that at the full lean the shoulder is one arm's length, less 4%, from that joint; `who` shuffles to it during `reach`.
+
+## `slip_on_back`
+
+The feet shoot out and the figure lands flat on its back, on the ground its feet were standing on.
+
+### Keys
+- `who` — the figure
+- `frames` — length of the fall (default 4), or `rt` in seconds
+- `direction` — `left` or `right`: where the head ends up (default: the side the head is already leaning to)
+- `slide` — how far the feet shoot forward, as a fraction of the figure's leg length (default 0.35)
+
+## `cork_pop_up`
+
+`who` bends and holds a hand out to where `target`, who is lying down, can reach it (`offer`). `target` takes it (`accept`). `who` straightens and `target` comes up onto his feet and off the ground (`pop`), drops back onto it (`land`), and both stand still (`hold`).
+
+### Keys
+- `joint` — the hand `who` offers (default: the one toward `target`)
+- `target_joint` — the hand `target` takes it with (default: the one nearest the offered hand)
+- `hop` — how high `target` leaves the ground, as a fraction of his leg length (default 0.25). It is raised by itself when `who` is so tall that `target` could not otherwise keep hold of the hand
+- `pose` — the pose `target` lands in (default `standing_side`, turned to face `who`)
+
+### What it measures
+Both figures' arms and shoulders. The hand is offered at a point 80% of `target`'s arm length from his shoulder, toward `who`'s shoulder. `who` bends at the hips, and then at the knees, only as far as his own arm needs to get there. `target` lands on his feet where his feet were, moved only as far as needed to stay clear of `who` and keep hold of the hand.
+
+## `mismatched_hug`
+
+`who` steps in against `target` (`approach`), throws both arms around him (`reach`), squeezes (`squeeze`), and lets go (`release`).
+
+### Keys
+- `cycles` — number of squeezes (default 2; 0 holds still)
+- `release` — `false`: stay in the hug. There is then no `release` phase, and the arms stay (constraints `<id>.upper` and `<id>.lower`) until a `release` step or the end of the enclosing `sequence`
+
+### What it measures
+How wide `target`'s body is at the height of `who`'s shoulders: the torso outline between shoulders and hips, or the legs below them. `who` stands against the near side and each hand goes to the far side. If the arms are too short they straighten and stop short, and that is the joke. The console reports the width, the arm length and the shortfall:
+
+```text
+PAMPlayer: mismatched_hug 'hug' (abraham -> isaac) ran frames 97-127; arm 0.8648, width 0.9964, ..., reaches_around False, shortfall 0.3278
+```
+
+### Notes on all routines
+- every position is measured on the frame the routine starts, from the figures' joints after body scale, depth rescale and rotation. No routine contains a stage coordinate
+- a routine slides `who` to its stance. If that is more than about a leg and a half away the console says so; walk him closer first
+- the contacts are ordinary constraints, so the four rules of the solver apply. A routine that cannot reach says so and plays anyway
+- two steps that move the same figure at once still collide: `pam-validate` warns when a routine and another step do
+- `abe-isaac_scene2-gags.json` plays all four routines, two of them inside timed blocks
 
 ## Checking a screenplay first
 
@@ -918,6 +1034,7 @@ That usually includes actions such as:
 - `walk_to`
 - `run_to`
 - `walk_to_prop`
+- `slip_on_back`, `pull_immovable`, `cork_pop_up`, `mismatched_hug` (choreography routines, section 9)
 - `sit_down`
 - `stand_up`
 - `carry`

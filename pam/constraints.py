@@ -136,7 +136,7 @@ BENT = 0.02
 
 # joint_to_prop: named places on a prop, as fractions of its bounding
 # box from its center (x to the right, y up)
-PROP_POINTS = {"center": (0.0, 0.0), "centre": (0.0, 0.0),
+PROP_POINTS = {"center": (0.0, 0.0),
                "top": (0.0, 0.5), "bottom": (0.0, -0.5),
                "left": (-0.5, 0.0), "right": (0.5, 0.0)}
 
@@ -642,7 +642,7 @@ def build(step: dict, get_fig, get_prop=None) -> Constraint | None:
             if not (_is_xy(point) or (isinstance(point, str)
                                       and point in PROP_POINTS)):
                 print(f"PAMPlayer: constrain '{cid}' — 'point' must be "
-                      f"one of {sorted(set(PROP_POINTS) - {'centre'})} "
+                      f"one of {sorted(PROP_POINTS)} "
                       f"or [dx, dy], got {point!r}; skipping.")
                 return None
             if not isinstance(point, str):

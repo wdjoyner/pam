@@ -11,8 +11,12 @@ Errors (the screenplay is rejected)
     * references to characters or props that do not exist at that step
       (including ``trot_to`` aimed at anything but a dog);
     * a ``frames`` or ``blend`` count that is not a whole number, and a
-      ``constrain`` step with no ``id``, an unknown ``type``, or a joint
-      that does not end a limb;
+      ``constrain`` step with no ``id``, an unknown ``type``, a joint
+      that does not end a limb, or (``joint_to_prop``,
+      ``joint_to_point``) a bad ``point``;
+    * a choreography routine (``pull_immovable``, ``cork_pop_up``,
+      ``mismatched_hug``) without its ``who`` and ``target``, or with
+      the same character as both;
     * steps the player cannot read at all (not an object, or no
       ``"action"`` key and no annotation key).
 
@@ -24,6 +28,9 @@ Warnings (reported, not rejected unless ``strict``)
     * a step with both ``frames`` and its duration in seconds, ``frames``
       on an action that cannot be timed that way yet, and a ``release``
       of a constraint that is not in force;
+    * on a choreography routine: a ``frames_<phase>`` key that names no
+      phase of it, a ``frames`` too short for its phases, and keys it
+      does not use;
     * in a timed ``parallel`` block (see ``pam/timeline.py``): a duration
       in seconds that is not a whole number of frames, with the number
       of frames it is rounded to; two steps that move the same figure
@@ -393,7 +400,7 @@ class _Validator:
                     and not is_xy:
                 from pam.constraints import PROP_POINTS
                 if not (isinstance(point, str) and point in PROP_POINTS):
-                    names = sorted(set(PROP_POINTS) - {"centre"})
+                    names = sorted(PROP_POINTS)
                     self.add(ERROR, "bad-constraint",
                              f"'point' must be one of {', '.join(names)} "
                              f"or [dx, dy], got {point!r}", index,

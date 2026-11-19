@@ -446,6 +446,10 @@ class _Routine:
         return c
 
     def let_go(self, *names):
+        # Solve once more first: a move that has just been finished put
+        # the limb where the pose has it, and the hand must be on its
+        # target, not there, on the frame it lets go.
+        self.mgr.step()
         for name in names:
             cid = f"{self.id}.{name}"
             c = self.mgr.release(cid)
