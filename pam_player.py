@@ -2301,6 +2301,7 @@ class PAMPlayer(MovingCameraScene):
         # ── timeline: expand sequences, convert "frames" to seconds ──────
         # Returns the same list, untouched, unless the screenplay uses
         # the new syntax (sequence / constrain / release / frames).
+        _timeline_on = _pam_timeline.uses_timeline(actions)
         actions = _pam_timeline.expand(actions)
 
         # ── in-scene audio cues (v0.9.21, backburner item 7) ─────────────
@@ -3110,6 +3111,350 @@ class PAMPlayer(MovingCameraScene):
                 step = {**step, "_collect_anims": True}
             return handler(fig, step, self, name, props=props, cast=cast)
 
+        def _marker_meta(step: dict) -> dict:
+            """The shot description of a ``_subscene_marker`` step: from
+            the prompts JSON when it has the marker's id, else the
+            step's own ``_shot_meta``."""
+            sid = step["_subscene_marker"]
+            return _subscene_index.get(sid) or step.get("_shot_meta") or {}
+
+        def _marker_context(step: dict):
+            """Prepare a ``_subscene_marker`` step for a camera move:
+            set the background color if the marker names one, and
+            return ``(meta, char_x)``, the shot description and the
+            current x position of every character, prop and scene
+            object (clamped to the marker's zone, if any).  Used by the
+            main loop and by timed parallel blocks."""
+            meta = _marker_meta(step)
+            # Top-level bg_color: set background before the camera move
+            bg_color = step.get("bg_color") or meta.get("bg_color")
+            if bg_color:
+                self.camera.background_color = bg_color
+            # Build a live x-position snapshot from current cast and props
+            char_x = {}
+            for ckey, cspec in cast.items():
+                fig = cspec.get("fig")
+                if fig is not None:
+                    char_x[ckey] = float(fig.offset[0])
+            char_x.update(props.x_positions())
+            # Merge scene_objects so SUBJECT can reference them
+            for oname, odata in _scene_objects.items():
+                char_x[oname] = float(odata["x"])
+            # Zone clamping: if this marker names a zone, restrict
+            # the camera's x range to the zone's bounds.
+            zone_name = step.get("zone") or meta.get("zone")
+            if zone_name and zone_name in _zones:
+                zspec = _zones[zone_name]
+                # Clamp all x values to zone bounds so _apply_camera
+                # centers inside the zone regardless of subject position.
+                zx_mid = (zspec["x_min"] + zspec["x_max"]) / 2
+                for k in list(char_x.keys()):
+                    char_x[k] = float(
+                        np.clip(char_x[k], zspec["x_min"], zspec["x_max"])
+                    )
+                char_x.setdefault("_zone_centre", zx_mid)
+                print(f"  CAM zone='{zone_name}' "
+                      f"x=[{zspec['x_min']:.1f}, {zspec['x_max']:.1f}]")
+            return meta, char_x
+
+        # ── timeline: steps of a timed parallel block ────────────────────
+        # pam/timeline.py plays a timed block (Block.run); the closures
+        # below tell it what each step does: on the frame a step starts,
+        # _tl_start returns its timed pieces (Phase objects), each with
+        # a function that builds the piece's animations when the piece
+        # begins.  Nothing here runs for a screenplay without timeline
+        # syntax.
+        def _tl_constrain(step: dict) -> None:
+            _c = _pam_constraints.build(step, _get_fig)
+            if _c is not None:
+                _seq = _pam_timeline.get(self).stack
+                _c.sequence = _seq[-1]["id"] if _seq else None
+                _pam_constraints.get(self).add(_c)
+
+        def _tl_release(step: dict) -> None:
+            if _pam_constraints.get(self).release(step.get("id")) is None:
+                print(f"PAMPlayer: release — no active constraint "
+                      f"'{step.get('id')}', skipping.")
+
+        def _tl_sound(step: dict, act: str):
+            """Bake the step's audio cue on the current frame.  Returns
+            a function that bakes its end-triggered cue (to be called
+            on the frame the step ends), or None when it has none."""
+            n0 = len(_pending_end_sfx)
+            _fire_sound(step, act)
+            cues = _pending_end_sfx[n0:]
+            del _pending_end_sfx[n0:]
+            if not cues:
+                return None
+
+            def _end():
+                for cue in cues:
+                    try:
+                        self.add_sound(cue["path"], time_offset=cue["delay"],
+                                       gain=cue["gain"])
+                    except Exception as e:
+                        print(f"PAMPlayer: audio — add_sound failed for "
+                              f"'{cue['path']}' ({e}); continuing silent.")
+            return _end
+
+        def _tl_camera(step: dict):
+            """A camera marker in a timed block: a cut on this frame,
+            or a move that lasts the marker's frames."""
+            if not _camera_mode:
+                return {"phases": []}
+            meta, char_x = _marker_context(step)
+            info = _pam_timeline.describe(step, meta=meta)
+            if info["kind"] != "camera":
+                print(f"PAMPlayer: camera move '{info.get('move')}' cannot "
+                      f"run in a timed block; skipping the marker.")
+                return None
+            frame = getattr(getattr(self, "camera", None), "frame", None)
+            if frame is None:
+                return {"phases": []}
+            _pending_camera.clear()
+            cut = {**meta, "move": "static"}
+            if info["frames"] <= 0:
+                _apply_camera(cut, self, char_x)
+                return {"phases": []}
+
+            def _move():
+                # where a cut would put the camera is where the move ends
+                w0, c0 = float(frame.width), frame.get_center().copy()
+                _apply_camera(cut, self, char_x)
+                w1, c1 = float(frame.width), frame.get_center().copy()
+                frame.width = w0
+                frame.move_to(c0)
+                return [frame.animate.set_width(w1).move_to(c1)]
+            return {"phases": [_pam_timeline.Phase(info["frames"], _move)]}
+
+        def _tl_say(step: dict, info: dict):
+            """A line of dialogue as three timed pieces: the bubble
+            fades in, holds, and fades out."""
+            Phase = _pam_timeline.Phase
+            names = _targets(step)
+            name = names[0] if len(names) == 1 else None
+            fig = _get_fig(name) if name else None
+            if not isinstance(fig, (HumanGraph, DogGraph)):
+                print(f"PAMPlayer: say — {step.get('who')!r} cannot speak "
+                      f"on the frame clock (one human, alien or dog "
+                      f"character per line); skipping the line.")
+                return None
+            end_sfx = _tl_sound(step, "say")
+            parts = info["parts"]
+            bubble_style = step.get("style", "normal").lower()
+            _duration = step.get("duration")
+            keeps = bool(step.get("persist", False)) or _duration is not None
+            _key = f"char:{name}"
+            made = {}
+
+            def _fade_in():
+                anims = []
+                # one persistent bubble per figure: the old one goes
+                # out while the new one comes in
+                if keeps and _key in _persistent_bubbles:
+                    _old = _persistent_bubbles.pop(_key)["bubble"]
+                    _clear_persistent_bubble_ref(_key)
+                    anims.append(FadeOut(_old))
+                if _pending_camera:
+                    _cmeta, _cxpos = _pending_camera[0]
+                    _cam = _camera_anim(_cmeta, self, _cxpos)
+                    _pending_camera.clear()
+                    if _cam is not None:
+                        anims.append(_cam)
+                bubble = fig.say(
+                    step["text"], self,
+                    font_size=step.get("font_size", 20),
+                    rt_out=step.get("rt_out", 0.3),
+                    side=step.get("side", "right"),
+                    bubble_style=bubble_style if bubble_style != "normal"
+                    else None,
+                    build_only=True,
+                )
+                if hasattr(bubble, "set_z_index"):
+                    bubble.set_z_index(DEPTH_Z_BUBBLE)
+                made["bubble"] = bubble
+                return [FadeIn(bubble, scale=0.85)] + anims
+
+            def _keep():
+                # as HumanGraph.say(persist=True) and the say action do
+                bubble = made["bubble"]
+                c = bubble[0].get_center()
+                bubble.pam_follows_offset = np.array(
+                    [c[0] - fig.offset[0], c[1] - fig.offset[1], 0.0])
+                fig._persistent_bubble = bubble
+                deadline = None
+                if _duration is not None:
+                    deadline = (self.renderer.time + float(_duration)
+                                - parts["in"] / _pam_timeline.FPS)
+                _persistent_bubbles[_key] = {"bubble": bubble,
+                                             "deadline": deadline}
+
+            phases = [Phase(parts["in"], _fade_in),
+                      Phase(parts["hold"], after=_keep if keeps else None)]
+            if not keeps:
+                phases.append(Phase(parts["out"],
+                                    lambda: [FadeOut(made["bubble"])]))
+            return {"phases": phases, "end": end_sfx}
+
+        def _tl_loco(step: dict, info: dict):
+            """walk_to / run_to / trot_to in a timed block: the keyframes
+            of the plan, as the parallel block plays them."""
+            Phase = _pam_timeline.Phase
+            sa = step["action"]
+            tname = step.get("who") or step.get("prop", "")
+            x = step.get("x")
+            if x is None or not tname:
+                print(f"PAMPlayer: parallel {sa} for '{tname}' missing "
+                      f"'x' or a target, skipping.")
+                return None
+            if step.get("depth") is not None:
+                print(f"PAMPlayer: parallel {sa} — 'depth' is not "
+                      f"supported inside parallel blocks; ignoring it "
+                      f"for '{tname}'.")
+            if ("prop" in step and "who" not in step) or sa == "trot_to":
+                spk = _resolve_speaker(step, cast=cast, props=props)
+                mover = spk.fig if isinstance(spk.fig, DogGraph) else None
+                if mover is None:
+                    print(f"PAMPlayer: parallel trot_to — '{tname}' is "
+                          f"not a DogGraph, skipping.")
+                    return None
+            else:
+                mover = _get_fig(tname)
+                if mover is None:
+                    print(f"PAMPlayer: parallel {sa} — '{tname}' has no "
+                          f"live figure, skipping.")
+                    return None
+            is_dog = isinstance(mover, DogGraph)
+            if is_dog:
+                plan = mover._trot_plan(x, stride=step.get("stride", 0.14))
+            elif sa == "walk_to":
+                plan = mover._walk_plan(x)
+            else:
+                plan = mover._run_plan(x)
+            end_sfx = _tl_sound(step, sa)
+            if not plan:                # already there: stillness
+                return {"phases": [Phase(info["frames"] or 0)],
+                        "end": end_sfx}
+            if info["frames"] is not None:
+                lengths = _pam_timeline.split_frames(info["frames"],
+                                                     len(plan))
+            else:
+                lengths = [info["per_kf"]] * len(plan)
+            # more keyframes than frames: a keyframe with no frame of
+            # its own is folded into the next one
+            kfs, carry = [], 0.0
+            for (pose, dx), n in zip(plan, lengths):
+                if n <= 0:
+                    carry += dx
+                    continue
+                kfs.append((pose, dx + carry, n))
+                carry = 0.0
+            if not kfs:
+                kfs = [(plan[-1][0], sum(dx for _, dx in plan), 0)]
+
+            def _keyframe(pose, dx):
+                def _anims():
+                    new_off = mover.offset + np.array([dx, 0, 0])
+                    anims = []
+                    if is_dog:
+                        if _pam_hooks.active():
+                            _pam_hooks.pose_target(mover, pose, new_off,
+                                                   local=pose)
+                        for n in mover.dots:
+                            anims.append(mover.dots[n].animate.move_to(
+                                pose[n] + new_off))
+                        for (a, b), line in mover.lines.items():
+                            pa = pose[a] + new_off
+                            pb = pose[b] + new_off
+                            if np.linalg.norm(pa - pb) > 0.01:
+                                anims.append(
+                                    line.animate.put_start_and_end_on(
+                                        pa, pb))
+                    else:
+                        anims.extend(mover._pose_anims(pose, new_off))
+                    bubble = getattr(mover, "_persistent_bubble", None)
+                    if bubble is not None:
+                        anims.append(bubble.animate.move_to(
+                            new_off + bubble.pam_follows_offset))
+                    mover.pose = pose
+                    mover.offset = new_off
+                    return anims
+                return _anims
+
+            return {"phases": [Phase(n, _keyframe(pose, dx))
+                               for pose, dx, n in kfs],
+                    "end": end_sfx}
+
+        def _tl_start(step: dict, info: dict, block):
+            """What a step of a timed block does (called by
+            pam.timeline.Block on the frame the step starts)."""
+            Phase = _pam_timeline.Phase
+            kind = info["kind"]
+            if kind == "camera":
+                return _tl_camera(step)
+            sa = step["action"]
+            if kind == "instant":
+                if sa == "constrain":
+                    _tl_constrain(step)
+                else:
+                    _tl_release(step)
+                return {"phases": []}
+            if kind == "wait":
+                return {"phases": [Phase(info["frames"])],
+                        "end": _tl_sound(step, sa)}
+            if kind == "say":
+                return _tl_say(step, info)
+            if kind == "loco":
+                return _tl_loco(step, info)
+            if kind != "anim":
+                return None
+            # a single-move action: ask its handler for the animations
+            names = _targets(step)
+            end_sfx = _tl_sound(step, sa)
+
+            def _anims():
+                out = []
+                for tname in names:
+                    got = _dispatch_one(step, tname, collect_anims=True)
+                    if got:
+                        out.extend(got)
+                return out
+
+            def _after():
+                # what the parallel block does once its play is over
+                if sa == "turn":
+                    for tname in names:
+                        tfig = _get_fig(tname)
+                        if tfig:
+                            tfig.pose = _resolve_pose(
+                                step.get("pose"),
+                                tfig._bp["standing_side"], fig=tfig)
+                elif sa == "fade_out":
+                    for tname in names:
+                        if tname in cast:
+                            cast[tname]["fig"] = None
+
+            rate = _pam_timeline.ACTION_RATE.get(sa)
+            rate = globals().get(rate) if rate else None
+            return {"phases": [Phase(info["frames"], _anims, rate=rate,
+                                     after=_after)],
+                    "end": end_sfx}
+
+        def _tl_run(step: dict, quiet: bool = False):
+            """Play a timed parallel block (or one timed step, wrapped
+            in a block by the caller)."""
+            _aid = None
+            if _pam_hooks.active():
+                _aid = _pam_hooks.next_action_id()
+                _pam_hooks.emit("action_begin", action_id=_aid, name=None,
+                                action="parallel", step=step, scene=self,
+                                collect_anims=False)
+            _pam_timeline.Block(self, step, _tl_start, quiet=quiet).run()
+            if _aid is not None:
+                _pam_hooks.emit("action_end", action_id=_aid, name=None,
+                                action="parallel", step=step, scene=self,
+                                collect_anims=False)
+
         # ── initial camera reset ─────────────────────────────────────────
         # Force the camera to wide/ensemble at the very start of every scene
         # so it never inherits a zoomed or off-centre state from a prior scene.
@@ -3152,37 +3497,7 @@ class PAMPlayer(MovingCameraScene):
             # ── _subscene_marker: camera-mode sync ───────────────────────
             if "_subscene_marker" in step:
                 if _camera_mode:
-                    sid  = step["_subscene_marker"]
-                    meta = _subscene_index.get(sid) or step.get("_shot_meta") or {}
-                    # Top-level bg_color: set background before the camera move
-                    bg_color = step.get("bg_color") or meta.get("bg_color")
-                    if bg_color:
-                        self.camera.background_color = bg_color
-                    # Build a live x-position snapshot from current cast and props
-                    char_x = {}
-                    for ckey, cspec in cast.items():
-                        fig = cspec.get("fig")
-                        if fig is not None:
-                            char_x[ckey] = float(fig.offset[0])
-                    char_x.update(props.x_positions())
-                    # Merge scene_objects so SUBJECT can reference them
-                    for oname, odata in _scene_objects.items():
-                        char_x[oname] = float(odata["x"])
-                    # Zone clamping: if this marker names a zone, restrict
-                    # the camera's x range to the zone's bounds.
-                    zone_name = step.get("zone") or meta.get("zone")
-                    if zone_name and zone_name in _zones:
-                        zspec = _zones[zone_name]
-                        # Clamp all x values to zone bounds so _apply_camera
-                        # centres inside the zone regardless of subject position.
-                        zx_mid = (zspec["x_min"] + zspec["x_max"]) / 2
-                        for k in list(char_x.keys()):
-                            char_x[k] = float(
-                                np.clip(char_x[k], zspec["x_min"], zspec["x_max"])
-                            )
-                        char_x.setdefault("_zone_centre", zx_mid)
-                        print(f"  CAM zone='{zone_name}' "
-                              f"x=[{zspec['x_min']:.1f}, {zspec['x_max']:.1f}]")
+                    meta, char_x = _marker_context(step)
                     # For static cuts: apply immediately (no scene time used).
                     # For animated moves: defer so the camera moves concurrently
                     # with the next FadeIn(bubble) rather than before it.
@@ -3241,16 +3556,9 @@ class PAMPlayer(MovingCameraScene):
                             _mgr.release(_c.id)
                     _pam_timeline.get(self).end(step.get("id"))
                 elif act == "constrain":
-                    _c = _pam_constraints.build(step, _get_fig)
-                    if _c is not None:
-                        _seq = _pam_timeline.get(self).stack
-                        _c.sequence = _seq[-1]["id"] if _seq else None
-                        _pam_constraints.get(self).add(_c)
+                    _tl_constrain(step)
                 elif act == "release":
-                    if _pam_constraints.get(self).release(
-                            step.get("id")) is None:
-                        print(f"PAMPlayer: release — no active constraint "
-                              f"'{step.get('id')}', skipping.")
+                    _tl_release(step)
                 else:
                     print("PAMPlayer: 'sequence' must be a top-level step "
                           "with a 'do' list and no '_comment'; skipping.")
@@ -4998,6 +5306,29 @@ class PAMPlayer(MovingCameraScene):
                     _repair_face_overlays()
                     print(f"  FOCUS on={on_names} dim={dim_names} "
                           f"opacity={dim_opacity} rt={rt}s")
+                continue
+
+            # ── timed parallel block, timed say (pam/timeline.py) ─────────
+            # A parallel block whose steps carry "at" or "frames" runs on
+            # the frame clock, and so does a say whose length is given in
+            # frames.  Every other parallel block and say is untouched.
+            if _timeline_on and (
+                    (act == "parallel"
+                     and _pam_timeline.is_timed_parallel(step))
+                    or (act == "say" and _pam_timeline.is_timed_say(step))):
+                # a beat on the step itself: inside a sequence it has
+                # been noted already (note_step, above)
+                if step.get("beat") and not (_tl is not None and _tl.stack):
+                    _pam_timeline.get(self).note_beat(
+                        step["beat"], step.get("_frames"))
+                if act == "parallel":
+                    _tl_run(step)
+                else:
+                    _tl_run({"action": "parallel",
+                             "id": f"say_{step.get('who')}",
+                             "do": [{k: v for k, v in step.items()
+                                     if k not in ("at", "beat")}]},
+                            quiet=True)
                 continue
 
             # ── parallel ─────────────────────────────────────────────────

@@ -42,6 +42,7 @@ def _command(trace, out):
     "screenplay_alice-meets-bob.json",        # figures and bubbles only
     "wdj_nona-vs-governor-venus3.json",       # props, a held prop, the Governor
     "abe-isaac_wrist-pull_slice.json",        # trace version 5, sampled piece
+    "abe-isaac_overlap_timeline.json",        # a timed parallel block
 ])
 def test_blend_builds_from_golden_trace(fixture, tmp_path):
     out = tmp_path / "scene.blend"
@@ -152,3 +153,27 @@ def test_hand_follows_a_wrist_that_moves_in_blender(tmp_path):
     # between two 15 fps samples the hand moves in a straight line while
     # the wrist follows the eased curve; they part by a hair
     assert g["between"] < 0.01
+
+
+def test_hand_stays_on_the_wrist_in_a_timed_block_in_blender(tmp_path):
+    """Milestone 2: inside a timed parallel block the trace is recorded
+    frame by frame.  A contact that starts and ends on frames of the
+    block still holds in Blender, on keyed and interpolated frames."""
+    trace = tt.golden_path(tt.OVERLAP)
+    out = tmp_path / "overlap.blend"
+    cmd = _command(trace, out)
+    if cmd is None:
+        pytest.skip("Blender is not available")
+    proc = subprocess.run(cmd, cwd=tmp_path, env=tt._env(),
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr[-4000:]
+    assert "2 speech bubbles" in proc.stdout
+
+    probe = _run(tt.REPO / "tests" / "blender_probe.py", out, trace)
+    proc = subprocess.run(probe, cwd=tmp_path, env=tt._env(),
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr[-4000:]
+    line = next(l for l in proc.stdout.splitlines() if l.startswith("PROBE "))
+    grip = json.loads(line[6:])["constraints"]["grip"]
+    assert grip["frames_held"] == 14
+    assert grip["keyed"] < 2e-3 and grip["between"] < 1e-2

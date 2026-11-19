@@ -64,6 +64,25 @@
         "pam_version": "1.0.1",
         "recorded": "2026-11-19"
       }
+    },
+    "abe-isaac_overlap_timeline.json": {
+      "golden": "abe-isaac_overlap_timeline.trace.json",
+      "fixture_sha256": "c461212e5311bdf2abf02b0a002e6b256e6d436463f6be27d6722bbe7ff63a75",
+      "trace_version": 5,
+      "hooks_version": 2,
+      "duration": 6.8,
+      "cast": [
+        "isaac",
+        "abraham"
+      ],
+      "plays": 96,
+      "pieces": 61,
+      "recorded_at": {
+        "commit": "ab428390c4c9bba30b1bc313029cfa6e16611c42",
+        "tracked_files_modified": false,
+        "pam_version": "1.0.1",
+        "recorded": "2026-11-19"
+      }
     }
   },
   "reference": {
