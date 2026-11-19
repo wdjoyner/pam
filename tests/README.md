@@ -1,10 +1,11 @@
 # PAM tests
 
-Regression tests for the baseline of *PAM: The Road to Blender*, Milestone 1.
+Regression tests for *PAM: The Road to Blender*: the Milestone 1 baseline,
+the vertical slice, and the Milestone 2 timeline.
 None of them writes a video, and none writes into the repository.
 
 ```bash
-python -m pytest             # all tests (about a minute and a half)
+python -m pytest             # all tests (about two minutes)
 python -m pytest -k golden   # golden-trace comparison only
 python -m pytest -k validate # validator only (a few seconds)
 ```
@@ -25,6 +26,7 @@ something extra and are skipped without it:
 | `test_blender_build.py` | `trace2blender.py` builds a `.blend` from a stored golden trace without error; in the built scene a constrained hand stays on the wrist it holds, including a wrist that moves. |
 | `test_blender_mouth.py` | Talking mouths in the Blender export: shown only while the character's bubble is showing, kept with `--no-bubbles`, removed by `--no-mouths`. |
 | `test_timeline.py` | The 15 fps frame clock: a duration in `frames` lasts exactly that many frames, sequences and beats land on their frames, and legacy screenplays are not touched. |
+| `test_timeline_blocks.py` | Timed `parallel` blocks (Milestone 2): overlapping moves start and end on their frames and keep their easing, a line of dialogue and a camera cut land on their frames, walks take exactly their frames, constraints start and end inside a block, repeated runs are identical, a block is exact at 30 fps, and ordinary `parallel` blocks and `say` lines are not touched. |
 | `test_constraints.py` | The two-bone solver, `joint_to_joint` and `root_lock`, release on a set frame, the fall and the comic hold, the `sampled` trace piece, and the same gag at other character scales. |
 | `test_validate.py` | The JSON validator and the `pam-validate` command, including what they report for each fixture. |
 | `test_action_specs.py` | `pam/action_specs.py` lists exactly the actions `pam_player.py` dispatches. |
@@ -34,13 +36,16 @@ something extra and are skipped without it:
 
 ## Fixtures and golden traces
 
-The fixtures are four screenplays in the repository root:
+The fixtures are five screenplays in the repository root:
 
 - `screenplay_alice-meets-bob.json`
 - `lucy-meets-lenny2_pam.json`
 - `wdj_nona-vs-governor-venus3.json`
 - `abe-isaac_wrist-pull_slice.json` (the vertical slice: timeline, contact
   constraint, sampled trace piece; trace version 5)
+- `abe-isaac_overlap_timeline.json` (Milestone 2: one timed parallel block
+  with a walk, overlapping moves, two lines of dialogue, two camera moves,
+  and a grip that starts and ends inside the block)
 
 The first three predate the timeline. They are the proof that it is opt-in:
 they must keep tracing as version 4 and keep matching their golden traces.
@@ -63,7 +68,7 @@ The failure lists the values that differ, by their path in the trace, for exampl
   note on why they changed:
 
   ```bash
-  python tests/update_golden.py                              # all three
+  python tests/update_golden.py                              # all of them
   python tests/update_golden.py lucy-meets-lenny2_pam.json   # just one
   git diff --stat tests/golden
   ```
@@ -142,6 +147,38 @@ duplicate is now dropped. Overlay ids for gloves and shoes were handed out in
 set order, which varies from run to run, so two traces of the same scene could
 differ; the order is now sorted. Neither changes the three legacy golden
 traces.
+
+**Timed blocks (Milestone 2).** Four things turned up while building them.
+
+- *Mobjects can only come and go between plays.* Manim decides at the start
+  of a `Scene.play` which mobjects it redraws, so a bubble that fades in
+  halfway through a play is not drawn. A timed block is therefore cut at
+  every frame on which a step starts or ends, and each stretch is its own
+  play. An empty mobject at the back of the scene makes Manim redraw
+  everything during the block.
+- *Finishing an animation undoes a contact for an instant.* When a step ends,
+  its animation puts the joints on the pose's targets, including a wrist that
+  a constraint was holding. Nothing is drawn in that state, but the tracer
+  saw it and recorded a jump (0.6 units, visible in Blender). The block now
+  runs the updaters again after finishing steps, as `Scene.play` does.
+- *A fade-out needs its group in the scene.* `Scene.play` adds an animated
+  mobject that is not in the scene as itself (a figure's edge group; its lines
+  are) before it begins, and `FadeOut` relies on that to remove it at the end.
+  The block does the same.
+- *One frame is exactly 1/15 s.* For a single frame the nanosecond that
+  `frames_to_seconds` subtracts makes Manim warn that the play is too short
+  (and then use 1/15 s anyway). One frame is now passed as exactly 1/15 s,
+  which is exact at 15, 30 and 60 fps.
+
+The tracer records a timed block frame by frame (one linear piece per frame
+for whatever moved), since a play there is a stretch of several moves and has
+no single rate function. `seconds_to_frames` now rounds halves up (0.3 s is 5
+frames); Python's own rounding would give 4 for 0.3 s and 8 for 0.5 s.
+
+**The camera mode switch.** `PAM_CAMERA_MODE=0` does not turn camera mode
+off: the player tests `bool(os.environ.get("PAM_CAMERA_MODE", "1"))`, and the
+string `"0"` is true. Only an empty value turns it off. This is left as it
+is here, because changing it would change how existing command lines render.
 
 **What the Blender check does and does not show.** The tests measure, inside
 the built `.blend`, the distance between the constrained hand and the wrist on

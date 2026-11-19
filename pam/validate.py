@@ -207,8 +207,8 @@ class _Validator:
                 self.add(WARNING, "frames-and-seconds",
                          f"step has both '{fkey}' and '{sec}'; the frames "
                          f"win", index, act, f"{path}{fkey}")
-        if "frames" not in step or act == "constrain":
-            return
+        if "frames" not in step or act in ("constrain", None):
+            return                  # (None: a camera marker)
         sec = specs.seconds_key(act)
         if sec in step and step[sec] is not None:
             self.add(WARNING, "frames-and-seconds",

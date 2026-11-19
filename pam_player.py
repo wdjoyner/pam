@@ -3146,7 +3146,7 @@ class PAMPlayer(MovingCameraScene):
             if zone_name and zone_name in _zones:
                 zspec = _zones[zone_name]
                 # Clamp all x values to zone bounds so _apply_camera
-                # centres inside the zone regardless of subject position.
+                # centers inside the zone regardless of subject position.
                 zx_mid = (zspec["x_min"] + zspec["x_max"]) / 2
                 for k in list(char_x.keys()):
                     char_x[k] = float(
@@ -5312,16 +5312,24 @@ class PAMPlayer(MovingCameraScene):
             # A parallel block whose steps carry "at" or "frames" runs on
             # the frame clock, and so does a say whose length is given in
             # frames.  Every other parallel block and say is untouched.
-            if _timeline_on:
-                if act == "parallel" and _pam_timeline.is_timed_parallel(step):
+            if _timeline_on and (
+                    (act == "parallel"
+                     and _pam_timeline.is_timed_parallel(step))
+                    or (act == "say" and _pam_timeline.is_timed_say(step))):
+                # a beat on the step itself: inside a sequence it has
+                # been noted already (note_step, above)
+                if step.get("beat") and not (_tl is not None and _tl.stack):
+                    _pam_timeline.get(self).note_beat(
+                        step["beat"], step.get("_frames"))
+                if act == "parallel":
                     _tl_run(step)
-                    continue
-                if act == "say" and _pam_timeline.is_timed_say(step):
+                else:
                     _tl_run({"action": "parallel",
                              "id": f"say_{step.get('who')}",
                              "do": [{k: v for k, v in step.items()
-                                     if k != "at"}]}, quiet=True)
-                    continue
+                                     if k not in ("at", "beat")}]},
+                            quiet=True)
+                continue
 
             # ── parallel ─────────────────────────────────────────────────
             if act == "parallel":

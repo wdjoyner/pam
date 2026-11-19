@@ -41,12 +41,16 @@ FIXTURES = (
     "wdj_nona-vs-governor-venus3.json",
     # The vertical slice: timeline, contact constraint, sampled piece.
     "abe-isaac_wrist-pull_slice.json",
+    # Milestone 2: a timed parallel block (overlapping moves, dialogue
+    # and camera cuts on set frames, a walk, a contact constraint).
+    "abe-isaac_overlap_timeline.json",
 )
 
 # Fixtures written before the timeline existed.  They must keep tracing
 # as version 4, and the player must not touch their action lists.
 LEGACY_FIXTURES = FIXTURES[:3]
 SLICE = FIXTURES[3]
+OVERLAP = FIXTURES[4]
 
 # Traces are rounded to 4 decimals (3 for outlines), so two machines can
 # legitimately differ by one unit in the last place; 2e-3 leaves room

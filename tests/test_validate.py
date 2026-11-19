@@ -209,10 +209,134 @@ def test_sequence_steps_are_validated_like_top_level_steps():
         ("unknown-action", "do[1].action")]
 
 
-def test_sequence_needs_a_do_list_and_cannot_sit_in_a_parallel_block():
+def test_sequence_needs_a_do_list():
     assert codes([CAST, {"action": "sequence", "id": "s"}]) == ["bad-step"]
     assert codes([CAST, {"action": "parallel", "do": [
-        {"action": "sequence", "id": "s", "do": []}]}]) == ["bad-step"]
+        {"action": "sequence", "id": "s"}]}]) == ["bad-step"]
+    # a sequence in a parallel block is a track of a timed block
+    assert codes([CAST, {"action": "parallel", "do": [
+        {"action": "sequence", "id": "s", "do": []}]}]) == []
+
+
+# ── timed parallel blocks (roadmap Milestone 2) ──────────────────────────
+
+def timed(*steps, **block):
+    return [CAST, PROPS, {"action": "parallel", "do": list(steps), **block}]
+
+
+def test_timed_block_accepts_what_the_timeline_can_play():
+    actions = timed(
+        {"action": "morph", "who": "alice", "pose": "pull_lean",
+         "frames": 12, "beat": "lean"},
+        {"action": "turn", "who": "bob", "pose": "standing_side", "at": 6,
+         "frames": 9},
+        {"action": "say", "who": "bob", "text": "Hi", "at": 12,
+         "frames": 24, "frames_in": 3},
+        {"_subscene_marker": "c", "at": 9,
+         "_shot_meta": {"framing": "medium", "subject": "bob"}},
+        {"_subscene_marker": "d", "at": 20, "frames": 6,
+         "_shot_meta": {"framing": "wide"}},
+        {"action": "sequence", "id": "track", "at": 12, "do": [
+            {"action": "walk_to", "who": "alice", "x": 1.0, "frames": 20},
+            {"action": "wait", "frames": 6, "beat": "hold"},
+            {"action": "fade_out", "who": "alice", "frames": 5}]},
+        {"action": "constrain", "id": "g", "type": "root_lock",
+         "who": "bob", "at": 3, "frames": 6},
+        frames=60)
+    report = validate_actions(actions)
+    assert report.findings == []
+
+
+def test_timed_block_rejects_what_the_timeline_cannot_play():
+    found = [(f.code, f.path) for f in validate_actions(timed(
+        {"action": "wave", "who": "alice", "at": 3},
+        {"action": "sit_down", "who": "bob", "prop": "chair", "frames": 9},
+        {"action": "parallel", "do": []},
+        {"action": "sequence", "do": [{"action": "sequence", "do": []}]},
+        {"_subscene_marker": "c", "at": 2,
+         "_shot_meta": {"move": "pan-up"}},
+        {"action": "morph", "who": "nobody", "pose": "pull_lean",
+         "frames": 3},
+        {"action": "walk_to", "who": "alice", "x": 1, "at": 1.5},
+    )).errors]
+    assert found == [
+        ("timeline-unsupported", "do[0]"),
+        ("timeline-unsupported", "do[1]"),
+        ("timeline-unsupported", "do[2]"),
+        ("timeline-unsupported", "do[3].do[0]"),
+        ("timeline-unsupported", "do[4]"),
+        ("missing-character", "do[5].who"),
+        ("invalid-frames", "do[6].at"),
+    ]
+
+
+def test_timed_block_reports_rounded_durations():
+    report = validate_actions(timed(
+        {"action": "morph", "who": "alice", "pose": "pull_lean",
+         "rt": 0.25},
+        {"action": "say", "who": "bob", "text": "Hi", "hold": 1.0,
+         "rt_out": 0.3, "at": 2},
+        {"action": "wait", "t": 0.4, "at": 9}))
+    assert report.ok
+    assert [(f.code, f.path) for f in report.warnings] == [
+        ("rounded-duration", "do[0].rt"),
+        ("rounded-duration", "do[1].rt_out")]
+    assert "3.75 frames at 15 fps; in a timed block it plays as 4 " \
+        "frames" in report.warnings[0].message
+
+
+def test_timed_block_warnings():
+    def warned(*steps, **block):
+        return codes(timed(*steps, **block), level="warning")
+    lean = {"action": "morph", "who": "alice", "pose": "pull_lean",
+            "frames": 12}
+    up = {"action": "morph", "who": "alice", "pose": "standing_side",
+          "frames": 6}
+    assert warned(lean, {**up, "at": 6}) == ["timeline-overlap"]
+    assert warned(lean, {**up, "at": 12}) == []
+    assert warned({"action": "walk_to", "who": "alice", "x": 1},
+                  {**up, "at": 30}) == ["timeline-overlap"]
+    assert warned(lean, frames=8) == ["block-too-short"]
+    assert warned(lean, frames=12) == []
+    assert warned({"action": "sequence", "do": [{**lean, "at": 2}]}) \
+        == ["at-ignored"]
+    assert warned({"action": "say", "who": "bob", "text": "Hi",
+                   "frames": 4}) == ["timeline-key"]
+    assert warned({"action": "say", "who": "bob", "text": "Hi",
+                   "frames": 20, "hold": 1.0, "frames_in": 2,
+                   "rt_in": 0.2}) == ["frames-and-seconds"] * 2
+    # outside a timed block
+    assert codes([CAST, {**lean, "at": 3}], level="warning") \
+        == ["at-ignored"]
+    assert codes([CAST, {"action": "say", "who": "bob", "text": "Hi",
+                         "frames": 20}], level="warning") == []
+    assert codes([CAST, {**lean, "frames_in": 2}], level="warning") \
+        == ["frames-unsupported"]
+
+
+def test_an_ordinary_parallel_block_is_checked_as_before():
+    report = validate_actions([CAST, {"action": "parallel", "rt": 0.25, "do": [
+        {"action": "turn", "who": "alice", "pose": "standing_side"},
+        {"action": "wave", "who": "bob"}]}])
+    assert report.findings == []
+
+
+def test_frame_notes_list_durations_that_are_not_whole_frames():
+    from pam.validate import frame_notes
+    notes = frame_notes([
+        CAST,
+        {"action": "wait", "t": 0.5},
+        {"action": "wait", "t": 0.4},
+        {"action": "parallel", "rt_per_kf": 0.22, "do": [
+            {"action": "turn", "who": "alice", "rt": 0.25}]},
+        {"_subscene_marker": "m", "_shot_meta": {"move": "zoom",
+                                                 "rt": 1.0}},
+    ])
+    assert [(f.level, f.index, f.path) for f in notes] == [
+        ("note", 1, "t"), ("note", 3, "rt_per_kf"),
+        ("note", 3, "do[0].rt")]
+    assert "7.5 frames at 15 fps; on the frame clock it is 8 frames" \
+        in notes[0].message
 
 
 @pytest.mark.parametrize("value", [-1, 2.5, "6", True])
@@ -323,6 +447,7 @@ EXPECTED = {
     "lucy-meets-lenny2_pam.json": ([], 12),
     "wdj_nona-vs-governor-venus3.json": ([], 31),
     "abe-isaac_wrist-pull_slice.json": ([], 0),
+    "abe-isaac_overlap_timeline.json": ([], 0),
 }
 
 
@@ -386,6 +511,18 @@ def test_command_strict_and_json():
     out = run_cli(venus, "--json")
     data = json.loads(out.stdout)
     assert data[0]["ok"] is True and data[0]["warnings"] == 31
+
+
+def test_command_frames_lists_durations_without_failing():
+    scene = tt.REPO / "screenplay_alice-meets-bob.json"
+    out = run_cli(scene, "--frames", "--strict")
+    assert out.returncode == 0
+    assert "[not-whole-frames]" in out.stdout
+    assert "duration(s) not in whole frames" in out.stdout
+    assert "[not-whole-frames]" not in run_cli(scene).stdout
+    data = json.loads(run_cli(scene, "--frames", "--json").stdout)
+    assert data[0]["warnings"] == 0
+    assert {f["level"] for f in data[0]["findings"]} == {"note"}
 
 
 def test_command_validates_every_fixture_in_one_call():

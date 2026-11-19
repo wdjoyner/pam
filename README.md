@@ -1637,7 +1637,7 @@ The full scene is `abe-isaac_wrist-pull_slice.json`; render it with `./pam-rende
 
 | Syntax | Meaning |
 |---|---|
-| `"frames": n` | The step lasts exactly `n` frames at 15 per second. Supported on `wait`, `morph`, `turn`, `scale`, and `slip_on_back`. Use it in place of the seconds key, not with it. |
+| `"frames": n` | The step lasts exactly `n` frames at 15 per second. Supported on `wait`, `morph`, `turn`, `scale`, `slip_on_back`, `fade_out`, and `say`, and on more actions inside a timed parallel block (next section). Use it in place of the seconds key, not with it. |
 | `sequence` | A named run of steps (`do`) on the frame clock. The console reports the frames it ran on and any step that missed its count. Constraints started in a sequence end with it. |
 | `"beat": "name"` | Names a step of a sequence. Beats and their frames are reported and written to the trace. |
 | `constrain`, type `joint_to_joint` | Keeps `who`'s wrist or ankle (`joint`) on `target`'s `target_joint`. The elbow or knee is solved each frame; bone lengths do not change and the joint never flips side. `blend` is the number of frames the hand takes to get there. If the target is out of reach the limb straightens toward it, and the shortfall is reported. |
@@ -1651,6 +1651,62 @@ A scene that uses any of this is traced as **trace version 5**: it adds `"fps": 
 
 The modules are `pam/timeline.py`, `pam/constraints.py`, and `pam/choreography.py`; each starts with a description of what it does and why.
 
+### Timed parallel blocks: overlapping action on the frame clock
+
+Milestone 2 of the Blender roadmap. A `parallel` block has always played its steps together, all with one run time. Give its steps `at` and `frames` and each one starts on its own frame and lasts its own number of frames. Dialogue is one of the things such a block can run, so a line can begin on an exact frame while two actors are moving and the camera cuts.
+
+```json
+{"action": "parallel", "id": "s02_overlap", "frames": 84, "do": [
+  {"action": "sequence", "id": "abraham_arrives", "do": [
+    {"action": "walk_to", "who": "abraham", "x": 0.8, "frames": 30, "beat": "walk_in"},
+    {"action": "morph", "who": "abraham", "pose": "look_up_point", "frames": 6},
+    {"action": "wait", "frames": 12},
+    {"action": "morph", "who": "abraham", "pose": "reach_forward", "frames": 9}
+  ]},
+  {"action": "turn", "who": "isaac", "pose": "standing_side", "at": 6, "frames": 9},
+  {"action": "say", "who": "isaac", "text": "You walked all this way?", "at": 12, "frames": 30},
+  {"_subscene_marker": "s02_overlap_medium", "at": 30,
+   "_shot_meta": {"framing": "medium", "subject": "isaac", "move": "static"}},
+  {"action": "constrain", "id": "grip", "type": "joint_to_joint", "at": 48,
+   "who": "abraham", "joint": "rwrist",
+   "target": "isaac", "target_joint": "lwrist", "blend": 4, "frames": 18},
+  {"action": "wait", "at": 75, "frames": 9, "beat": "comic_hold"}
+]}
+```
+
+The full scene is `abe-isaac_overlap_timeline.json`; render it with `./pam-render --script abe-isaac_overlap_timeline.json`. The console lists the frames every step ran on.
+
+**When is a parallel block timed?** When the block has `frames`, or any step in its `do` list has `at`, `frames`, `frames_in` or `frames_out`, is a `sequence`, or is a camera marker. Every other `parallel` block plays exactly as before, and so does every `say` without `frames`.
+
+| Syntax | Meaning |
+|---|---|
+| `"at": n` | The step starts `n` frames after the block starts (default 0). Only for steps written directly in the block. |
+| `"frames": n` on a step | The step lasts exactly `n` frames. Without it, the step's seconds key (`rt`, `hold`, ...) is used, then the block's `rt`, then 6 frames (0.4 s). Seconds are rounded to the nearest whole frame, halves up, never less than one frame. |
+| `"frames": n` on the block | The block lasts exactly `n` frames; what is left after its last step is stillness. Without it the block ends when its last step ends. |
+| `sequence` in the block | A track: its steps follow one another, the first starting on the sequence's `at`. Use one track per actor. |
+| `"beat": "name"` | Names the frame a step starts on; reported and written to the trace. |
+| `morph`, `turn`, `scale`, `slip_on_back`, `fade_out` | One move over the step's frames. |
+| `walk_to`, `run_to`, `trot_to` | With `frames`, the whole move takes exactly that long. Without, each keyframe takes 3 frames (`rt_per_kf`) and the length depends on the distance. |
+| `say` | The bubble fades in, holds, and fades out as three timed pieces. `frames` is the whole line; `frames_in` and `frames_out` are the fades (defaults 6 and 5). With `"persist": true` there is no fade-out. Human, alien and dog characters. |
+| `wait` | Stillness. With a `sound` key and no duration it is a sound effect on an exact frame. |
+| `constrain`, `release` | The contact starts or ends on that frame. |
+| `_subscene_marker` with `_shot_meta` | A camera cut on that frame. With `frames` (or an animated `move`: `push`, `pull`, `pan-follow`, `drift`, `zoom`) the camera travels for that long. |
+
+A step's `sound` (and its character's `sfx`) starts on the frame the step starts, so sound effects stay in step with the movement.
+
+**What cannot be a step of a timed block yet:** actions that play several animations of their own (`wave`, `nod`, `shrug`, `carry`, `sit_down`, `stand_up`, `prop_say`, the camera moves `pan-up`, `pan-down`, `descend`, `push-into`, ...). Put them before or after the block. `pam-validate` rejects them inside one, and the player skips them with a message. The list of what can run is in `pam/action_specs.py`; the validator and the player both read it.
+
+Things to know:
+
+- If two steps move the same figure on the same frames, the one written later wins on those frames. `pam-validate` warns.
+- A bubble shown by `say` stays where it appeared. For a character who talks while walking, use `"persist": true`, as before.
+- Within one frame the order is fixed: steps that end on it are finished first, then steps that start on it are started, both in the order they are written. Two renders of the same screenplay are identical frame for frame.
+- At medium and high quality (30 and 60 fps) a block takes the same time; each timeline frame is two or four rendered frames.
+
+In the trace (version 5), a timed block is recorded frame by frame, so `trace2blender.py` reproduces overlapping moves, the frame a line starts on, and the frame the camera cuts on without solving or guessing anything. The trace also gets a `blocks` list saying which step ran on which frames.
+
+`pam-validate --frames` lists every duration in a screenplay that is not a whole number of frames at 15 fps, with the value it rounds to. Inside a timed block those are reported as warnings without the flag, since there they really are rounded.
+
 ### Validate a screenplay without rendering
 
 `pam-validate` checks PAM JSON files in a second or two, without Manim drawing anything:
@@ -1660,9 +1716,10 @@ The modules are `pam/timeline.py`, `pam/constraints.py`, and `pam/choreography.p
 ./pam-validate scene1.json scene2.json --quiet
 ./pam-validate my_scene.json --strict        # warnings also fail
 ./pam-validate my_scene.json --json          # machine-readable report
+./pam-validate my_scene.json --frames        # also list durations that are not whole frames
 ```
 
-It rejects unknown actions, invalid joint names, negative durations, frame counts that are not whole numbers, malformed constraints, and references to characters or props that do not exist at that step (never defined, defined later, or already removed). It also reports, as warnings, things the player passes over in silence: unresolved `# REVIEW` and `# PATCH` comments from `fountain2pam.py`, and action steps that carry a `_comment` (the player skips those entirely). The exit status is `0` when every file is valid and `1` otherwise.
+It rejects unknown actions, invalid joint names, negative durations, frame counts that are not whole numbers, malformed constraints, steps of a timed parallel block that cannot run on the frame clock, and references to characters or props that do not exist at that step (never defined, defined later, or already removed). It also reports, as warnings, things the player passes over in silence: unresolved `# REVIEW` and `# PATCH` comments from `fountain2pam.py`, and action steps that carry a `_comment` (the player skips those entirely). The exit status is `0` when every file is valid and `1` otherwise.
 
 The valid action names and the checked keys are listed in `pam/action_specs.py`. A new handler in `pam/actions.py` needs no change there; a new action dispatched inline in `pam_player.py` must be added to `PLAYER_ACTIONS`, and a test fails until it is.
 
@@ -1671,11 +1728,11 @@ The valid action names and the checked keys are listed in `pam/action_specs.py`.
 ### Run the regression tests
 
 ```bash
-python -m pytest            # everything, about a minute and a half
+python -m pytest            # everything, about two minutes
 python -m pytest -k golden  # only the golden-trace comparison
 ```
 
-The tests trace three fixture screenplays with `pam_trace.py` and compare the result with stored golden traces, so a change to motion, timing, camera, or props shows up without rendering a video. See `tests/README.md` for what is covered and for when and how to record new golden traces.
+The tests trace five fixture screenplays with `pam_trace.py` and compare the result with stored golden traces, so a change to motion, timing, camera, or props shows up without rendering a video. See `tests/README.md` for what is covered and for when and how to record new golden traces.
 
 ---
 

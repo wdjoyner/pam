@@ -196,6 +196,10 @@ def frames_to_seconds(frames) -> float:
     n = int(frames)
     if n <= 0:
         return 0.0
+    if n == 1:
+        # exactly one frame: any less and Manim warns that the play is
+        # too short (and then uses this value anyway)
+        return 1.0 / FPS
     return n / FPS - _NUDGE
 
 
@@ -868,16 +872,24 @@ class Block:
         from manim.animation.animation import prepare_animation
         from manim.utils.rate_functions import smooth
         raw = ph.anims() if ph.anims is not None else None
-        out = []
-        for a in raw or []:
-            if a is None:
-                continue
-            anim = prepare_animation(a)
+        scene = self.scene
+        out = [prepare_animation(a) for a in raw or [] if a is not None]
+        # What Scene.play does before it begins its animations: a
+        # mobject that is animated but is not in the scene as itself
+        # (a figure's edge group, whose lines are) is added, so that an
+        # animation that removes it at its end (FadeOut) can.
+        family = scene.get_mobject_family_members()
+        for anim in out:
+            mob = anim.mobject
+            if not anim.is_introducer() and mob is not None \
+                    and mob not in family:
+                scene.add(mob)
+                family += mob.get_family()
+        for anim in out:
             anim.run_time = frames_to_seconds(ph.frames)
             anim.rate_func = ph.rate or smooth
-            anim._setup_scene(self.scene)
+            anim._setup_scene(scene)
             anim.begin()
-            out.append(anim)
         return out
 
     def _end_phase(self, run):
@@ -934,6 +946,12 @@ class Block:
             if run is not None and run.p1 <= self.f:
                 self._end_phase(run)
                 resume.append(track)
+        if resume:
+            # Finishing an animation puts its mobjects on their targets.
+            # Run the updaters again, as Scene.play does when it ends,
+            # so that contact constraints (and faces, gloves, shoes)
+            # hold before any step that starts here looks at the scene.
+            self.scene.update_mobjects(0)
         for track in self.tracks:
             if track in resume:
                 run = track.run
@@ -944,6 +962,7 @@ class Block:
                 self._advance_track(track)
             elif not track.started and track.at <= self.f:
                 self._advance_track(track)
+        self.scene.update_mobjects(0)
 
     # ── called by the segment animation on every rendered frame ──────
     def _advance(self, pos):

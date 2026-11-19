@@ -14,8 +14,9 @@ Options:
                    never fail a screenplay)
     --no-sidecar   do not merge pam_sidecar.json / PAM_SIDECAR first
 
-Errors: unknown actions, invalid joint names, negative durations, and
-references to characters or props that do not exist at that step.
+Errors: unknown actions, invalid joint names, negative durations,
+references to characters or props that do not exist at that step, and
+steps of a timed parallel block that cannot run on the frame clock.
 Warnings: unresolved "# REVIEW" and "# PATCH" comments from
 fountain2pam.py, steps the player skips, and similar.  See
 pam/validate.py for the full list and pam/action_specs.py for the
