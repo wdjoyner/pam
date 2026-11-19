@@ -89,6 +89,28 @@ unchanged because nothing existing changed):
                       run).  Not emitted on the first and last frame of
                       a ``Scene.play``; those are its boundaries.
 
+Stateful-prop events (emitted only by screenplays with stateful props;
+see pam/prop_states.py; the hooks version is unchanged because nothing
+existing changed):
+
+``"prop_declared"``  — scene, prop, type, machine, state, mob, parts
+                      ({part: mobject} of a composite prop), display,
+                      frame, t: a prop with a state is being followed.
+``"prop_state_changed"`` — scene, prop, frame, t, frames, changed (a
+                      list of "state", "attached", "display"), from,
+                      to, attached ({prop or prop.part: attachment}),
+                      display, cause (the action: "prop_transition",
+                      or an existing one such as "elevator_open").
+``"prop_attached"``  — scene, prop (or prop.part), mob, attach, frame,
+                      t: the prop has arrived on an attachment.
+``"prop_display"``   — scene, prop, frame, t, state, screen, display:
+                      what a prop's display shows from this frame.
+
+A prop that a ``prop_transition`` puts in a character's hand is
+reported with the ordinary ``"prop_attach"`` / ``"prop_release"`` pair,
+mode ``"transition"``, with one more key: ``offset`` ([dx, dy], where
+the prop sits from the joint).
+
 Prop hand-off semantics (hooks version 2)
 ----------------------------------------
 An attach starts a hold: the prop rides on the figure's hand(s) (*hand*

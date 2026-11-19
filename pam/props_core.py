@@ -12,6 +12,31 @@ _attach_pam_attrs() — stamp PAM metadata onto a VGroup
 _apply_attrs()      — apply scale / inclination overrides
 resolve_position()  — walk parent chain → world [x, y, 0]
 _make_label()       — build a small Text mobject
+compose_parts()     — join part props into one composite prop
+
+Composite props (Milestone 4 of *PAM: The Road to Blender*)
+-----------------------------------------------------------
+A composite prop is a VGroup whose submobjects are props in their own
+right: its *parts*.  ``compose_parts`` stamps the group with
+
+    ``.pam_composite``  — True
+    ``.pam_parts``      — ``{part name: part VGroup}``
+
+and each part with ``.pam_part_of`` (the composite's name) and
+``.pam_part`` (its name in it).  A part's registry name is
+``"<composite>.<part>"``, for example ``knife.blade``.  While the parts
+are joined, moving the group moves them all; ``pam/prop_states.py``
+decides when they are joined and moves them one by one when they are
+not.  The group itself never has geometry of its own, so nothing is
+ever drawn twice.
+
+Props with a state
+------------------
+What state a prop is in is kept by ``pam/prop_states.py``, for every
+kind of prop: the new ones (``knife``, ``phone``) and the ones that
+already had an open/closed flag or a color state (sliding doors, the
+elevator, the avatar pod's lid, the Governor).  Ask it with
+``prop_states.state_of(prop)``.
 """
 
 from __future__ import annotations
@@ -113,3 +138,39 @@ def _make_label(text, x, y, color=None, font_size=None):
         font_size=font_size or PROP_DEFAULTS["label_font_sz"],
         color=color or PROP_DEFAULTS["label_color"],
     ).move_to(np.array([x, y, 0]))
+
+
+def compose_parts(group, name, ptype, x, y, parts: dict,
+                  attachments: dict | None = None,
+                  parent: str | None = None, attach: str | None = None,
+                  attrs: dict | None = None):
+    """Make *group* (a VGroup of the values of *parts*) a composite prop.
+
+    Parameters
+    ----------
+    group  : VGroup whose submobjects are the part props.
+    name   : registry name of the composite (``"knife"``).
+    ptype  : its type string.
+    x, y   : its center.
+    parts  : ``{part name: part VGroup}``; each part must already carry
+             PAM metadata (``_attach_pam_attrs``).
+
+    Returns the group, with PAM metadata, ``pam_composite`` and
+    ``pam_parts``.  The parts are renamed ``"<name>.<part>"``.
+    """
+    for part, mob in parts.items():
+        full = f"{name}.{part}"
+        mob.pam_name = full
+        mob.pam_part_of = name
+        mob.pam_part = part
+        node = getattr(mob, "pam_node", None)
+        if isinstance(node, dict):
+            node["name"] = full
+    top = max(float(m.get_top()[1]) for m in parts.values()) \
+        if parts else y
+    _attach_pam_attrs(group, name, ptype, x, y, surface_y=top,
+                      attachments=attachments, parent=parent,
+                      attach=attach, attrs=attrs)
+    group.pam_composite = True
+    group.pam_parts = dict(parts)
+    return group

@@ -17,11 +17,26 @@ Module layout
 props_core.py         — shared infrastructure (PROP_DEFAULTS, helpers)
 props_furniture.py    — chair, desk, door, pocket_door, elevator, desk_lamp
 props_carried.py      — hat, briefcase, folder, phone, audio_video_bug,
-                         backpack, laptop
+                         backpack, laptop, knife (knife_handle,
+                         knife_blade), satchel
 props_flora.py        — flower, floral_arrangement / bouquet
 props_environment.py  — dodecahedron, building, sun, moon, solar_panel,
-                         wire, backdrop, tv_monitor, avatar_pod
+                         wire, backdrop, tv_monitor, avatar_pod, rock,
+                         altar, bowl
 props_accessories.py  — name_tag, delivery_cap, cheap_suit, silver_hair
+
+Stateful and composite props (Milestone 4, Stage 4a)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+``knife``          — a composite prop of two parts, ``<name>.handle`` and
+                     ``<name>.blade``, which stay two props after it
+                     breaks.
+``composite_prop`` — a composite prop made of the parts its item lists
+                     (``build_composite_prop``).
+``phone``          — the cellphone's screen has a display.
+``satchel``, ``rock``, ``altar``, ``bowl`` — plain props for the others
+                     to go into, rest on, or stick in.
+States, the ``prop_transition`` action, attachments and the continuity
+ledger are in ``pam/prop_states.py``.
 
 New in v0.9.7
 ~~~~~~~~~~~~~
@@ -72,6 +87,7 @@ from pam.props_core import (
     _apply_attrs,
     resolve_position,
     _make_label,
+    compose_parts,
 )
 
 # ── furniture / scene ─────────────────────────────────────────────────────────
@@ -93,6 +109,10 @@ from pam.props_carried import (
     build_audio_video_bug,
     build_backpack,
     build_laptop,
+    build_knife,
+    build_knife_handle,
+    build_knife_blade,
+    build_satchel,
 )
 
 # ── flora ─────────────────────────────────────────────────────────────────────
@@ -114,6 +134,9 @@ from pam.props_environment import (
     build_tv_monitor,
     build_avatar_pod,
     build_crosswalk,
+    build_rock,
+    build_altar,
+    build_bowl,
 )
 
 # ── character accessories ─────────────────────────────────────────────────────
@@ -159,6 +182,10 @@ PROP_TYPES = {
     "bug":                 build_audio_video_bug,  # alias
     "backpack":            build_backpack,
     "laptop":              build_laptop,
+    "knife":               build_knife,          # composite: handle + blade
+    "knife_handle":        build_knife_handle,
+    "knife_blade":         build_knife_blade,
+    "satchel":             build_satchel,
     # ── flora ─────────────────────────────────────────────────────────────
     "flower":              build_flower,
     "floral_arrangement":  build_floral_arrangement,
@@ -178,6 +205,9 @@ PROP_TYPES = {
     "avatar_pod":          build_avatar_pod,
     "pod":                 build_avatar_pod,     # alias
     "crosswalk":           build_crosswalk,
+    "rock":                build_rock,
+    "altar":               build_altar,
+    "bowl":                build_bowl,
     # ── character accessories ─────────────────────────────────────────────
     "name_tag":            build_name_tag,
     "delivery_cap":        build_delivery_cap,
@@ -186,6 +216,58 @@ PROP_TYPES = {
     # ── letter graphs (title sequences) ──────────────────────────────────
     "letter_graph":        build_letter_graph,
 }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  COMPOSITE PROPS  (a prop made of parts that are props themselves)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_composite_prop(name: str, x=0.0, y=0.0, parts=None,
+                         parent=None, attach=None, attrs=None,
+                         prop_registry=None, **kwargs):
+    """Build a composite prop from the parts its item lists.
+
+    Parameters
+    ----------
+    name  : registry name.  Each part is registered as
+            ``"<name>.<part>"``.
+    x, y  : center of the whole prop.
+    parts : ``{part: {"type": prop type, "offset": [dx, dy], ...}}``.
+            Every other key of a part is passed to its builder.
+
+    The item's ``states`` say when the parts are joined
+    (``"connected": true``); see ``pam/prop_states.py``. ::
+
+        "knife": {"type": "composite_prop", "initial_state": "intact",
+                  "parts": {"handle": {"type": "knife_handle",
+                                       "offset": [-0.13, 0]},
+                            "blade":  {"type": "knife_blade",
+                                       "offset": [0.08, 0]}},
+                  "states": {"intact": {"connected": true},
+                             "broken": {"connected": false}}}
+    """
+    from manim import VGroup
+    built = {}
+    for part, spec in (parts or {}).items():
+        spec = dict(spec) if isinstance(spec, dict) else {}
+        ptype = spec.pop("type", None)
+        off = spec.pop("offset", None) or [0.0, 0.0]
+        spec.pop("attached", None)      # where it is: pam/prop_states.py
+        if ptype is None or str(ptype).lower() in ("composite_prop",
+                                                   "knife"):
+            raise ValueError(
+                f"composite prop '{name}': part '{part}' needs a 'type' "
+                f"that is not itself composite")
+        built[part] = build_prop(f"{name}.{part}", type=ptype,
+                                 x=x + float(off[0]), y=y + float(off[1]),
+                                 **spec)
+    group = VGroup(*built.values())
+    _apply_attrs(group, attrs or {})
+    return compose_parts(group, name, "composite_prop", x, y, built,
+                         parent=parent, attach=attach, attrs=attrs)
+
+
+PROP_TYPES["composite_prop"] = build_composite_prop
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -44,6 +44,33 @@ block whose ``frames`` is shorter than its steps need.
 A step of a timed block that cannot run on the frame clock (``wave``,
 ``carry``, a nested block, ...) is an error: the player skips it.
 
+Stateful props (``pam/prop_states.py``).  The validator keeps the same
+books the player keeps, with the same code, so it knows at every step
+what state each prop is in and what each of its parts is attached to.
+Errors: a ``prop_transition`` on something that is not a prop at that
+step, to a state the prop does not have, or along a transition its
+machine does not allow (a broken knife does not become intact); a part
+moved by itself while the prop is in one piece, or the whole prop moved
+while its pieces are apart; an attachment to something that does not
+exist at that step, or with a bad joint, point or mode; a state whose
+requirement does not hold (``blade_embedded`` with the blade not
+embedded); a bad display value; in a timed block, two transitions that
+move the same prop on the same frames, and a door, lid or Governor
+transition without ``frames``; and, at the end of the scene, a
+composite prop that has lost a part or a part attached to something
+that is not there.  Warnings: a transition that changes nothing, keys a
+step does not use, an existing action (``pick_up``, ``move_prop``, ...)
+that moves the pieces of a broken prop as one.
+
+The continuity ledger.  When the scene's sidecar has a ``continuity``
+block that lists the scene, the validator opens the scene with every
+prop as the scene before left it, reports each place where the scene
+states something else (``ledger-override``, a warning: an override is
+allowed, and never silent), and writes the scene's closing entry to
+the ledger, unless the scene has errors or ``ledger=False``.  A whole
+film is checked this way without rendering anything
+(``validate_project``; ``pam-validate --project``).
+
 Notes (``frame_notes``; ``pam-validate --frames``)
     * every duration in the screenplay that is not a whole number of
       frames at 15 fps, with the rounded value.  Outside timed blocks
@@ -99,6 +126,9 @@ class Report:
     path: str = None
     steps: int = 0
     findings: list = field(default_factory=list)
+    # the scene's place in the continuity ledger, when it has one:
+    # {"scene", "opens_from", "written", "path", "entry", "events"}
+    ledger: dict = None
 
     @property
     def errors(self):
@@ -125,12 +155,23 @@ class Report:
                      f"error(s), {len(self.warnings)} warning(s)"
                      + (f", {len(notes)} duration(s) not in whole frames"
                         if notes else ""))
+        if self.ledger:
+            led = self.ledger
+            lines.append(
+                f"{name}: continuity ledger: scene '{led['scene']}' opens "
+                f"from '{led['opens_from']}'; closing entry "
+                + ("written" if led["written"] else
+                   "not written" if led.get("held_back") else "unchanged")
+                + f" ({led['path']})")
         return "\n".join(lines)
 
     def to_dict(self):
-        return {"path": self.path, "steps": self.steps, "ok": self.ok,
-                "errors": len(self.errors), "warnings": len(self.warnings),
-                "findings": [asdict(f) for f in self.findings]}
+        out = {"path": self.path, "steps": self.steps, "ok": self.ok,
+               "errors": len(self.errors), "warnings": len(self.warnings),
+               "findings": [asdict(f) for f in self.findings]}
+        if self.ledger:
+            out["ledger"] = self.ledger
+        return out
 
 
 class _World:
@@ -160,15 +201,24 @@ _KIND_CODE = {"character": "missing-character", "prop": "missing-prop",
 
 
 class _Validator:
-    def __init__(self):
+    def __init__(self, continuity=None):
+        from pam import prop_states
         self.report = Report()
         self.world = _World()
+        # stateful props: the same books the player keeps
+        self.pstates = prop_states
+        self.states = prop_states.World()
+        self.continuity = continuity
         self.known = specs.known_actions()
         self.joints = specs.known_joints()
         self._poses = None
         self._removed = set()
         self._defined_later = set()
         self._constraints = set()       # ids in force
+        self._prop_legacy = (frozenset(prop_states.LEGACY_STATE_ACTIONS)
+                             | frozenset(prop_states.LEGACY_ATTACH_ACTIONS)
+                             | {"prop_color", "reparent_prop",
+                                "remove_prop"})
 
     # ── reporting ────────────────────────────────────────────────────
     def add(self, level, code, message, index=None, action=None, path=""):
@@ -248,6 +298,7 @@ class _Validator:
         info = tl.describe(step)
         ok = specs.timeline_actions()
         moves = []          # (who, first frame, last frame, where)
+        prop_steps = []     # (first frame, order, step, where, last frame)
 
         def report(sub, d, p, act):
             for key, sec, n in d["rounded"]:
@@ -316,6 +367,14 @@ class _Validator:
                     kd = next(kids, None) or tl.describe(x, step)
                     end = one(x, kd, f"{p}do[{j}].", end, True)
                 return end
+            elif act == "prop_transition":
+                # read into the books below, in the order the steps
+                # play, which need not be the order they are written
+                self.check_frames(sub, act, index, p, timed=True)
+                prop_steps.append((
+                    start, len(prop_steps), sub, p,
+                    None if start is None or d["frames"] is None
+                    else start + d["frames"]))
             else:
                 self.step(sub, index, p, parallel=True, timed=True)
             if d["kind"] == "unsupported" and (marker or act in ok):
@@ -348,6 +407,28 @@ class _Validator:
             at = sub.get("at", 0) if isinstance(sub, dict) else 0
             at = at if isinstance(at, int) and not isinstance(at, bool)                 and at >= 0 else 0
             one(sub, d, f"{path}do[{i}].", at, False)
+
+        # Prop transitions, in playing order.  Two that move the same
+        # prop on the same frames cannot both be honored.
+        prop_steps.sort(key=lambda m: (m[0] is None, m[0] or 0, m[1]))
+        for start, _, sub, p, end in prop_steps:
+            self.step(sub, index, p, parallel=True, timed=True)
+        for i, a in enumerate(prop_steps):
+            for b in prop_steps[i + 1:]:
+                pa = self.states.split(a[2].get("prop"))[0]
+                pb = self.states.split(b[2].get("prop"))[0]
+                if pa != pb or a[0] is None or b[0] is None \
+                        or a[4] is None or b[0] >= a[4] \
+                        or a[4] <= a[0] or (b[4] is not None
+                                            and b[4] <= b[0]):
+                    continue
+                self.add(ERROR, "prop-overlap",
+                         f"'{pa}' is changed by two prop_transition "
+                         f"steps at once: {a[3].rstrip('.')} (frames "
+                         f"{a[0]} to {a[4]}) and {b[3].rstrip('.')} "
+                         f"(from frame {b[0]}); put them one after the "
+                         f"other in a sequence", index, "parallel",
+                         b[3].rstrip("."))
 
         # Two steps that move the same figure on the same frames.  A
         # step owns the frames [start, end): one that starts on the
@@ -587,6 +668,7 @@ class _Validator:
             return
         for name, spec in chars.items():
             self.world.characters.add(name)
+            self.states.characters.add(name)
             if isinstance(spec, dict) and spec.get("figure_type") == "dog":
                 self.world.dogs.add(name)
             if isinstance(spec, dict):
@@ -609,6 +691,101 @@ class _Validator:
                 self.check_references(spec, act + ":item", index, p,
                                       extra=items.keys())
         registry.update(items.keys())
+        for name, spec in items.items():
+            self.declare_prop(name, spec, act, index, f"items.{name}",
+                              registry)
+
+    def declare_prop(self, name, spec, act, index, path, registry):
+        """Enter a declared prop in the books (pam/prop_states.py).
+        The parts of a composite prop become props too."""
+        ps = self.pstates
+        if not isinstance(spec, dict):
+            return
+        ptype = spec.get("type")
+        self.states.note_prop(name, ptype, spec)
+        self._removed.discard(name)
+        m = ps.machine_for(ptype, spec) or {}
+        if str(ptype or "").lower() in ps.COMPOSITE_TYPES:
+            for part in (m.get("parts") or spec.get("parts") or {}):
+                registry.add(f"{name}.{part}")
+                self._removed.discard(f"{name}.{part}")
+        cont = self.continuity
+        carried = cont is not None and name in cont.names
+        if not (ps.is_stateful_item(spec) or carried):
+            return
+        opening = cont.opening.get(name) if carried else None
+        before = len(self.states.overrides)
+        _, problems = self.states.declare(name, spec, opening)
+        for level, code, msg in problems:
+            self.add(level, code, msg, index, act, path)
+        if carried:
+            # what the scene before left must exist in this one
+            for level, code, msg in self.states.check_integrity(name):
+                if code == "attached-to-missing":
+                    self.add(level, code, "at the start of the scene: "
+                             + msg, index, act, path)
+        for ov in self.states.overrides[before:]:
+            target = name if ov["part"] is None \
+                else f"{name}.{ov['part']}"
+            if ov["what"] == "attached":
+                was = ps.describe_attach(ov["ledger"])
+                now = ps.describe_attach(ov["scene"])
+            else:
+                was, now = ov["ledger"], ov["scene"]
+            self.add(WARNING, "ledger-override",
+                     f"override: '{target}' opens this scene "
+                     f"{'' if ov['what'] == 'attached' else ov['what'] + ' '}"
+                     f"{now}; the ledger (from '{cont.source}') has it "
+                     f"{was}", index, act, f"{path}.{ov['what']}")
+
+    def check_prop_transition(self, step, index, path, timed=False):
+        """A prop_transition step: read it into the books and report
+        what does not hold."""
+        act = "prop_transition"
+        w, st = self.world, self.states
+        name = step.get("prop")
+        base = st.split(name)[0] if isinstance(name, str) else None
+        if isinstance(name, str) and not w.has(base, "prop"):
+            self.add(ERROR, "missing-prop",
+                     f"'{name}' is not a known prop at this step"
+                     f"{self._hint(base, 'prop')}", index, act,
+                     f"{path}prop")
+            return
+        ch = st.transition(step)
+        for level, code, msg in ch.problems:
+            self.add(level, code, msg, index, act, path.rstrip("."))
+        if not ch.ok:
+            return
+        for target, mv in ch.moves.items():
+            att = mv["attach"]
+            to = att.get("to")
+            if to is not None and not w.has(st.split(to)[0], "any") \
+                    and not w.has(to, "any"):
+                self.add(ERROR, "missing-reference",
+                         f"'{target}' is attached to '{to}', which is "
+                         f"not a known character or prop at this step"
+                         f"{self._hint(to, 'any')}", index, act,
+                         path.rstrip("."))
+            if att.get("kind") == "character" \
+                    and att.get("joint") not in self.joints:
+                self.add(ERROR, "invalid-joint",
+                         f"'{att.get('joint')}' is not a joint name",
+                         index, act, path.rstrip("."))
+        bound = (st.machine(ch.prop) or {}).get("bound")
+        if bound and "state" in ch.changed and timed \
+                and not step.get("frames"):
+            self.add(ERROR, "timeline-unsupported",
+                     f"'{ch.prop}' changes state with an animation of "
+                     f"its own; in a timed block give the step 'frames'",
+                     index, act, path.rstrip("."))
+
+    def follow_legacy(self, step, act, index, path):
+        """An existing action on a prop the books follow."""
+        ch = self.states.legacy(step)
+        if ch is None:
+            return
+        for level, code, msg in ch.problems:
+            self.add(level, code, msg, index, act, path.rstrip("."))
 
     # ── one step ─────────────────────────────────────────────────────
     def step(self, step, index, path="", parallel=False, timed=False):
@@ -689,6 +866,8 @@ class _Validator:
             if isinstance(name, str) and name:
                 w.props.add(name)
                 self._removed.discard(name)
+                self.declare_prop(name, step, act, index,
+                                  path.rstrip("."), w.props)
                 if step.get("figure_type") == "dog":
                     w.dogs.add(name)
                     w.characters.add(name)
@@ -754,6 +933,11 @@ class _Validator:
         self.check_references(step, act, index, path)
         if act in specs.TIMELINE_ROUTINES:
             self.check_routine(step, act, index, path, timed=timed)
+        if act == "prop_transition":
+            self.check_prop_transition(step, index, path, timed=timed)
+            return
+        if act in self._prop_legacy:
+            self.follow_legacy(step, act, index, path)
 
         # ── removals take effect after the step ──────────────────────
         if act == "remove_prop":
@@ -761,6 +945,11 @@ class _Validator:
             if isinstance(name, str):
                 w.props.discard(name)
                 self._removed.add(name)
+                for part in [n for n in w.props
+                             if n.startswith(name + ".")
+                             and self.states.split(n)[0] == name]:
+                    w.props.discard(part)       # a composite's parts
+                    self._removed.add(part)
                 if name in w.dogs:
                     w.dogs.discard(name)
                     w.characters.discard(name)
@@ -774,6 +963,8 @@ class _Validator:
             w.scene_objects.clear()
         elif act == "end_scene":
             gone = (w.props - w.dogs) | w.scene_objects
+            self.states.removed |= {n for n in gone
+                                    if n in self.states.props}
             self._removed |= gone
             w.props &= w.dogs
             w.scene_objects.clear()
@@ -804,14 +995,33 @@ class _Validator:
         self._defined_later = later
         self._removed = set()
 
+        # An item may open attached to a character or prop that a later
+        # step declares; a prop_transition is checked against what
+        # exists at its own step.
+        cast, declared = self.pstates.scan_declarations(actions)
+        self.states.characters |= cast
+        for name, (ptype, spec) in declared.items():
+            self.states.note_prop(name, ptype, spec)
+
         for i, s in enumerate(actions):
             self.step(s, i)
+
+        # the props at the end of the scene: nothing lost, nothing
+        # attached to something that is not there
+        for name in self.states.props:
+            for level, code, msg in self.states.check_integrity(name):
+                self.add(level, code, "at the end of the scene: " + msg)
         return r
 
 
-def validate_actions(actions):
-    """Validate a loaded action list.  Returns a Report."""
-    return _Validator().run(actions)
+def validate_actions(actions, continuity=None):
+    """Validate a loaded action list.  Returns a Report.
+
+    *continuity* is the scene's place in the continuity ledger
+    (``prop_states.Continuity``), when it has one; ``validate_file``
+    finds it by itself.
+    """
+    return _Validator(continuity).run(actions)
 
 
 def frame_notes(actions):
@@ -880,8 +1090,14 @@ def _with_sidecar(actions, path):
     return merged, len(merged) - len(actions)
 
 
-def validate_file(path, sidecar=True, frames=False):
+def validate_file(path, sidecar=True, frames=False, ledger=True):
     """Validate the screenplay at *path*.  Returns a Report.
+
+    With *ledger* true (the default) a scene that the sidecar's
+    ``continuity`` block lists has its closing entry written to the
+    continuity ledger, unless it has errors.  With *ledger* false the
+    ledger is read but not written.  Without the sidecar there is no
+    ledger.
 
     With *frames* true the report also lists, as notes, every duration
     that is not a whole number of frames at 15 fps (``frame_notes``).
@@ -905,10 +1121,36 @@ def validate_file(path, sidecar=True, frames=False):
         return report
 
     added = 0
+    continuity = None
     if sidecar:
+        from pam import prop_states
         actions, added = _with_sidecar(actions, str(path))
-    out = validate_actions(actions)
+        actions, n, continuity = prop_states.with_continuity(
+            actions, str(path))
+        added += n
+    validator = _Validator(continuity)
+    out = validator.run(actions)
     out.path = str(path)
+    if continuity is not None:
+        for level, code, msg in continuity.ledger.problems:
+            out.findings.append(Finding(level, code, msg))
+        held_back = bool(out.errors)
+        entry, written = continuity.close(
+            validator.states, write=ledger and not held_back)
+        if held_back and ledger:
+            # an entry from an earlier, sound version of the scene must
+            # not stand in for it
+            stale = continuity.ledger.write(continuity.scene, None)
+            out.findings.append(Finding(
+                WARNING, "ledger-not-written",
+                "the scene has errors, so its closing entry was not "
+                "written to the continuity ledger"
+                + (" (its earlier entry was removed)" if stale else "")))
+        out.ledger = {"scene": continuity.scene,
+                      "opens_from": continuity.source,
+                      "written": written, "held_back": held_back,
+                      "path": continuity.ledger.path, "entry": entry,
+                      "events": list(validator.states.log)}
     if frames:
         out.findings.extend(frame_notes(actions))
     if added and isinstance(actions, list):
@@ -925,3 +1167,38 @@ def validate_file(path, sidecar=True, frames=False):
             else:
                 f.index -= added
     return out
+
+
+def validate_project(sidecar_path, frames=False, ledger=True):
+    """Validate every scene of a project, in playing order.
+
+    *sidecar_path* is the project's sidecar file (or the folder that
+    holds ``pam_sidecar.json``).  The scenes are the ones its
+    ``continuity`` block lists, each in ``<scene>.json`` next to it.
+    Every scene opens from the closing entry the one before it has just
+    written, so the whole film's prop continuity is checked in one
+    pass, without rendering.  Returns the list of Reports.
+    """
+    from pam import prop_states
+    sidecar_path = str(sidecar_path)
+    if os.path.isdir(sidecar_path):
+        sidecar_path = os.path.join(sidecar_path, prop_states.SIDECAR_NAME)
+    led = prop_states.Ledger.load(sidecar_path)
+    if led is None:
+        r = Report(path=sidecar_path)
+        r.findings.append(Finding(
+            ERROR, "bad-file",
+            "not a sidecar with a 'continuity' block (a JSON array "
+            "holding {\"action\": \"continuity\", \"scenes\": [...]})"))
+        return [r]
+    old = os.environ.get("PAM_SIDECAR")
+    os.environ["PAM_SIDECAR"] = sidecar_path
+    try:
+        return [validate_file(led.scene_file(sid), frames=frames,
+                              ledger=ledger)
+                for sid in led.scenes]
+    finally:
+        if old is None:
+            os.environ.pop("PAM_SIDECAR", None)
+        else:
+            os.environ["PAM_SIDECAR"] = old

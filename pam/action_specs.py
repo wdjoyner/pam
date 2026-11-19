@@ -50,6 +50,8 @@ PLAYER_ACTIONS = frozenset({
     "elevator_open", "flash", "move_prop", "open_lid", "prop_color",
     "prop_say", "remove_prop", "remove_scene_object", "reparent_prop",
     "spawn_prop",
+    # stateful props (pam/prop_states.py)
+    "prop_transition",
     # bubbles, text, sound
     "caption", "clear_all_bubbles", "clear_bubble", "clear_prop_bubble",
     "on_screen_text", "overlay_caption", "sound_cue",
@@ -126,6 +128,9 @@ TIMELINE_LOCOMOTION = frozenset({"walk_to", "run_to", "trot_to"})
 # and a track of steps.
 TIMELINE_PLAYER = frozenset({
     "say", "wait", "constrain", "release", "sequence",
+    # a prop changes state, moves to a new attachment, or changes what
+    # its display shows (pam/prop_states.py)
+    "prop_transition",
 })
 
 
@@ -259,6 +264,9 @@ REFERENCE_OVERRIDES = {
     ("open_lid", "prop"):     "prop",
     ("close_lid", "prop"):    "prop",
     ("remove_scene_object", "prop"): "prop",
+    # checked by pam/prop_states.py: the name may be a part of a
+    # composite prop ("knife.blade")
+    ("prop_transition", "prop"): None,
     # these define the name; they do not refer to it
     ("spawn_prop", "prop"):   None,
     # not names in these actions
