@@ -176,8 +176,9 @@ Examples include:
 - `backdrop`
 - `solar_panel`
 - `silver_hair`
+- `knife` (a handle and a blade that come apart), `satchel`, `bowl`, `rock`, `altar`
 
-Several props are **stateful** and expose animation methods, for example doors opening/closing, avatar pods opening/closing, laptops opening/closing, and TV monitors showing anchor content.
+Several props are **stateful**: doors and avatar pods open and close, the Governor changes color, a knife breaks, a phone goes live. `pam/prop_states.py` keeps the state of all of them, and the `prop_transition` action changes it.
 
 ### Fountain+ conversion
 
@@ -975,23 +976,38 @@ Always provide `type`. In some older/fallback paths, a missing type may default 
 
 ### Stateful props
 
-Examples:
+Some props have a state. Sliding doors, the elevator and the avatar pod are open or closed; the Governor is gold, amber or dark; a `knife` is intact or broken; a `phone` is on standby, recording or live. One action changes the state of any of them:
 
 ```json
-{ "action": "open_doors", "prop": "elevator" }
+{ "action": "prop_transition", "prop": "lift", "to": "open" }
 ```
 
 ```json
-{ "action": "close_doors", "prop": "elevator" }
+{ "action": "prop_transition", "prop": "knife", "to": "broken",
+  "parts": { "handle": { "attached": { "to": "isaac", "joint": "lwrist" } },
+             "blade":  { "attached": { "to": "bowl", "mode": "in" } } },
+  "frames": 6 }
+```
+
+The older actions still work and go through the same machine:
+
+```json
+{ "action": "elevator_open", "who": "lift" }
 ```
 
 ```json
-{ "action": "open_lid", "prop": "avatar_pod" }
+{ "action": "elevator_close", "who": "lift" }
 ```
 
 ```json
-{ "action": "close_lid", "prop": "avatar_pod" }
+{ "action": "open_lid", "prop": "pod" }
 ```
+
+```json
+{ "action": "close_lid", "prop": "pod" }
+```
+
+See [Stateful props and the continuity ledger](#stateful-props-and-the-continuity-ledger).
 
 ### Prop speech
 
@@ -1416,7 +1432,7 @@ Options go after the `.blend` name.
 
 ### How it works: `pam.hooks`
 
-`pam/hooks.py` lets an outside script listen to PAM while a screenplay plays. PAM emits events for motion segments (from `morph_to`, `set_pose`, `turn`, and `_pose_anims`), figure creation, fade-ins and fade-outs, action begin/end, prop attach/release, and speech bubbles:
+`pam/hooks.py` lets an outside script listen to PAM while a screenplay plays. PAM emits events for motion segments (from `morph_to`, `set_pose`, `turn`, and `_pose_anims`), figure creation, fade-ins and fade-outs, action begin/end, prop attach/release, speech bubbles, and, for stateful props, `prop_declared`, `prop_state_changed`, `prop_attached` and `prop_display`:
 
 ```python
 from pam import hooks
@@ -1436,7 +1452,8 @@ Prop events carry a `mode` (hooks version 2) that says what kind of hand-off eac
 
 - A face's neck and bib, and the other decals, are flat: in side views a near arm passes behind a bib instead of in front of it (Manim draws it on top). Hair or a hat reaching past the head's outline stays flat beyond it. Image-file faces (`.png`) are skipped.
 - A figure's colors are taken from its first appearance; a later `change_uniform` is not followed yet.
-- Props without a 3D model (TV monitors, letter graphs, backdrops, ...) are flat extrusions of their Manim outline, and a prop that changes shape inside itself (a laptop opening, a pod lid) keeps the shape it first appeared with.
+- Props without a 3D model (TV monitors, letter graphs, backdrops, satchels, rocks, ...) are flat extrusions of their Manim outline, and a prop that changes shape inside itself (a laptop opening, a pod lid, sliding doors) keeps the shape it first appeared with; the trace records such a prop's state, but the builder does not animate it yet.
+- A prop resting on or in another shares that prop's lift onto the floor and sits just in front of it; it does not ride along if the other prop is itself carried.
 - In Manim, desks and doors are drawn from y = −2.6, about half a unit below the characters' feet; Blender lifts them onto the floor, together with anything resting on them.
 - Dogs get smooth motion but no foot locking.
 - Characters standing at different screen heights in the same shot share one floor, so some may hover slightly (in Manim, lower on screen reads as nearer the camera).
@@ -1701,6 +1718,54 @@ The roadmap's completion test is automated in `tests/test_choreography.py`: the 
 
 The modules are `pam/timeline.py`, `pam/constraints.py`, and `pam/choreography.py`; each starts with a description of what it does and why. The key-by-key reference for all of this, and for the timed parallel blocks below, is section 9 of `pam-player_manual.md`.
 
+### Stateful props and the continuity ledger
+
+Milestone 4 (Stage 4a) of the Blender roadmap. A prop can have a state, be made of parts that keep their own identity, have a display, and be kept on an attachment. All of it is opt-in: a prop is stateful when its item says so or a `prop_transition` names it.
+
+```json
+[
+  {"action": "props", "items": {
+    "bowl":  {"type": "bowl", "x": -0.55},
+    "knife": {"type": "knife",
+              "attached": {"to": "abraham", "joint": "lhip", "hidden": true}}}},
+  {"action": "prop_transition", "prop": "knife",
+   "attached": {"to": "abraham", "joint": "rwrist", "by": "blade", "angle": 180}},
+  {"action": "constrain", "id": "take", "type": "joint_to_prop",
+   "who": "isaac", "joint": "lwrist", "prop": "knife.handle", "blend": 6},
+  {"action": "parallel", "id": "s02_break", "frames": 30, "do": [
+    {"action": "release", "id": "take", "at": 3},
+    {"action": "prop_transition", "prop": "knife", "to": "broken", "at": 3, "frames": 6,
+     "parts": {"handle": {"attached": {"to": "isaac", "joint": "lwrist"}},
+               "blade":  {"attached": {"to": "bowl", "point": "top", "mode": "in"},
+                          "rate": "rush_into"}}},
+    {"action": "morph", "who": "isaac", "pose": "standing_front", "at": 3, "frames": 9}
+  ]}
+]
+```
+
+The full scene is `abe-isaac_knife-break.json`.
+
+| New syntax | What it does |
+|---|---|
+| `prop_transition` | Puts `prop` in the state `to`, moves it (or, with `parts`, its parts) to a new `attached`, and changes its `display`; any one of these or all three. With `frames` the move, and a number that climbs, take that long, on the frame clock, also as a step of a timed `parallel` block. `rate` eases the move (`smooth`, `linear`, `rush_into`, `rush_from`). |
+| `"prop": "knife.blade"` | Names one part of a composite prop, in `prop_transition`, in a `constrain` step, as an attachment's `to`, or as a camera subject. |
+| `attached` (in a prop item, in `prop_transition`, in `parts`) | Where a prop is kept on every frame: `to` (a character, a prop, or `null`), `joint`, `point`, `by`, `offset`, `x`, `y`, `angle`, `mode` (`held`, `on`, `in`, `embedded`, `free`), `hidden`. |
+| `state`, `display`, `parts` in a prop item | The state, display values and part attachments a stateful prop starts with. |
+| `states`, `initial_state`, `transitions` in a prop item | A state machine of the item's own. |
+| Prop types `knife`, `knife_handle`, `knife_blade`, `composite_prop` | The knife is a composite prop: states `intact`, `broken`, `blade_carried`, `blade_embedded`; parts `knife.handle` and `knife.blade`, two props from the start. `composite_prop` builds one from the `parts` its item lists. |
+| Prop type `phone`: states and display | `standby`, `recording` (a red LIVE button), `live` (LIVE badge, `viewers`, `comment`). The screen changes independently of where the phone is. |
+| Prop types `satchel`, `bowl`, `rock`, `altar` | Plain props for the others to go into, rest on, or stick in. |
+| `continuity` block in the sidecar | The continuity ledger: `scenes` (playing order), `props` (what carries over, as before the first scene), and `ledger` (written by PAM). |
+| `pam-validate --project P`, `--no-ledger` | Validates every scene of a project in order, opening each from the entry the one before wrote; `--no-ledger` reads the ledger and writes nothing. |
+
+Doors, the elevator, the avatar pod's lid and the Governor already had states. They are machines of the same module now, bound to the flag and the methods they always had, so their old actions and `prop_transition` do the same thing through the same code.
+
+**The continuity ledger** is one JSON file per project, the same file as the cast-and-props sidecar (`pam_sidecar.json`). Its `continuity` block lists the scenes in order and the props whose state carries over. A listed scene opens with those props as the scene before left them; playing or validating it writes its closing entry (state, parts, attachments, display). A scene may override the ledger explicitly, and `pam-validate` reports every override. `./pam-validate --project projects/abe-isaac` walks all six scenes of the example without rendering, and the roadmap's completion test for the knife (every component in its expected state and place in every scene, none lost, none twice) is `test_knife_completion` in `tests/test_prop_states.py`.
+
+In the trace (version 5), `"prop_states"` gives each stateful prop's identity (the prop objects of its parts), its states and its display frame by frame, and `"prop_events"` lists every `prop_state_changed`. `trace2blender.py` builds each part once from that, follows its attachments, and gives the phone its screens. A hand held on a prop (`joint_to_prop`) now holds in Blender too: where the builder puts the prop somewhere other than Manim did (set on the floor, riding on a hand), the hand's samples are moved with it and the elbow solved again by the same rules.
+
+The key-by-key reference is section 9 of `pam-player_manual.md` ("Stateful props"), and the first page of `pam/prop_states.py`.
+
 ### Timed parallel blocks: overlapping action on the frame clock
 
 Milestone 2 of the Blender roadmap. A `parallel` block has always played its steps together, all with one run time. Give its steps `at` and `frames` and each one starts on its own frame and lasts its own number of frames. Dialogue is one of the things such a block can run, so a line can begin on an exact frame while two actors are moving and the camera cuts.
@@ -1740,6 +1805,7 @@ The full scene is `abe-isaac_overlap_timeline.json`; render it with `./pam-rende
 | `say` | The bubble fades in, holds, and fades out as three timed pieces. `frames` is the whole line; `frames_in` and `frames_out` are the fades (defaults 6 and 5). With `"persist": true` there is no fade-out. Human, alien and dog characters. |
 | `wait` | Stillness. With a `sound` key and no duration it is a sound effect on an exact frame. |
 | `constrain`, `release` | The contact starts or ends on that frame. |
+| `prop_transition` | A prop changes state on that frame; with `frames` its move, or a climbing number on its display, takes that long. |
 | `_subscene_marker` with `_shot_meta` | A camera cut on that frame. With `frames` (or an animated `move`: `push`, `pull`, `pan-follow`, `drift`, `zoom`) the camera travels for that long. |
 
 A step's `sound` (and its character's `sfx`) starts on the frame the step starts, so sound effects stay in step with the movement.
@@ -1770,9 +1836,11 @@ In the trace (version 5), a timed block is recorded frame by frame, so `trace2bl
 ./pam-validate my_scene.json --strict        # warnings also fail
 ./pam-validate my_scene.json --json          # machine-readable report
 ./pam-validate my_scene.json --frames        # also list durations that are not whole frames
+./pam-validate --project projects/abe-isaac  # every scene of a project, in order (continuity ledger)
+./pam-validate my_scene.json --no-ledger     # read the continuity ledger, write nothing
 ```
 
-It rejects unknown actions, invalid joint names, negative durations, frame counts that are not whole numbers, malformed constraints, choreography routines without their two figures, steps of a timed parallel block that cannot run on the frame clock, and references to characters or props that do not exist at that step (never defined, defined later, or already removed). It also reports, as warnings, things the player passes over in silence: unresolved `# REVIEW` and `# PATCH` comments from `fountain2pam.py`, and action steps that carry a `_comment` (the player skips those entirely). The exit status is `0` when every file is valid and `1` otherwise.
+It rejects unknown actions, invalid joint names, negative durations, frame counts that are not whole numbers, malformed constraints, choreography routines without their two figures, steps of a timed parallel block that cannot run on the frame clock, prop transitions that cannot happen (an unknown state, a transition the prop's machine does not allow, an attachment to something that is not there), and references to characters or props that do not exist at that step (never defined, defined later, or already removed). It also reports, as warnings, things the player passes over in silence: unresolved `# REVIEW` and `# PATCH` comments from `fountain2pam.py`, and action steps that carry a `_comment` (the player skips those entirely). The exit status is `0` when every file is valid and `1` otherwise.
 
 The valid action names and the checked keys are listed in `pam/action_specs.py`. A new handler in `pam/actions.py` needs no change there; a new action dispatched inline in `pam_player.py` must be added to `PLAYER_ACTIONS`, and a test fails until it is.
 
@@ -1785,7 +1853,7 @@ python -m pytest            # everything, about two minutes
 python -m pytest -k golden  # only the golden-trace comparison
 ```
 
-The tests trace six fixture screenplays with `pam_trace.py` and compare the result with stored golden traces, so a change to motion, timing, camera, or props shows up without rendering a video. See `tests/README.md` for what is covered and for when and how to record new golden traces.
+The tests trace seven fixture screenplays with `pam_trace.py` and compare the result with stored golden traces, so a change to motion, timing, camera, or props shows up without rendering a video. See `tests/README.md` for what is covered and for when and how to record new golden traces.
 
 ---
 
@@ -2033,7 +2101,7 @@ Recommended documentation set for the repository:
 |---|---|
 | `README.md` | Repository front door, quick start, architecture overview |
 | `pam-reference-book.tex` and its compiled PDF | Full reference manual |
-| `pam-player_manual.md` | Running the player, environment variables, the actions it handles, camera metadata, the timeline |
+| `pam-player_manual.md` | Running the player, environment variables, the actions it handles, camera metadata, the timeline, stateful props and the continuity ledger |
 | `CHARACTER_PROPERTIES.md` | Character creation fields, actions, faces, wardrobe, styles, tics |
 | `PROP_PROPERTIES.md` | Prop creation fields, metadata, registry behavior, prop actions, prop catalog |
 | `fountain2pam-manual.md` | Fountain+ syntax and conversion workflow |

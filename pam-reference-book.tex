@@ -917,7 +917,11 @@ constraints run on exact frames. \textbf{Contact constraints}:
 version 5} for the Blender export. \textbf{Milestone 3}: the
 constraint types \texttt{joint\_to\_prop} and \texttt{joint\_to\_point},
 and the scale-aware choreography routines \texttt{pull\_immovable},
-\texttt{cork\_pop\_up} and \texttt{mismatched\_hug}. All opt-in. See
+\texttt{cork\_pop\_up} and \texttt{mismatched\_hug}. \textbf{Milestone 4,
+Stage 4a}: stateful props (\texttt{pam/prop\_states.py}) and the
+\texttt{prop\_transition} action; the composite \texttt{knife} and the
+\texttt{phone}'s display; attachments; the continuity ledger in the
+sidecar; \texttt{joint\_to\_prop} in Blender. All opt-in. See
 \S14. \\
 0.9.23 & Backburner items 10--11, 18, and item-6 Option C.
 \textbf{2.5D depth system} (items 10--11): optional
@@ -4494,13 +4498,15 @@ can themselves produce warnings. Composes with
 active at once.
 
 \section{14. Runtime additions for the Blender roadmap (PAM 1.0.1): the
-timeline, constraints and choreography}\label{runtime-additions-timeline}\index{timeline}\index{frame clock}
+timeline, constraints, choreography and stateful props}\label{runtime-additions-timeline}\index{timeline}\index{frame clock}
 
-Milestones 1, 2 and 3 of \emph{PAM: The Road to Blender}, and its
-vertical slice. Everything in this section is opt-in: a screenplay that uses none
+Milestones 1, 2 and 3 of \emph{PAM: The Road to Blender}, its
+vertical slice, and Stage 4a of Milestone 4. Everything in this section
+is opt-in: a screenplay that uses none
 of the keys and actions below is loaded, played and traced exactly as
 before. The modules are \texttt{pam/timeline.py},
-\texttt{pam/constraints.py} and \texttt{pam/choreography.py}; each
+\texttt{pam/constraints.py}, \texttt{pam/choreography.py} and
+\texttt{pam/prop\_states.py}; each
 begins with its design notes.
 
 \subsection{\texorpdfstring{14.1 The frame clock and \texttt{frames}}{14.1 The frame clock and frames}}\label{the-frame-clock}\index{frames@\texttt{frames}}
@@ -4646,6 +4652,11 @@ halves up, and never to less than one frame (0.3 s is 5 frames).
   \texttt{mismatched\_hug} --- a choreography routine: its phases
   follow one another, each a set number of frames (\S14.11). A routine
   in a \texttt{parallel} block makes the block a timed one.
+\item
+  \texttt{prop\_transition} --- a prop changes state on that frame;
+  with \texttt{frames} its move to a new attachment, or a number on its
+  display that climbs, takes that long (\S14.12). It too makes the
+  block a timed one.
 \item
   a camera marker --- see \S14.6.
 \item
@@ -4956,6 +4967,16 @@ another step is moving, and \texttt{at} where it has no meaning.
 whole number of frames at 15 fps, with the value it rounds to; these
 are notes and never fail a file.
 
+For stateful props (\S14.12) the validator keeps the same books the
+player keeps. It rejects a \texttt{prop\_transition} to a state the
+prop does not have or along a transition its machine does not allow, an
+attachment to something that does not exist at that step, a part moved
+by itself while its prop is in one piece, and two transitions that
+change one prop on the same frames of a timed block.
+\texttt{--project P} validates every scene of a project in playing
+order against the continuity ledger, and \texttt{--no-ledger} reads the
+ledger without writing to it.
+
 The regression tests are in \texttt{tests/}; \texttt{tests/README.md}
 describes the golden traces and how to record them.
 
@@ -5120,6 +5141,280 @@ automated in the test file \texttt{test\_choreography.py}, in
 \texttt{tests/}: the scene is traced again with Isaac's scale raised from 1.15 to 1.30, and every gag must
 still read, on the same frames, with no elbow or knee flipping.
 \texttt{tests/README.md} lists what ``read'' is taken to mean.
+
+\subsection{14.12 Stateful props and the continuity ledger}\label{stateful-props}\index{stateful props}\index{prop\_transition@\texttt{prop\_transition}}\index{continuity ledger}\index{knife@\texttt{knife}}\index{phone@\texttt{phone}!display}\index{composite prop}\index{attached@\texttt{attached}}
+
+Stage 4a of Milestone 4. A prop can have a state, be made of parts
+that keep their own identity, have a display, and be kept on an
+attachment. The module is \texttt{pam/prop\_states.py}.
+
+A prop is stateful when its item has any of the keys \texttt{state},
+\texttt{attached}, \texttt{parts}, \texttt{display} or
+\texttt{states}; when its type is composite (\texttt{knife},
+\texttt{composite\_prop}); when a \texttt{prop\_transition} names it;
+or when the continuity ledger carries it. Every other prop is built,
+played and traced as before.
+
+\begin{verbatim}
+{"action": "props", "items": {
+  "bowl":  {"type": "bowl", "x": -0.55},
+  "knife": {"type": "knife",
+            "attached": {"to": "abraham", "joint": "lhip",
+                         "hidden": true}},
+  "phone": {"type": "phone",
+            "attached": {"to": "isaac", "joint": "rwrist",
+                         "by": "bottom"}}}}
+\end{verbatim}
+
+\textbf{Machines.} A machine lists a prop's states, the state it
+starts in, and which state may follow which.
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{knife} --- \texttt{intact}, \texttt{broken},
+  \texttt{blade\_carried}, \texttt{blade\_embedded}. A composite prop
+  with the parts \texttt{handle} and \texttt{blade}. Nothing leads back
+  to \texttt{intact}. \texttt{blade\_carried} needs the blade's
+  attachment mode \texttt{in} or \texttt{held};
+  \texttt{blade\_embedded} needs \texttt{embedded}.
+\item
+  \texttt{phone} (also \texttt{cellphone}, \texttt{smartphone}) ---
+  \texttt{standby}, \texttt{recording}, \texttt{live}; display fields
+  \texttt{viewers} (a whole number) and \texttt{comment} (text or
+  null).
+\item
+  \texttt{pocket\_door}, \texttt{elevator} --- \texttt{closed},
+  \texttt{open}.
+\item
+  \texttt{avatar\_pod} --- \texttt{closed}, \texttt{open}.
+\item
+  \texttt{dodecahedron} (the Governor) --- \texttt{gold},
+  \texttt{amber}, \texttt{dark}.
+\item
+  an item's own: \texttt{states}, \texttt{initial\_state} and
+  \texttt{transitions} in the prop item.
+\end{itemize}
+
+The doors, the lid and the Governor are the props that already had a
+state. Their machines are \emph{bound}: the state is read from the
+attribute the prop has always kept (\texttt{is\_open}, the Governor's
+color state), and entering a state calls the method the prop has always
+had. So \texttt{elevator\_open}, \texttt{elevator\_close},
+\texttt{open\_lid}, \texttt{close\_lid} and \texttt{prop\_color} work
+as before, and a \texttt{prop\_transition} on such a prop does the same
+thing through the same code. \texttt{prop\_states.state\_of(prop)} is
+the one place that says what state a prop is in; the tracer reads the
+Governor's \texttt{states} list through it.
+
+\textbf{\texttt{prop\_transition}.} Put a prop in a state, move it or
+its parts to new attachments, change what its display shows, or any of
+these at once.
+
+\begin{verbatim}
+{"action": "prop_transition", "prop": "knife", "to": "broken",
+ "frames": 6,
+ "parts": {
+   "handle": {"attached": {"to": "isaac", "joint": "lwrist"}},
+   "blade":  {"attached": {"to": "bowl", "point": "top",
+                           "mode": "in"},
+              "rate": "rush_into"}}}
+
+{"action": "prop_transition", "prop": "phone", "to": "live",
+ "display": {"viewers": 3}}
+{"action": "prop_transition", "prop": "phone",
+ "display": {"viewers": 240}, "frames": 30}
+\end{verbatim}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{prop} --- the prop, or one part of a composite prop written
+  \texttt{prop.part} (\texttt{knife.blade}).
+\item
+  \texttt{to} --- the state to enter. Optional: a step may only move
+  the prop, or only change its display.
+\item
+  \texttt{attached} --- where the prop, or the named part, goes.
+\item
+  \texttt{parts} --- composite props: an \texttt{attached}, and
+  optionally a \texttt{rate}, for each part named.
+\item
+  \texttt{display} --- new values of display fields.
+\item
+  \texttt{frames} --- how long the move, and a number that climbs,
+  take (default 0: at once). The state changes on the first frame.
+\item
+  \texttt{rate} --- easing of the move: \texttt{smooth} (default),
+  \texttt{linear}, \texttt{rush\_into} (a fall), \texttt{rush\_from}.
+\item
+  \texttt{at}, \texttt{beat}, \texttt{sound} --- as for any step of a
+  timed block.
+\item
+  \texttt{rt} or \texttt{run\_time} --- doors, lids and the Governor,
+  outside a timed block: the length of the prop's own animation.
+\end{itemize}
+
+\textbf{An attachment} says where a prop is kept.
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{to} --- a character, a prop or scene object, or
+  \texttt{null} (at rest on the stage).
+\item
+  \texttt{joint} --- on a character: the joint the prop stays on
+  (default \texttt{rwrist}).
+\item
+  \texttt{point} --- on a prop: \texttt{center} (default),
+  \texttt{top}, \texttt{bottom}, \texttt{left}, \texttt{right}, or
+  \texttt{{[}dx,\ dy{]}} from its center.
+\item
+  \texttt{by} --- which place of the moved prop sits there: one of the
+  same names, or a part of a composite prop.
+\item
+  \texttt{offset} --- \texttt{{[}dx,\ dy{]}} added to the target.
+\item
+  \texttt{x}, \texttt{y} --- with \texttt{"to": null}: where on the
+  stage (default: where it is).
+\item
+  \texttt{angle} --- the prop's orientation in degrees,
+  counterclockwise. The knife's blade points to $+x$ at 0.
+\item
+  \texttt{mode} --- \texttt{held} (default on a character),
+  \texttt{on} (default on a prop), \texttt{in}, \texttt{embedded},
+  \texttt{free} (default at rest).
+\item
+  \texttt{hidden} --- \texttt{true}: out of sight. The prop is not
+  drawn, and is still there.
+\end{itemize}
+
+The key is \texttt{attached}, not \texttt{attach}: the older
+\texttt{attach} names a point on a \texttt{parent} and keeps its
+meaning.
+
+An attachment is kept on every frame: the prop goes where the hand or
+the parent prop goes, also when the hand is held by a contact
+constraint. A prop attached to a character who has not faded in yet is
+not drawn until he has. While a composite prop is in one piece its
+parts move with it and cannot be attached by themselves; once the
+pieces are apart the whole cannot be moved, only its parts. A
+transition the machine does not allow is skipped with a message, and
+\texttt{pam-validate} reports it as an error.
+
+With \texttt{frames}, a \texttt{prop\_transition} runs on the frame
+clock wherever it stands: at the top level, in a \texttt{sequence}, or
+as a step of a timed \texttt{parallel} block (\S14.8). A number on a
+display climbs evenly, one value per frame. Two transitions may not
+change the same prop on the same frames of a block, and a door, lid or
+Governor transition in a block needs \texttt{frames}.
+
+\texttt{reparent\_prop}, \texttt{move\_prop} and the hand-off actions
+(\texttt{pick\_up}, \texttt{hand\_to}, \texttt{place\_on}, \ldots)
+keep their behavior. On a prop that is being kept on an attachment they
+let go of it first, and the new place is entered in the books.
+
+\textbf{Composite props.} \texttt{knife.handle} and
+\texttt{knife.blade} are two props from the start, registered under
+those names; a camera subject, a \texttt{joint\_to\_prop} constraint
+or an attachment can name either. The knife itself draws nothing, so
+nothing is ever drawn twice, and the parts are the same two props
+before and after it breaks. \texttt{composite\_prop} builds a
+composite from the \texttt{parts} its item lists
+(\texttt{\{"type",\ "offset"\}} each), with the item's own
+\texttt{states}; a state with \texttt{"connected": true} keeps the
+parts together.
+
+\textbf{The phone's display.} A cellphone's screen shows its state: dim
+on \texttt{standby}, a red LIVE button when \texttt{recording}, and
+when \texttt{live} a LIVE badge, the viewer count and a comment. The
+display and the phone's place are independent.
+
+New plain props for the others to go into, rest on or stick in:
+\texttt{satchel}, \texttt{bowl}, \texttt{rock}, \texttt{altar}.
+
+\textbf{The continuity ledger.} The ledger records, for each prop a
+film carries from scene to scene, its state, its parts and what each is
+attached to at the end of every scene. It is one JSON file per project,
+the same file as the cast-and-props sidecar (\S11.1): a
+\texttt{continuity} block in \texttt{pam\_sidecar.json}.
+
+\begin{verbatim}
+{"action": "continuity",
+ "scenes": ["scene1", "scene2", "scene3"],
+ "props": {
+   "knife": {"type": "knife",
+             "attached": {"to": "abraham", "joint": "lhip",
+                          "hidden": true}}},
+ "ledger": {"scene1": {...}, "scene2": {...}}}
+\end{verbatim}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{scenes} --- the scenes in playing order, by file name
+  without \texttt{.json}.
+\item
+  \texttt{props} --- the props whose state carries over, as they are
+  before the first scene.
+\item
+  \texttt{ledger} --- written by PAM: one closing entry per scene.
+\end{itemize}
+
+A scene listed in \texttt{scenes} opens with every one of those props
+as the scene before left it; they are declared for the scene
+automatically. Playing a scene and validating it both write its
+closing entry, with the same code. The file is rewritten only when an
+entry changes, and an entry holds no date. A scene may state a carried
+prop's \texttt{state}, \texttt{attached}, \texttt{parts} or
+\texttt{display} itself; where that differs from the ledger it is an
+\emph{override}, which is allowed and which \texttt{pam-validate}
+reports every time (\texttt{ledger-override}). The validator reports an
+error when a carried prop is attached to something the scene does not
+have, or a composite prop has lost a part; a scene with errors does not
+write its entry. A scene the block does not list has no ledger.
+
+\begin{verbatim}
+./pam-validate --project projects/abe-isaac
+./pam-validate scene3.json --no-ledger
+\end{verbatim}
+
+The first command validates every scene in order, each opening from the
+entry the one before has just written, without rendering.
+\texttt{projects/abe-isaac} holds six scenes that take the knife and
+the phone through \emph{Abraham and Isaac, Revisited}, and
+\texttt{abe-isaac\_knife-break.json} is the Scene 2 break by itself.
+
+\textbf{The trace and Blender.} A scene with stateful props is traced
+as version 5. \texttt{"prop\_states"} names each such prop, the prop
+objects it is made of (\texttt{"parts"}, or \texttt{"object"}), its
+state from each frame on, and what its display shows.
+\texttt{"prop\_events"} lists every change, each a
+\texttt{prop\_state\_changed} with its frame. The prop objects carry
+\texttt{"part\_of"}, \texttt{"model"}, \texttt{"attachments"} and
+\texttt{"angles"}. \texttt{trace2blender.py} builds each part once,
+keeps it on its attachment, turns it, hides it, and gives the phone its
+screens.
+
+A hand held on a prop (\texttt{joint\_to\_prop}, \S14.7) holds in
+Blender as well. The trace has the hand where Manim drew it; where the
+builder puts the prop somewhere else (set on the floor, or riding on
+another hand), the prop is the driver: the samples of the constrained
+limb are moved by the prop's displacement and the elbow or knee is
+solved again by the same two-bone rules, the bend kept on its side. An
+empty named \texttt{contact.<id>} marks the held point.
+
+New \texttt{pam.hooks} events: \texttt{prop\_declared},
+\texttt{prop\_state\_changed}, \texttt{prop\_attached} and
+\texttt{prop\_display}. A \texttt{prop\_attach} from a
+\texttt{prop\_transition} carries \texttt{offset}.
+
+\textbf{The completion test.} The roadmap's test for Milestone 4 is
+automated for the knife in the test file \texttt{test\_prop\_states.py},
+in \texttt{tests/}: every knife component is in its expected state and
+place at the end of every scene, none is lost and none is there twice.
+It runs without rendering. \texttt{test\_prop\_trace.py} checks the
+same scenes as the player plays them.
 
 \chapter{Character Properties
 Reference}\label{character-properties-reference}
@@ -14094,6 +14389,13 @@ cleanup-pass surface:
 
 Full registry of prop types as of v0.9.13. Aliases route to the same
 builder. Asterisk (*) = stateful (carries animation methods).
+
+Added for the Blender roadmap (\S14.12): \texttt{knife} (a composite of
+\texttt{knife\_handle} and \texttt{knife\_blade}),
+\texttt{composite\_prop}, \texttt{satchel} (in
+\texttt{props\_carried.py}), and \texttt{rock}, \texttt{altar},
+\texttt{bowl} (in \texttt{props\_environment.py}). The states of every
+stateful prop, old and new, are kept by \texttt{pam/prop\_states.py}.
 
 \subsection{\texorpdfstring{6.1 Furniture
 (\texttt{props\_furniture.py})}{6.1 Furniture (props\_furniture.py)}}\label{furniture-props_furniture.py}
