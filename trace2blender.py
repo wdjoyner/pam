@@ -330,6 +330,15 @@ def load_trace(path):
     T = json.load(open(path))
     if T.get("trace_version", 1) >= 2:
         T.setdefault("prop_objects", [])       # added in trace version 3
+        # Trace version 5: sampled pieces (constrained limbs) are kept
+        # apart from the ordinary pieces, which everything below walks.
+        T["sampled"] = {}
+        for name, tr in T["tracks"].items():
+            sp = [p for p in tr if p.get("kind") == "sampled"]
+            if sp:
+                T["sampled"][name] = sp
+                T["tracks"][name] = [p for p in tr
+                                     if p.get("kind") != "sampled"]
         return T
     # ── version 1: snapshots at play/wait boundaries -> linear pieces ──
     S = T["samples"]
@@ -814,6 +823,68 @@ class LocoRun:
         return Y
 
 
+def sampled_overlaps(T, name, t0, t1):
+    """True when a sampled piece of *name* covers part of [t0, t1]."""
+    return any(p["t0"] < t1 + 1e-9 and p["t1"] > t0 - 1e-9
+               for p in (T.get("sampled") or {}).get(name, ()))
+
+
+def drives_constraint(T, name, t0, t1):
+    """True when *name* is the target of a contact constraint during
+    part of [t0, t1].  Such a figure's motion is baked frame by frame
+    rather than handed to one of Blender's easing curves: those only
+    approximate Manim's rate functions, and a hand that is sampled
+    exactly would drift off a wrist that is not."""
+    fps = float(T.get("fps", 15))
+    for c in T.get("constraints") or ():
+        if c.get("target") != name or c.get("f1") is None:
+            continue
+        if c["f0"] / fps < t1 + 1e-9 and c["f1"] / fps > t0 - 1e-9:
+            return True
+    return False
+
+
+def sample_times(T, name, t0, t1):
+    """The trace's own frame times inside (t0, t1) on which a sampled
+    piece of *name* has a sample."""
+    fps = float(T.get("fps", 15))
+    out = set()
+    for p in (T.get("sampled") or {}).get(name, ()):
+        for i in range(len(p["frames"])):
+            t = p["t0"] + i / fps
+            if t0 + 1e-9 < t < t1 - 1e-9:
+                out.add(round(t, 9))
+    return sorted(out)
+
+
+def apply_sampled(T, name, joints, t, X):
+    """Overwrite, in world joints X (N,J,2) at times *t*, the joints
+    that a sampled piece holds (trace version 5).
+
+    A constrained limb's samples are the resolved positions Manim drew
+    on each frame of the 15 fps clock; they replace whatever the
+    ordinary pieces say for those joints.  Between two samples the
+    position is interpolated linearly.  Nothing is solved here."""
+    pieces = (T.get("sampled") or {}).get(name)
+    if not pieces:
+        return X
+    fps = float(T.get("fps", 15))
+    t = np.asarray(t, float)
+    for p in pieces:
+        sel = (t >= p["t0"] - 1e-9) & (t <= p["t1"] + 1e-9)
+        if not np.any(sel):
+            continue
+        ts = p["t0"] + np.arange(len(p["frames"])) / fps
+        for j in p["joints"]:
+            if j not in joints:
+                continue
+            k = joints.index(j)
+            for c in (0, 1):
+                vals = [fr[j][c] for fr in p["frames"]]
+                X[sel, k, c] = np.interp(t[sel], ts, vals)
+    return X
+
+
 def build_timeline(name, T, rates, opt):
     """Return [(kind, obj)] for one character: ("piece", p) or
     ("run", LocoRun)."""
@@ -875,7 +946,7 @@ def sample_character(name, T, rates, opt, frames):
             X[t > p["t1"]] = _arr(p["to"], joints)
             if p["t1"] <= p["t0"]:
                 X[t >= p["t0"]] = _arr(p["to"], joints)
-    return X
+    return apply_sampled(T, name, joints, t, X)
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -925,7 +996,11 @@ def assemble_character(name, T, rates, opt, native):
         if kind == "run":
             ts = _inner_times(obj.t0, obj.t1, opt.fps)
             tt = np.concatenate([[obj.t0], ts, [obj.t1]])
-            Y = obj.eval(tt)
+            if sampled_overlaps(T, name, obj.t0, obj.t1):
+                tt = np.array(sorted(set(np.round(tt, 9))
+                                     | set(sample_times(T, name, obj.t0,
+                                                        obj.t1))))
+            Y = apply_sampled(T, name, joints, tt, obj.eval(tt))
             for i, t in enumerate(tt):
                 keys.add(t, Y[i])
             nbake += len(tt)
@@ -941,14 +1016,25 @@ def assemble_character(name, T, rates, opt, native):
         nat = None if (opt.exact and p["rate"] != "linear") else native.get(p["rate"])
         if "target" in p:
             nat = None
+        # A constrained limb does not follow the piece's own curve: bake
+        # the piece and lay the samples over it.
+        held = sampled_overlaps(T, name, p["t0"], p["t1"])
+        if held or drives_constraint(T, name, p["t0"], p["t1"]):
+            nat = None
         if nat is not None:
             keys.add(p["t0"], a0, (nat[0], nat[1]))
             keys.add(p["t1"], a1)
         else:
             ts = _inner_times(p["t0"], p["t1"], opt.fps)
             tt = np.concatenate([[p["t0"]], ts, [p["t1"]]])
+            if held:
+                tt = np.array(sorted(set(np.round(tt, 9))
+                                     | set(sample_times(T, name, p["t0"],
+                                                        p["t1"]))))
             Y = piece_eval(p, joints, r, tt)
             Y[-1] = a1
+            if held:
+                Y = apply_sampled(T, name, joints, tt, Y)
             for i, t in enumerate(tt):
                 keys.add(t, Y[i])
             nbake += len(tt)
