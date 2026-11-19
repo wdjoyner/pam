@@ -79,3 +79,42 @@ def test_collect_warnings_flags_comments_that_hide_an_action():
     assert report["counts"] == {"review_comments": 2,
                                 "validation_warnings": 1,
                                 "patch_hints": 0, "messages": 1}
+
+
+# ── dogs: trot_to is addressed to the dog's prop key ─────────────────────
+
+def test_trot_rule_uses_the_dog_prop_key():
+    import fountain2pam
+    chars = ["LUCY", "RAMIS"]
+    dogs = {"ramis": "dog"}
+    acts = fountain2pam._interpret_clause(
+        "RAMIS trots alongside.", chars, ["dog"], dog_names=dogs)
+    assert [a["prop"] for a in acts if a.get("action") == "trot_to"] == ["dog"]
+    # A human who jogs is left to the humanoid rules: no trot_to.
+    acts = fountain2pam._interpret_clause(
+        "LUCY jogs in from the left.", chars, ["dog"], dog_names=dogs)
+    assert not [a for a in acts if a.get("action") == "trot_to"]
+    # Callers that pass no map get the old behavior.
+    acts = fountain2pam._interpret_clause(
+        "RAMIS trots alongside.", chars, ["dog"])
+    assert [a["prop"] for a in acts if a.get("action") == "trot_to"] == ["ramis"]
+
+
+def test_compiled_dog_scene_validates(tmp_path):
+    """The screenplay that used to compile to trot_to steps aimed at
+    'lucy' and 'ramis' now compiles to one the validator accepts."""
+    from pam.validate import validate_file
+    compile_fountain(tmp_path)
+    out = tmp_path / FOUNTAIN.replace(".fountain", ".json")
+    assert validate_file(out, sidecar=False).errors == []
+
+    steps = json.loads(out.read_text())
+    flat = []
+    for i, s in enumerate(steps):
+        flat.append((i, s))
+        flat.extend((i, sub) for sub in s.get("do", []))
+    trots = [(i, s) for i, s in flat if s.get("action") == "trot_to"]
+    assert trots and all(s["prop"] == "dog" for _, s in trots)
+    spawn = next(i for i, s in flat if s.get("action") == "spawn_prop"
+                 and s.get("prop") == "dog")
+    assert spawn < trots[0][0], "the dog is spawned before it first trots"

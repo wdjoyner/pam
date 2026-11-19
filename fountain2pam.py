@@ -1802,7 +1802,8 @@ def _find_character_in_text(text, characters, last_who=None):
     return None
 
 
-def _interpret_action(text, characters, prop_names, last_who=None):
+def _interpret_action(text, characters, prop_names, last_who=None,
+                      dog_names=None):
     all_actions = []
     clauses = [text]
     if ". " in text:
@@ -1824,7 +1825,8 @@ def _interpret_action(text, characters, prop_names, last_who=None):
         else:
             expanded.append(c)
     for clause in expanded:
-        result = _interpret_clause(clause, characters, prop_names, last_who)
+        result = _interpret_clause(clause, characters, prop_names, last_who,
+                                   dog_names=dog_names)
         all_actions.extend(result)
         who_in_result = next((a.get("who") for a in result
                               if "who" in a and a.get("who")), None)
@@ -1950,7 +1952,17 @@ def _interpret_action(text, characters, prop_names, last_who=None):
     return all_actions
 
 
-def _interpret_clause(text, characters, prop_names, last_who=None):
+def _interpret_clause(text, characters, prop_names, last_who=None,
+                      dog_names=None):
+    """Interpret one clause of an action line.
+
+    *dog_names* maps the lowercase name of each dog character to its
+    prop key (``{"ramis": "dog"}``).  ``trot_to`` only moves dogs and
+    addresses them by prop key, so when the map is given, the trot rule
+    below uses it and leaves a human who "jogs" or "trots" to the
+    humanoid rules further down.  Without the map (older callers) the
+    rule behaves as it did before PAM 1.0.1.
+    """
     actions = []
     tl = text.lower()
     who = _find_character_in_text(text, characters, last_who)
@@ -1986,6 +1998,10 @@ def _interpret_clause(text, characters, prop_names, last_who=None):
         dest_phrase = m_trot.group(2)
         t = _fuzzy_prop_match(dest_phrase, prop_names)
         dog_key = who
+        if dog_names is not None:
+            # The character's name ("ramis") is not the prop key ("dog");
+            # None for a human, which skips this rule.
+            dog_key = dog_names.get(who)
         if dog_key and t:
             return [{"action": "trot_to", "prop": dog_key, "x": t}]
         elif dog_key:
@@ -4133,6 +4149,9 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
     # ── Tracking state ───────────────────────────────────────────────────
     faded_in = set()
     prop_char_keys = set(prop_char_map.values())
+    # Lowercase character name → prop key, for dogs ("ramis" → "dog").
+    dog_names = {cname.lower(): ptype
+                 for cname, ptype in prop_char_map.items() if ptype == "dog"}
     prop_char_spawned = set()
     prop_names = {pn.replace(" ", "_") for pn in prop_nouns} | prop_nouns
 
@@ -4554,8 +4573,19 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
             if who_found:
                 last_who = who_found
 
-            pam_acts = _interpret_action(text, characters, prop_names, last_who)
+            pam_acts = _interpret_action(text, characters, prop_names, last_who,
+                                         dog_names=dog_names)
             is_review = all("_comment" in a or "_hint" in a for a in pam_acts)
+
+            # ── A dog must exist before its first trot ───────────────────
+            # trot_to on a dog that has not been spawned is skipped by the
+            # player, so spawn the dog here if this line is where it first
+            # moves.
+            for a in pam_acts:
+                for sub in [a] + list(a.get("do") or []):
+                    if (sub.get("action") == "trot_to"
+                            and sub.get("prop") in prop_char_keys):
+                        _ensure_prop_char_spawned(sub["prop"])
 
             # ── If a walk_to_prop is present and a dog is spawned, wrap it ──
             # A dog companion should trot to the same destination alongside
