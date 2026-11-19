@@ -8,7 +8,8 @@ Errors (the screenplay is rejected)
     * unknown actions;
     * invalid joint names;
     * negative (or non-numeric) durations;
-    * references to characters or props that do not exist at that step;
+    * references to characters or props that do not exist at that step
+      (including ``trot_to`` aimed at anything but a dog);
     * steps the player cannot read at all (not an object, or no
       ``"action"`` key and no annotation key).
 
@@ -100,7 +101,7 @@ class _World:
     def __init__(self):
         self.characters = set()
         self.props = set()
-        self.dogs = set()            # props that are also characters
+        self.dogs = set()            # dogs, from the cast or spawn_prop
         self.scene_objects = set()
 
     def has(self, name, kind):
@@ -108,14 +109,16 @@ class _World:
             return name in self.characters
         if kind == "prop":
             return name in self.props or name in self.scene_objects
+        if kind == "dog":
+            return name in self.dogs
         return (name in self.characters or name in self.props
                 or name in self.scene_objects)
 
 
-_KIND_TEXT = {"character": "character", "prop": "prop",
+_KIND_TEXT = {"character": "character", "prop": "prop", "dog": "dog",
               "any": "character or prop"}
 _KIND_CODE = {"character": "missing-character", "prop": "missing-prop",
-              "any": "missing-reference"}
+              "dog": "not-a-dog", "any": "missing-reference"}
 
 
 class _Validator:
@@ -213,6 +216,9 @@ class _Validator:
             return " (it is a prop)"
         if kind == "prop" and name in w.characters:
             return " (it is a character)"
+        if kind == "dog" and name in w.characters:
+            return (" (it is a character; trot_to only moves dogs, so the "
+                    "player skips this step; use walk_to or run_to)")
         if name in self._removed:
             return " (it was removed earlier)"
         if name in self._defined_later:
@@ -229,6 +235,8 @@ class _Validator:
             return
         for name, spec in chars.items():
             self.world.characters.add(name)
+            if isinstance(spec, dict) and spec.get("figure_type") == "dog":
+                self.world.dogs.add(name)
             if isinstance(spec, dict):
                 p = f"characters.{name}."
                 self.check_joints(spec, index, "cast", p)

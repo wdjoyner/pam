@@ -96,6 +96,7 @@ def known_joints():
 #   "character"  a cast member (dogs spawned as props count: they are
 #                registered on both sides)
 #   "prop"       a live prop or scene object
+#   "dog"        a dog (cast with figure_type "dog", or spawned as one)
 #   "any"        either of the above
 # A value may be one name or a list of names.
 REFERENCE_KEYS = {
@@ -124,6 +125,9 @@ REFERENCE_OVERRIDES = {
     ("morph", "who"):            "character",
     ("walk_to", "who"):          "character",
     ("run_to", "who"):           "character",
+    # trot_to only moves dogs; the player skips it for anything else
+    ("trot_to", "prop"):         "dog",
+    ("trot_to", "who"):          "dog",
     # two-character interactions
     ("kiss", "target"):             "character",
     ("hold_hands", "target"):       "character",

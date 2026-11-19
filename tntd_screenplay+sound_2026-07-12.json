@@ -21229,15 +21229,16 @@
     "size": 0.8
   },
   {
-    "action": "set_uniform",
-    "who": "chava",
-    "uniform": "casual"
-  },
-  {
     "action": "fade_in",
     "rt": 0.1,
     "who": "chava",
     "x": -1.0
+  },
+  {
+    "action": "change_uniform",
+    "who": "chava",
+    "uniform": "casual",
+    "rt": 0
   },
   {
     "action": "attach_face",
@@ -21261,8 +21262,9 @@
   },
   {
     "action": "move_prop",
-    "target": "athena_seat",
-    "to": 4
+    "prop": "seat_athena",
+    "x": 4.0,
+    "y": -2.01
   },
   {
     "action": "spawn_prop",

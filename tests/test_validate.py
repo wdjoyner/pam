@@ -138,6 +138,22 @@ def test_dog_spawned_as_prop_counts_as_character():
                               "target": "rex"}]) == []
 
 
+def test_trot_to_needs_a_dog():
+    """trot_to only moves dogs; the player skips it for anything else."""
+    dog = {"action": "spawn_prop", "prop": "dog", "figure_type": "dog"}
+    cast_dog = {"action": "cast", "characters": {
+        "rex": {"figure_type": "dog"}}}
+    assert codes([CAST, dog, {"action": "trot_to", "prop": "dog",
+                              "x": 0.0}]) == []
+    assert codes([cast_dog, {"action": "trot_to", "who": "rex",
+                             "x": 0.0}]) == []
+    report = validate_actions([CAST, dog,
+                               {"action": "trot_to", "prop": "alice", "x": 0},
+                               {"action": "trot_to", "prop": "ramis", "x": 0}])
+    assert [f.code for f in report.errors] == ["not-a-dog", "not-a-dog"]
+    assert "use walk_to or run_to" in report.errors[0].message
+
+
 def test_keywords_and_lists_of_names():
     actions = [CAST, PROPS,
                {"action": "fade_out", "who": "all"},
@@ -220,12 +236,11 @@ def test_sidecar_is_merged_like_the_player_does(tmp_path, monkeypatch):
     assert len(validate_file(scene, sidecar=False).errors) == 2
 
 
-# What the validator finds in the fixtures today.  lucy-meets-lenny2 has
-# one real mistake: step 9 trots a prop called "ramis", which is never
-# spawned (the dog is called "dog"); the player skips that step silently.
+# What the validator finds in the fixtures today: no errors, and the
+# # REVIEW comments that fountain2pam.py left for prose it cannot animate.
 EXPECTED = {
     "screenplay_alice-meets-bob.json": ([], 0),
-    "lucy-meets-lenny2_pam.json": ([(9, "missing-reference")], 14),
+    "lucy-meets-lenny2_pam.json": ([], 12),
     "wdj_nona-vs-governor-venus3.json": ([], 31),
 }
 
@@ -247,15 +262,21 @@ def run_cli(*args):
         cwd=tt.REPO, env=tt._env(), capture_output=True, text=True)
 
 
-def test_command_exit_status_and_output():
+def test_command_exit_status_and_output(tmp_path):
     ok = run_cli(tt.REPO / "screenplay_alice-meets-bob.json")
     assert ok.returncode == 0
     assert "0 error(s), 0 warning(s)" in ok.stdout
 
-    bad = run_cli(tt.REPO / "lucy-meets-lenny2_pam.json", "--quiet")
+    scene = tmp_path / "bad.json"
+    scene.write_text(json.dumps([
+        CAST,
+        {"_comment": "# REVIEW: set trot_to x target"},
+        {"action": "trot_to", "prop": "ramis", "x": 0.0}]))
+    bad = run_cli(scene, "--quiet")
     assert bad.returncode == 1
-    assert "'ramis' is not a known character or prop" in bad.stdout
+    assert "'ramis' is not a known dog" in bad.stdout
     assert "review-comment" not in bad.stdout
+    assert "review-comment" in run_cli(scene).stdout
 
 
 def test_command_strict_and_json():
@@ -269,7 +290,7 @@ def test_command_strict_and_json():
 
 def test_command_validates_every_fixture_in_one_call():
     out = run_cli(*[tt.REPO / f for f in tt.FIXTURES], "--quiet")
-    assert out.returncode == 1          # lucy-meets-lenny2 has one error
+    assert out.returncode == 0
     for fixture in tt.FIXTURES:
         assert fixture in out.stdout
 

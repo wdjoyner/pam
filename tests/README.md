@@ -38,9 +38,11 @@ The fixtures are three screenplays in the repository root:
 - `wdj_nona-vs-governor-venus3.json`
 
 Their traces are stored in `tests/golden/`. `tests/golden/BASELINE.json` records
-the Git commit the traces were recorded at (`8af434d`), the PAM version label at
-that commit, the tolerance, and the recording environment (Python, Manim,
-platform).
+the reference commit (`8af434d`, the code the baseline protects), the PAM
+version label at that commit, the tolerance, and the recording environment
+(Python, Manim, platform). Each fixture also has a `recorded_at` entry; the
+`lucy-meets-lenny2_pam.json` trace was recorded again after that fixture was
+corrected.
 
 ### When a golden test fails
 
@@ -92,13 +94,15 @@ looks at the scene only before and after each `play`, so it does not yet *see*
 the frames in between. Recording a `sampled` piece needs a per-frame sampler,
 and an updater is a workable place for one.
 
-**The fixtures themselves.** `pam-validate` finds no errors in
-`screenplay_alice-meets-bob.json` or `wdj_nona-vs-governor-venus3.json`. In
-`lucy-meets-lenny2_pam.json`, step 9 is `trot_to` for a prop called `ramis`,
-which is never spawned (the dog is spawned as `dog`); the player skips that
-step without a message. The fixture is left as it is, since the golden trace
-records its present behavior, and `test_validate.py` expects exactly this one
-error.
+**The fixtures themselves.** `pam-validate` finds no errors in the three
+fixtures. `lucy-meets-lenny2_pam.json` originally had two dead steps left by
+the compiler: `trot_to` aimed at `lucy` (a human) and at `ramis` (a name that
+is never spawned; the dog prop is called `dog`). The player skipped both with
+a "not a DogGraph" message. The fixture now spawns the dog first and has it
+trot to center stage, and its golden trace was recorded again. Today's
+`fountain2pam.py` still produces those two steps from the `.fountain` source
+(its "trots/jogs" rule uses the speaker's name where the `dog` prop key
+belongs), so compiling that file again brings them back.
 
 **The patch guide.** `fountain2pam.py` prints "(Hints also written as
 _comment entries at bottom of JSON.)", but it appends the hints after the

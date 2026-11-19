@@ -13,6 +13,8 @@ why the traces changed.
 Writes ``tests/golden/<fixture stem>.trace.json`` for each fixture and
 ``tests/golden/BASELINE.json``, which records the Git commit, the PAM
 version label, and the environment the traces were recorded with.
+Recording a single fixture updates that fixture's ``recorded_at`` entry
+and leaves the ``reference`` commit of the whole set alone.
 """
 import datetime
 import hashlib
@@ -60,6 +62,14 @@ def main(argv):
     except FileNotFoundError:
         manifest = {"fixtures": {}}
 
+    dirty = _git("status", "--porcelain", "--untracked-files=no")
+    stamp = {
+        "commit": _git("rev-parse", "HEAD"),
+        "tracked_files_modified": bool(dirty),
+        "pam_version": _pam_version(),
+        "recorded": datetime.date.today().isoformat(),
+    }
+
     for fixture in fixtures:
         with tempfile.TemporaryDirectory() as work:
             out = Path(work) / "trace.json"
@@ -75,16 +85,15 @@ def main(argv):
             "cast": list(trace.get("cast", {})),
             "plays": trace.get("stats", {}).get("plays"),
             "pieces": sum(len(t) for t in trace.get("tracks", {}).values()),
+            "recorded_at": stamp,
         }
         print(f"recorded {tt.golden_path(fixture).relative_to(tt.REPO)}")
 
-    dirty = _git("status", "--porcelain", "--untracked-files=no")
-    manifest["reference"] = {
-        "commit": _git("rev-parse", "HEAD"),
-        "tracked_files_modified": bool(dirty),
-        "pam_version": _pam_version(),
-        "recorded": datetime.date.today().isoformat(),
-    }
+    # "reference" is the baseline for the whole set; it moves only when
+    # every fixture is recorded together.  Each fixture also carries its
+    # own "recorded_at".
+    if set(fixtures) == set(tt.FIXTURES) or "reference" not in manifest:
+        manifest["reference"] = stamp
     manifest["environment"] = tt.environment()
     manifest["tolerance"] = tt.DEFAULT_TOL
     tt.BASELINE.write_text(json.dumps(manifest, indent=2) + "\n")
