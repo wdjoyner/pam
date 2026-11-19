@@ -15,17 +15,23 @@
     },
     "lucy-meets-lenny2_pam.json": {
       "golden": "lucy-meets-lenny2_pam.trace.json",
-      "fixture_sha256": "cc3be23c1243f47cd8ad2d24d839c1e9f9f612f8892bbbe2789b437662cb34e2",
+      "fixture_sha256": "f4b8b1e4c1c8003abb33352e90f737501f89c8b85be76fcc599dbeb0ddd5d021",
       "trace_version": 4,
       "hooks_version": 2,
-      "duration": 71.2667,
+      "duration": 70.2667,
       "cast": [
-        "lenny",
         "dog",
+        "lenny",
         "lucy"
       ],
-      "plays": 209,
-      "pieces": 158
+      "plays": 211,
+      "pieces": 160,
+      "recorded_at": {
+        "commit": "1c920bad45833e9019b0b75533f1335ec1125690",
+        "tracked_files_modified": false,
+        "pam_version": "1.0.1",
+        "recorded": "2026-11-18"
+      }
     },
     "wdj_nona-vs-governor-venus3.json": {
       "golden": "wdj_nona-vs-governor-venus3.trace.json",
