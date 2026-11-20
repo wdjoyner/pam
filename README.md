@@ -179,6 +179,7 @@ Examples include:
 - `knife` (a handle and a blade that come apart), `satchel`, `bowl`, `rock`, `altar`
 - `scroll` (rolled, unrolled, written on, or trailing like a banner, with text that is written, crossed out and replaced), `quill`
 - `rope` (a coil, wound round two wrists and pulled tight, or snapped into two pieces that recoil and lie where they fall)
+- `barbell` (two boulders and a log), `magazine` (one, with words on its cover, or a stack)
 
 Several props are **stateful**: doors and avatar pods open and close, the Governor changes color, a knife breaks, a phone goes live, a scroll is unrolled and revised, a rope is tied and snaps. `pam/prop_states.py` keeps the state of all of them, and the `prop_transition` action changes it.
 
@@ -724,6 +725,14 @@ Relevant fragments include:
 - dog-specific fragments such as `tail_wag`
 
 A `say` step may fire `sentence_end` tics automatically. Use `suppress_tics: true` on the speech step to skip them.
+
+A `react` step may also name one fragment, whatever the character's profile says, and give it a length in frames; it then plays on the frame clock, also as a step of a timed block (Milestone 6):
+
+```json
+{ "action": "react", "who": "abraham", "fragment": "count_tap_r", "frames": 4 }
+```
+
+Milestone 6 added the fragments `count_tap_r` (a finger ticks off an item on the raised hand), `nod`, `head_shake`, `scribble_r` (a writing hand; repeat it with `cycles`), `flick_r`, `finger_wag_r`, `shrug`, `startle` (a little jump at a noise) and `chest_pat_r`.
 
 ---
 
@@ -1851,6 +1860,50 @@ Familiar actions still compile automatically. An element with a cued beat compil
 | `"subject": "knife+bowl"` | A fitted shot frames all of them. |
 
 The roadmap's completion test is in `tests/test_fountain_cues.py`: recompiling the screenplay keeps every cue verbatim and the six scenes write the Milestone 4 ledger byte for byte; on every frame of the scroll, broken-knife and phone inserts the subject is in the frame and its text is readable; and orphaned cues are reported. The reference is section 13 of `fountain2pam-manual.md` and section 11 of `pam-player_manual.md`.
+
+### Acting in four phases: the Manim performance (Milestone 6)
+
+Milestone 6 of the Blender roadmap turns the project's scenes into a performance a viewer can follow without the script. Stage 6a does Scenes 1 and 2 of *Abraham and Isaac, Revisited*. Everything is opt-in: a screenplay that uses none of the syntax below plays exactly as before, and the nine golden traces are unchanged.
+
+An action that matters is acted in four phases, **anticipation, action, reaction, recovery**. The `perform` action holds the length of each phase, in frames, in one table, and places its steps by phase, so that a phase can be retimed by changing one number:
+
+```json
+{"action": "perform", "id": "s02_pull",
+ "phases": {"anticipation": 6, "action": 30, "reaction": 4, "recovery": 15},
+ "do": [
+   {"phase": "anticipation", "action": "morph", "who": "abraham",
+    "pose": "standing_side", "until": "anticipation"},
+   {"phase": "action", "action": "pull_immovable", "id": "pull",
+    "who": "abraham", "target": "isaac",
+    "frames_reach": "action", "frames_pull": "action", "frames_strain": "action"},
+   {"phase": "reaction", "action": "slip_on_back", "who": "abraham",
+    "until": "reaction", "beat": "slip"},
+   {"phase": "recovery", "action": "wait", "until": "recovery", "beat": "comic_hold"},
+   {"phase": "recovery", "at": 4, "action": "morph", "who": "isaac",
+    "pose": "look_down_l", "until": "recovery"}
+ ]}
+```
+
+A `perform` is a timed `parallel` block (it is expanded into one when the screenplay is loaded), so everything a timed block may hold may be a step of it. Each phase is a beat (`s02_pull.anticipation`, ...). Changing `"action": 30` to `36` makes the pull six frames longer, shared by its three phases in proportion, and moves the fall and the comic hold six frames later; nothing in `do` changes.
+
+Recurring mannerisms are tics (`pam/tics.py`), played on the frame clock with `react` and `fragment` (see "Tic profiles"). Poses for acting (`count_hand`, `stare_hand`, `point_up`, `palms_up`, `hold_up_r`, `lift_overhead`, `sit_write`, ...) are built on each figure's own build, so a broad or narrow figure keeps its proportions, and each has a mirror facing left (`<name>_left`; also `standing_side_left`).
+
+| New syntax | What it does |
+|---|---|
+| `perform` | A timed block placed by acting phase. `id`, `phases` (`{"anticipation", "action", "reaction", "recovery"}`: frames; a phase not given has none), `do`. |
+| `phase` (on a step of a `perform`) | The phase the step starts in; `at` then counts from the start of that phase. |
+| `until` (on a step of a `perform`) | The step lasts to the end of the named phase, in place of `frames`. |
+| `"frames_<routine phase>": "<acting phase>"` (a routine in a `perform`) | That acting phase is shared by every routine phase that names it, in proportion to their defaults (`"frames_offer": "anticipation", "frames_accept": "anticipation", "frames_pop": "action"`). |
+| `fragment`, `frames`, `cycles` on `react` | One tic, on the frame clock, also in a timed block (`cycles`: how many times its cycle repeats). |
+| `sound_cue` in a timed block | A word such as THUD! on exact frames: `frames` (the whole), `frames_in`, `frames_out`; with `at` in a block. New keys everywhere: `font_size` (default 22), `color`. |
+| Acting poses (`pam/acting_poses.py`) | Pose names; see section 9 of `pam-player_manual.md`. |
+| Tic fragments | `count_tap_r`, `nod`, `head_shake`, `scribble_r`, `flick_r`, `finger_wag_r`, `shrug`, `startle`, `chest_pat_r`. |
+| Prop types `barbell`, `magazine` | Two boulders and a log (`left` and `right` grips); a magazine with `cover` words, or a pile of them (`stack`). |
+| `scenes.<scene>.say` (cue file) | Keys that every uncued line of a character gets in that scene, such as `{"abraham": {"side": "left"}}`. |
+
+A fitted shot (`fit`, Milestone 5) may now be framed on a character: on the figure as it is drawn, or, before it has faded in, as its next `fade_in` will draw it.
+
+The completion checks for Stage 6a are in `tests/test_performance.py`: a phase's frame count changes the timing exactly as it should, and the key pose of each gag of Scenes 1 and 2 is in the trace. Whether a gag is funny is still for someone watching the render.
 
 ### Timed parallel blocks: overlapping action on the frame clock
 

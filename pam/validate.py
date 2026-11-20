@@ -265,9 +265,10 @@ class _Validator:
         for fkey, sec in (("frames_in", "rt_in"), ("frames_out", "rt_out")):
             if fkey not in step:
                 continue
-            if act != "say":
+            if act not in ("say", "sound_cue"):
                 self.add(WARNING, "frames-unsupported",
-                         f"'{fkey}' only has a meaning for 'say'", index,
+                         f"'{fkey}' only has a meaning for 'say' and "
+                         f"'sound_cue'", index,
                          act, f"{path}{fkey}")
             elif step.get(sec) is not None:
                 self.add(WARNING, "frames-and-seconds",
@@ -281,7 +282,7 @@ class _Validator:
                      f"step has both 'frames' and '{sec}'; the frames win",
                      index, act, f"{path}frames")
         ok = specs.frame_actions()
-        if timed:
+        if timed or (act in specs.TIMELINE_TICS and "fragment" in step):
             ok = ok | specs.timeline_actions()
         if act not in ok:
             where = ("" if timed or act not in specs.timeline_actions()
@@ -390,7 +391,7 @@ class _Validator:
                 end = None
             else:
                 end = start + d["frames"]
-            if d["kind"] in ("anim", "loco", "routine"):
+            if d["kind"] in ("anim", "loco", "routine", "tic"):
                 who = sub.get("who") or sub.get("prop")
                 names = who if isinstance(who, list) else [who]
                 if act == "cork_pop_up":    # it moves both figures
@@ -950,6 +951,21 @@ class _Validator:
                          f"player skips this step)", index, act,
                          f"{path}id")
             self._constraints.discard(cid)
+            return
+
+        if act == "perform":
+            if parallel:
+                self.add(ERROR, "timeline-unsupported",
+                         "a perform cannot be a step of a parallel block "
+                         "(it is a timed block itself)", index, act,
+                         path.rstrip("."))
+                return
+            from pam.timeline import expand_perform
+            block, problems = expand_perform(step)
+            for msg in problems:
+                self.add(ERROR, "perform", msg, index, act,
+                         path.rstrip("."))
+            self.check_timed_block(block, index, path)
             return
 
         if act == "parallel":

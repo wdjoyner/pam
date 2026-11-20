@@ -92,6 +92,77 @@ FOOT_TAP_L_CYCLE = [
 ]
 
 
+# ── Milestone 6: mannerisms of Abraham and Isaac ───────────────────────────
+# Played on the frame clock by ``react`` with ``fragment`` (pam/timeline.py):
+#   {"action": "react", "who": "abraham", "fragment": "count_tap_r",
+#    "frames": 4}
+# Like the fragments above, each is a list of deltas from the pose the
+# figure has when the tic starts; the return to that pose is added.
+
+# A finger of the right hand ticks an item off on the raised left hand
+# (side view, facing right; from the acting pose "count_hand").
+COUNT_TAP_R_CYCLE = [
+    {"rwrist": (0.08, -0.36)},
+]
+
+# The head dips and comes back: a nod.
+NOD_CYCLE = [
+    {"head": (0.0, -0.14)},
+    {"head": (0.0, 0.03)},
+]
+
+# The head turns side to side: no.
+HEAD_SHAKE_CYCLE = [
+    {"head": (-0.09, 0.0)},
+    {"head": (0.09, 0.0)},
+    {"head": (-0.09, 0.0)},
+]
+
+# The writing hand moves along the line in little loops (Abraham with
+# his quill).  Repeat it with "cycles".
+SCRIBBLE_R_CYCLE = [
+    {"rwrist": (0.07, 0.05)},
+    {"rwrist": (0.13, -0.03)},
+    {"rwrist": (0.20, 0.05)},
+]
+
+# A quick flourish of the writing hand: one stroke.
+FLICK_R_CYCLE = [
+    {"rwrist": (0.04, 0.14)},
+    {"rwrist": (0.10, -0.04)},
+]
+
+# A raised finger wagged up and down ("Watch that attitude").
+FINGER_WAG_R_CYCLE = [
+    {"rwrist": (0.04, 0.13)},
+    {"rwrist": (-0.03, -0.06)},
+]
+
+# Shoulders up, hands out: a shrug.
+SHRUG_CYCLE = [
+    {"lshoulder": (0.0, 0.13), "rshoulder": (0.0, 0.13),
+     "lelbow": (-0.12, 0.10), "relbow": (0.12, 0.10),
+     "lwrist": (-0.22, 0.30), "rwrist": (0.22, 0.30),
+     "head": (0.0, -0.05)},
+]
+
+# The whole body jumps a little: startled by a noise.
+_ALL_BIPED = ("head", "neck", "lshoulder", "rshoulder", "torso",
+              "lelbow", "relbow", "lwrist", "rwrist", "lhip", "rhip",
+              "lknee", "rknee", "lankle", "rankle")
+STARTLE_CYCLE = [
+    {j: (0.0, 0.32) for j in _ALL_BIPED},
+    {j: (0.0, -0.04) for j in _ALL_BIPED},
+]
+
+# A hand pats the chest twice (pleased with himself).
+CHEST_PAT_R_CYCLE = [
+    {"rwrist": (-0.10, 0.10)},
+    {"rwrist": (0.0, 0.0)},
+    {"rwrist": (-0.10, 0.10)},
+]
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  QUADRUPED FRAGMENTS  (figure_type: "dog", future "cat" via CatGraph alias)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -143,6 +214,52 @@ TIC_FRAGMENTS = {
     },
     "foot_tap_l": {
         "cycle":      FOOT_TAP_L_CYCLE,
+        "applies_to": ["human", "alien"],
+        "rt_per_kf":  0.12,
+    },
+    # ── Milestone 6 (Abraham and Isaac) ──
+    "count_tap_r": {
+        "cycle":      COUNT_TAP_R_CYCLE,
+        "applies_to": ["human", "alien"],
+        "rt_per_kf":  0.12,
+    },
+    "nod": {
+        "cycle":      NOD_CYCLE,
+        "applies_to": ["human", "alien"],
+        "rt_per_kf":  0.12,
+    },
+    "head_shake": {
+        "cycle":      HEAD_SHAKE_CYCLE,
+        "applies_to": ["human", "alien"],
+        "rt_per_kf":  0.12,
+    },
+    "scribble_r": {
+        "cycle":      SCRIBBLE_R_CYCLE,
+        "applies_to": ["human", "alien"],
+        "rt_per_kf":  0.12,
+    },
+    "flick_r": {
+        "cycle":      FLICK_R_CYCLE,
+        "applies_to": ["human", "alien"],
+        "rt_per_kf":  0.12,
+    },
+    "finger_wag_r": {
+        "cycle":      FINGER_WAG_R_CYCLE,
+        "applies_to": ["human", "alien"],
+        "rt_per_kf":  0.12,
+    },
+    "shrug": {
+        "cycle":      SHRUG_CYCLE,
+        "applies_to": ["human", "alien"],
+        "rt_per_kf":  0.12,
+    },
+    "startle": {
+        "cycle":      STARTLE_CYCLE,
+        "applies_to": ["human", "alien"],
+        "rt_per_kf":  0.12,
+    },
+    "chest_pat_r": {
+        "cycle":      CHEST_PAT_R_CYCLE,
         "applies_to": ["human", "alien"],
         "rt_per_kf":  0.12,
     },

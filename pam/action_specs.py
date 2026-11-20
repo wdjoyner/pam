@@ -60,6 +60,7 @@ PLAYER_ACTIONS = frozenset({
     "set_background", "wait",
     # timeline and contact constraints (pam/timeline.py, constraints.py)
     "sequence", "constrain", "release",
+    "perform",
 })
 
 # Markers the player puts around a sequence's steps when it loads a
@@ -131,6 +132,8 @@ TIMELINE_PLAYER = frozenset({
     # a prop changes state, moves to a new attachment, or changes what
     # its display shows or its text says (pam/prop_states.py)
     "prop_transition",
+    # a word such as THUD! flashed on exact frames (Milestone 6)
+    "sound_cue",
 })
 
 
@@ -159,8 +162,13 @@ ROUTINE_OPTIONAL_PHASE = {
 # frame they run.  Two of them on one figure on the same frames cannot
 # both be honored: the validator makes that an error.  (fade_out is
 # left out: it is reported as a warning.)
+# A mannerism from pam/tics.py, played on the frame clock when the step
+# names its fragment ("react" with "fragment"; Milestone 6).
+TIMELINE_TICS = frozenset({"react"})
+
 TIMELINE_POSE_WRITERS = ((TIMELINE_ANIMATED - {"fade_out"})
-                         | TIMELINE_LOCOMOTION | TIMELINE_ROUTINES)
+                         | TIMELINE_LOCOMOTION | TIMELINE_ROUTINES
+                         | TIMELINE_TICS)
 
 
 def routine_phase_keys():
@@ -173,7 +181,7 @@ def timeline_actions():
     """Actions that may be steps of a timed parallel block.  (A camera
     marker may be one too; it has no action name.)"""
     return (TIMELINE_ANIMATED | TIMELINE_LOCOMOTION | TIMELINE_PLAYER
-            | TIMELINE_ROUTINES)
+            | TIMELINE_ROUTINES | TIMELINE_TICS)
 
 
 # ── joints ───────────────────────────────────────────────────────────────

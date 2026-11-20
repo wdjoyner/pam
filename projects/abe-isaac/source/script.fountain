@@ -13,7 +13,7 @@ EXT. DESERT - OUTSIDE ABRAHAM'S CAVE - DAY
 
 [[#1 | BEAT: Normal World / Opening Image | OBJ: Abraham perfects his account | SETUP: S01 manuscript]]
 
-[[ CAMERA: FRAMING=medium | SUBJECT=Abraham | MOVE=static | TRANSITION=cut ]]
+[[ CAMERA: FRAMING=medium | SUBJECT=Abraham | MOVE=static | TRANSITION=cut | MARGIN=0.2 ]]
 
 ABRAHAM (50s), a small, serious man with a scholar's posture, sits on a rock. He writes on a scroll headed GENESIS / B'RESHIT. [[beat: s01_takes_quill]] [[beat: s01_writes]]
 
@@ -21,9 +21,17 @@ ABRAHAM (50s), a small, serious man with a scholar's posture, sits on a rock. He
 
 INSERT - THE SCROLL: "AND ABRAHAM RAISED THE KNIFE." [[beat: s01_insert]]
 
-[[ CAMERA: FRAMING=medium | SUBJECT=Abraham | MOVE=static | TRANSITION=cut ]]
+[[ CAMERA: FRAMING=medium | SUBJECT=Abraham | MOVE=static | TRANSITION=cut | MARGIN=0.2 ]]
 
-Abraham studies the line, frowns, and turns the period into a question mark. From inside the cave: a tremendous THUD. He rolls up the scroll and tucks it into his belt. [[beat: s01_question_mark]] [[beat: s01_thud]]
+Abraham studies the line and frowns. [[beat: s01_studies]]
+
+[[ CAMERA: FRAMING=insert | SUBJECT=scroll | MOVE=static | TRANSITION=cut ]]
+
+INSERT - THE SCROLL: He turns the period into a question mark: "AND ABRAHAM RAISED THE KNIFE?" [[beat: s01_question_mark]]
+
+[[ CAMERA: FRAMING=medium | SUBJECT=Abraham | MOVE=static | TRANSITION=cut | MARGIN=0.2 ]]
+
+From inside the cave: a tremendous THUD. He rolls up the scroll and tucks it into his belt. [[beat: s01_thud]]
 
 # 2. THE INVINCIBLE
 
@@ -38,75 +46,75 @@ ISAAC (18), an enormous, cheerful wrestler, lifts a barbell made of two boulders
 Abraham enters without knocking, a satchel over his shoulder and the scroll in his belt. [[beat: s02_abraham_enters]]
 
 ISAAC
-Dad! What about knocking? What if I was changing?
+Dad! What about knocking? What if I was changing? [[beat: s02_knocking]]
 
 ABRAHAM
-I've been working on the Torah. Isaac, we must talk.
+I've been working on the Torah. Isaac, we must talk. [[beat: s02_must_talk]]
 
 ISAAC
-Can it wait? I have a match to study.
+Can it wait? I have a match to study. [[beat: s02_match]]
 
 ABRAHAM
-I just spoke with God.
+I just spoke with God. [[beat: s02_spoke_with_god]]
 
 ISAAC
-Again with God?
+Again with God? [[beat: s02_again]]
 
 ABRAHAM
-Watch that attitude. He says I have to sacrifice a son.
+Watch that attitude. He says I have to sacrifice a son. [[beat: s02_attitude]]
 
-Isaac finally looks up.
+Isaac finally looks up. [[beat: s02_looks_up]]
 
 ISAAC
-What about Ishmael?
+What about Ishmael? [[beat: s02_ishmael]]
 
 ABRAHAM
-Hagar said if I sacrifice Ishmael, I have to sleep outside.
+Hagar said if I sacrifice Ishmael, I have to sleep outside. [[beat: s02_outside]]
 
 ISAAC
-Moooom!
+Moooom! [[beat: s02_mom]]
 
 ABRAHAM
-Sarah's gathering rocks.
+Sarah's gathering rocks. [[beat: s02_rocks]]
 
-Isaac holds up his magazine cover.
+Isaac holds up his magazine cover. [[beat: s02_magazine]]
 
 ISAAC
-Dad, I'm Isaac the Invincible. "Sacrificial lamb" doesn't fit my online persona.
+Dad, I'm Isaac the Invincible. "Sacrificial lamb" doesn't fit my online persona. [[beat: s02_persona]]
 
 ABRAHAM
-I know. But it's the word of God.
+I know. But it's the word of God. [[beat: s02_word_of_god]]
 
 ISAAC
-What were the exact words?
+What were the exact words? [[beat: s02_exact_words]]
 
-Abraham counts on his fingers.
+Abraham counts on his fingers. [[beat: s02_counts]]
 
 ABRAHAM
-Go to Mount Moriah. Build an altar. Tie you down. Raise my knife. Say a few words to teach Israel a lesson. And then...
+Go to Mount Moriah. Build an altar. Tie you down. Raise my knife. Say a few words to teach Israel a lesson. And then... [[beat: s02_the_list]]
 
-He has run out of fingers. He stares at his hand.
+He has run out of fingers. He stares at his hand. [[beat: s02_out_of_fingers]]
 
 ISAAC
 And then?
 
 ABRAHAM
-That part escapes me.
+That part escapes me. [[beat: s02_escapes_me]]
 
-Isaac's phone BUZZES. He reads.
+Isaac's phone BUZZES. He reads. [[beat: s02_buzz]]
 
 ISAAC
-My manager wants me to wrestle Friday. Can you drive me to Ocean City?
+My manager wants me to wrestle Friday. Can you drive me to Ocean City? [[beat: s02_ocean_city]]
 
 ABRAHAM
-Not if you're being sacrificed. Come on.
+Not if you're being sacrificed. Come on. [[beat: s02_come_on]]
 
-Abraham grabs Isaac's wrist. Nothing moves. He braces both feet against the floor, pulls, slips, and lands on his back.
+Abraham grabs Isaac's wrist. Nothing moves. He braces both feet against the floor, pulls, slips, and lands on his back. [[beat: s02_pull]]
 
-Isaac offers him a hand. Abraham accepts it and shoots upright like a cork. He clutches Isaac around the middle to steady himself. His arms do not reach halfway.
+Isaac offers him a hand. Abraham accepts it and shoots upright like a cork. He clutches Isaac around the middle to steady himself. His arms do not reach halfway. [[beat: s02_cork_and_hug]]
 
 ABRAHAM
-Have you thought about a diet?
+Have you thought about a diet? [[beat: s02_diet]]
 
 ISAAC
 What are you sacrificing me with? [[beat: s02_sacrificing_with]]
@@ -127,12 +135,12 @@ ISAAC
 That'll be a short ceremony. [[beat: s02_short_ceremony]]
 
 ABRAHAM
-God's going to be furious.
+God's going to be furious. [[beat: s02_furious]]
 
 Isaac studies the blade, then the magazine, then his phone. [[beat: s02_handle_down]]
 
 ISAAC
-Wait. I got it.
+Wait. I got it. [[beat: s02_got_it]]
 
 ABRAHAM
 Got what?

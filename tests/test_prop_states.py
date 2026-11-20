@@ -837,7 +837,8 @@ def test_breaking_the_continuity_is_caught(tmp_path):
     root = tt.copy_project(tmp_path / "p")
     s2 = json.loads((root / "scene2.json").read_text())
     for beat in ("gather", "into_satchel"):
-        step = next(s for s in s2 if s.get("beat") == beat)
+        # (since Milestone 6 a step may be inside a block or a sequence)
+        step = next(s for s in tt.walk_steps(s2) if s.get("beat") == beat)
         del step["parts"]["blade"]
     (root / "scene2.json").write_text(json.dumps(s2))
     reports = {r.ledger["scene"]: r for r in validate_project(root)}

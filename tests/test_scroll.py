@@ -525,7 +525,9 @@ def test_the_project_needs_the_script_edits(tmp_path):
     cross out THE KNIFE? (Draft 3 before the scroll edits)."""
     root = tt.copy_project(tmp_path / "p")
     s1 = json.loads((root / "scene1.json").read_text())
-    step = next(s for s in s1 if s.get("beat") == "question_mark")
+    # (since Milestone 6 the step is inside a perform)
+    step = next(s for s in tt.walk_steps(s1)
+                if s.get("beat") == "question_mark")
     step["text"] = {"write": "?", "line": 2}    # appended: KNIFE.?
     (root / "scene1.json").write_text(json.dumps(s1))
     reports = {r.ledger["scene"]: r for r in validate_project(root)}

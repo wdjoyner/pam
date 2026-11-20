@@ -3,10 +3,12 @@
 The six scenes of the short, compiled from the screenplay (Milestone 5
 of *PAM: The Road to Blender*), with the prop continuity of Milestone 4
 (Stages 4a, 4b and 4c): the knife, the phone, the scroll and the rope.
-They are blocking for the props, not yet the animatic (that is
-Milestone 6): the characters stand, walk a little and speak their lines,
-and the knife, the phone, the scroll and the rope do everything Draft 3
-of the script has them do.
+Scenes 1 and 2 are performed (Milestone 6, Stage 6a): every gag is
+acted in four phases (`perform`), with mannerisms (`react` with
+`fragment`), holds, and speech bubbles. Scenes 3 to 6 are still
+blocking for the props (Stages 6b and 6c): the characters stand, walk a
+little and speak their lines, and the knife, the phone, the scroll and
+the rope do everything Draft 3 of the script has them do.
 
 | File | What it holds |
 |---|---|
@@ -30,6 +32,47 @@ and the continuity ledger stay one file, `pam_sidecar.json`, as
 Milestone 4 built them, and the scene files stay next to it, where the
 player looks for its sidecar.
 
+## Scenes 1 and 2 (Milestone 6, Stage 6a)
+
+The cues of Scenes 1 and 2 are a performance, not blocking. Each gag is
+a `perform` (four phases, anticipation, action, reaction, recovery, with
+their lengths in one table), and most acted lines of dialogue are one
+too: the speaker gets into a gesture, says the line, and settles back.
+The script in `writing-guides` has a beat note on every line PAM acts
+(27 new in Scene 2, and one split paragraph in Scene 1; see its revision
+log). To retime a gag, change a number in its `phases` and recompile.
+
+| Beat | What is acted |
+|---|---|
+| `s01_takes_quill`, `s01_writes` | an opening hold; the quill from the satchel; the line written while the hand moves along it; a nod; the quill lifted off the page |
+| `s01_insert` | 27 frames on the line |
+| `s01_studies` | he bends over the scroll and shakes his head |
+| `s01_question_mark` | on the second insert, the quill comes down, the period becomes a question mark, and the quill lifts away for 18 frames |
+| `s01_thud` | a pleased nod; THUD! from the cave and a jump; he stares toward it; quill away, scroll rolled into his belt |
+| `s02_checks_clips` | Isaac lifts the barbell overhead, sets it down (THUD!), takes out his phone and strolls to his spot by the magazines |
+| `s02_abraham_enters` | Abraham walks in from the entrance |
+| lines of dialogue | a gesture each: a shrug, a pat on the chest, a finger up to God, a wagging finger, a thumb toward outside, hands to the cheeks, palms up, hands on hips, a hand to the chin |
+| `s02_looks_up` | a beat, the phone down, a stare |
+| `s02_magazine`, `s02_persona` | the phone into his pocket, the top magazine held up beside his head for both sentences, then back on the stack |
+| `s02_counts`, `s02_the_list`, `s02_out_of_fingers` | the hand raised; five taps of a finger, one per item; nothing on "And then..."; the hand brought up to his face and stared at |
+| `s02_buzz` | BZZZ at Isaac's hip, a jump, the phone out, a read |
+| `s02_pull` | Milestone 3's `pull_immovable` (the action phase), `slip_on_back` (the reaction) and a comic hold while Isaac looks down (the recovery) |
+| `s02_cork_and_hug` | `cork_pop_up` (offer and accept, the 3-frame pop, the landing and the image held) and `mismatched_hug`, still holding on |
+| `s02_diet` | the line said into Isaac's side; then he lets go and steps back |
+| `s02_draws_knife` ... `s02_handle_down` | the Stage 4a knife, with his hand going to the satchel and the knife held out; Isaac looks at the blade, the magazines, his phone |
+| `s02_got_it` | a finger up: an idea |
+| `s02_into_satchel`, `s02_slings_rope`, `s02_pockets_phone` | Isaac takes the barbell under his arm and strides out past his father, who gathers the knife into the satchel, picks up the rope by the entrance and hurries after him |
+
+Scene 1 has a rock for Abraham to sit on, and Scene 2 a `barbell` and
+two `magazine` props (a stack, and the top one with ISAAC THE
+INVINCIBLE on its cover); all three are local to their scenes (`before`
+steps), not in the ledger. Uncued lines get their bubble side from the
+cue file (`scenes.scene2.say`). The ledger is unchanged.
+
+The Milestone 3 fixture `abe-isaac_scene2-gags.json` has two lines that
+are not in the script ("Up you get." and "My boy."); the scene does not
+use them.
+
 ## How the scenes are compiled
 
 Each scene heading of the screenplay is one scene file. A paragraph or a
@@ -41,7 +84,9 @@ cues, never from the compiler. There is a camera cut wherever the
 screenplay has a `CAMERA` note, and every insert (the scroll, the knife,
 the bowl, the phone) is framed from its subject's bounding box.
 
-The 42 cues are the steps of the Milestone 4 scene files, moved into the
+In Milestone 5 the 42 cues were the steps of the Milestone 4 scene files
+(Stage 6a has since rewritten those of Scenes 1 and 2 and added 28 more,
+70 in all), moved into the
 cue file unchanged. They now play in the screenplay's order, with its
 dialogue between them, so a few run in a different order than they did
 (in Scene 2, Abraham enters after the phone and the rope are in place,

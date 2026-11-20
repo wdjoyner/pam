@@ -98,7 +98,8 @@ def test_every_overlapping_pair_is_reported():
 def test_every_pose_writer_counts():
     assert specs.TIMELINE_POSE_WRITERS == {
         "morph", "turn", "scale", "slip_on_back", "walk_to", "run_to",
-        "trot_to", "pull_immovable", "cork_pop_up", "mismatched_hug"}
+        "trot_to", "pull_immovable", "cork_pop_up", "mismatched_hug",
+        "react"}     # (Milestone 6: a tic, react with fragment)
     pairs = [
         ({"action": "turn", "who": "a", "pose": "standing_front",
           "frames": 9},

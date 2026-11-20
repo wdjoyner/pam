@@ -738,6 +738,21 @@ Short diegetic label such as `RING!` or `KNOCK!`.
 - `rt_out` — default 0.20
 - `x` — horizontal offset
 - `y` — vertical offset
+- `font_size` — default 22 (Milestone 6)
+- `color` — default `"#ffdd55"` (Milestone 6)
+
+### On the frame clock (Milestone 6)
+With `frames`, `frames_in` or `frames_out`, or as a step of a timed
+`parallel` block (with `at`), the word fades in, holds and fades out on
+exact frames, while other steps play: `frames` is the whole,
+`frames_in` and `frames_out` the fades (defaults 2 and 3 frames, from
+`rt_in` and `rt_out`; the hold defaults to 9). Without those keys it
+plays as before, by itself.
+
+```json
+{"action": "sound_cue", "label": "THUD!", "font_size": 44, "x": 0.4,
+ "y": -0.6, "frames": 15, "frames_in": 1, "frames_out": 3, "at": 6}
+```
 
 ---
 
@@ -859,6 +874,8 @@ A `parallel` block is timed when the block has `frames`, or when any step in its
 | `constrain`, `release` | the contact starts or ends on that frame |
 | `prop_transition` | a prop changes state on that frame; with `frames`, its move to a new attachment, a number on its display that climbs, text written on a scroll or crossed out, or a rope changing shape (wound round, pulled tight, snapping), takes that long (see "Stateful props" below) |
 | `pull_immovable`, `cork_pop_up`, `mismatched_hug` | a choreography routine (below): its phases follow one another, each a set number of frames; `frames` is the whole routine |
+| `react` with `fragment` | a mannerism (`pam/tics.py`): each keyframe of its cycle, then the return to the pose it started from, shared over `frames` (below) |
+| `sound_cue` | a word such as THUD! that fades in, holds and fades out on exact frames (section 8) |
 | `_subscene_marker` | a camera cut on that frame; with `frames`, or an animated `move` (`push`, `pull`, `pan-follow`, `drift`, `zoom`), the camera travels for that long. A shot with `"fit": "bounds"` (section 11) is framed from its subject, and from where the block's steps take the subject before the block's next cut |
 | `sequence` | a track: its steps follow one another, the first starting on the sequence's `at`. Use one per actor |
 
@@ -866,7 +883,7 @@ A `parallel` block is timed when the block has `frames`, or when any step in its
 - Actions that play several animations of their own cannot be steps of a timed block: `wave`, `nod`, `shake_head`, `shrug`, `carry`, `sit_down`, `stand_up`, `rotate`, `prop_say`, and the camera moves `pan-up`, `pan-down`, `descend`, `push-into`. The player skips such a step with a message; `pam-validate` reports it as an error. Put it before or after the block.
 - A `parallel` block cannot be a step of a timed block, and a `sequence` cannot be nested in a `sequence` there.
 - Two `prop_transition` steps must not change the same prop on the same frames; `pam-validate` reports an error. Put them in one `sequence`.
-- Two steps must not move the same figure on the same frames. `morph`, `turn`, `scale`, `slip_on_back`, the walks and runs, and the choreography routines each set the figure's whole pose on every frame they run, so two of them at once make the figure jump: the one written later wins while they overlap, and the other takes over again when it ends. The player plays it anyway; `pam-validate` reports an error. Put the two steps in one `sequence`. A contact constraint is the exception: it repositions one limb on purpose and may run under any move.
+- Two steps must not move the same figure on the same frames. `morph`, `turn`, `scale`, `slip_on_back`, the walks and runs, the choreography routines and the tics (`react` with `fragment`) each set the figure's whole pose on every frame they run, so two of them at once make the figure jump: the one written later wins while they overlap, and the other takes over again when it ends. The player plays it anyway; `pam-validate` reports an error. Put the two steps in one `sequence`. A contact constraint is the exception: it repositions one limb on purpose and may run under any move.
 - A step owns the frames from its first up to, not including, the frame it ends on: a 12-frame step that starts on frame 6 owns frames 6 through 17. A step that starts on frame 18 only touches it and is fine.
 - A block's `frames` is a promise. If its steps need more, the player plays them to the end and says how far it ran over, and `pam-validate` reports an error, because every later beat would be that much late.
 - A camera cut frames its subject where the subject is drawn on the frame of the cut, also in the middle of a walk, a sliding `morph` or a routine.
@@ -1021,6 +1038,115 @@ PAMPlayer: mismatched_hug 'hug' (abraham -> isaac) ran frames 97-127; arm 0.8648
 - a routine sets the whole pose of the figures it moves (`who`; for `cork_pop_up` also `target`), so no other step may move them on the same frames: `pam-validate` reports an error
 - `abe-isaac_scene2-gags.json` plays all four routines, two of them inside timed blocks
 
+## Acting in four phases: `perform` (Milestone 6)
+
+An action that matters is acted in four phases: **anticipation** (the
+wind-up: the hand goes to the satchel, Isaac offers his hand),
+**action** (the thing itself), **reaction** (the result lands: the
+fall, the image held), and **recovery** (settling back). A `perform`
+holds the length of each phase in one table and places its steps by
+phase, so that a phase is retimed by changing one number, without
+touching the steps.
+
+```json
+{"action": "perform", "id": "s02_cork",
+ "phases": {"anticipation": 15, "action": 3, "reaction": 11},
+ "do": [
+   {"phase": "anticipation", "action": "cork_pop_up", "id": "cork",
+    "who": "isaac", "target": "abraham",
+    "frames_offer": "anticipation", "frames_accept": "anticipation",
+    "frames_pop": "action",
+    "frames_land": "reaction", "frames_hold": "reaction"}
+ ]}
+```
+
+### Keys
+- `id` — names the block and its beats
+- `phases` — `{"anticipation", "action", "reaction", "recovery"}`: the frames of each; a phase not given has none. They follow one another in that order, and the block lasts exactly their sum
+- `do` — the steps
+
+### Keys on a step of a `perform`
+- `phase` — the phase the step starts in. Without it the step is placed as in any timed block
+- `at` — frames after the start of the step's phase
+- `until` — the name of a phase: the step lasts until that phase ends (its own or a later one), in place of `frames`
+- on a routine, `"frames_<its phase>": "<acting phase>"` — the acting phase's frames (from where the routine starts, when it starts inside it) are shared by every routine phase that names it, in proportion to their default lengths. A number still sets one phase
+
+### Notes
+- A `perform` is a timed `parallel` block: it is expanded into one when the screenplay is loaded (`pam/timeline.py`, `expand_perform`). Everything a timed block may hold may be a step of it, with the same rules; the console report and the trace show the block
+- each phase that has frames is a beat, `<id>.<phase>`, as long as the phase (a `wait` added at the end of the block's steps)
+- a step that starts after the end of its `until` phase gets 0 frames, and `pam-validate` reports it; so does an unknown phase name, a phase that is not a whole number of frames, and a step with both `frames` and `until`
+- a `perform` may stand at the top level or in a `sequence`, not in a `parallel` block
+- not every line needs one. A line of dialogue with no gesture is a plain `say`
+
+## Mannerisms on the frame clock: `react` with `fragment` (Milestone 6)
+
+`react` plays the character's react-triggered tics (`tic_profile`), as
+before. With `fragment` it plays that one mannerism, whatever the
+profile says, on the frame clock: each keyframe of the fragment's cycle
+is a change from the pose the figure has when the tic starts, and the
+last piece returns it to that pose.
+
+```json
+{"action": "react", "who": "abraham", "fragment": "count_tap_r", "frames": 5, "at": 2}
+{"action": "react", "who": "abraham", "fragment": "scribble_r", "cycles": 3, "frames": 30}
+```
+
+### Keys
+- `who`
+- `fragment` — a name in `pam.tics.TIC_FRAGMENTS`
+- `frames` — the whole tic, shared evenly over its keyframes and the return; without it, two frames a keyframe
+- `cycles` — how many times the cycle repeats (default 1)
+- `at`, `beat`, `sound` — as on any step of a timed block
+
+### Fragments added in Milestone 6
+| Fragment | What it does |
+|---|---|
+| `count_tap_r` | a finger of the right hand ticks off an item on the raised left hand (from the pose `count_hand`) |
+| `nod` | the head dips and comes back |
+| `head_shake` | the head turns side to side |
+| `scribble_r` | the writing hand moves along a line in little loops |
+| `flick_r` | one stroke of the writing hand |
+| `finger_wag_r` | a raised finger wagged |
+| `shrug` | shoulders up, hands out |
+| `startle` | the whole body jumps a little |
+| `chest_pat_r` | a hand pats the chest twice |
+
+A tic sets the figure's whole pose, so it may not overlap another move
+of the same figure (`pam-validate` reports an error).
+
+## Acting poses (Milestone 6)
+
+Written in `pam/acting_poses.py` as changes to a base pose of the
+figure's own build (`standing_side`, `standing_front` or
+`sitting_down`), so that Isaac (broad) and Abraham (narrow) keep their
+proportions; a wrist or ankle that moves gets its elbow or knee solved
+with the bones kept at their length. Each has a mirror facing stage
+left, `<name>_left`, and so does `standing_side` (`standing_side_left`).
+Use them with `morph`, `turn` or `fade_in`'s `pose`.
+
+| Pose | Base | What it shows |
+|---|---|---|
+| `count_hand` | side | one hand raised in front of the chest, the other just above it, ready to count |
+| `stare_hand` | side | the counting hand held up to the face |
+| `point_up` | side | a finger pointing up |
+| `wag_finger` | side | a raised finger toward the other person |
+| `palms_up` | side | both palms up and forward |
+| `chin_hand` | side | a hand at the chin |
+| `thumb_back` | side | a thumb over the shoulder, at the way out |
+| `reach_satchel` | side | a hand at the satchel on the left hip |
+| `offer_r` | side | a hand held out in front |
+| `hands_low` | side | both hands low in front |
+| `stoop_pick` | side | a crouch to pick something up |
+| `phone_check` | front | a phone held up at the chest, head bent to it |
+| `hold_up_r` | front | the right hand up beside the head |
+| `hands_cheeks` | front | hands at the cheeks, head back |
+| `hands_hips` | front | hands on hips |
+| `look_down_l`, `look_side_r` | front | the head turned down to the figure's right, or to its left |
+| `finger_up_r` | front | the right forefinger up: an idea |
+| `lift_squat`, `lift_chest`, `lift_overhead` | front | a weight lifted from the floor to overhead |
+| `tuck_r` | front | something carried under the right arm |
+| `sit_write`, `sit_admire`, `sit_study`, `sit_startle`, `sit_look_r`, `sit_reach_satchel` | sitting | seated with a scroll on the lap: writing, the quill lifted, bent over it, startled, looking off, reaching to the satchel |
+
 ## Stateful props
 
 A stateful prop has a state (`intact`, `broken`, ...), may be made of parts, may have a display, may bear text, may change shape (a rope), and is kept on an attachment: a character's joint, another prop, or a place on the stage. One action changes all of it, `prop_transition`. The module is `pam/prop_states.py`; its first page is the full reference.
@@ -1136,6 +1262,8 @@ A composite prop: `knife.handle` and `knife.blade` are two props from the start,
 A cellphone's screen shows its state: dim in `standby`, a red LIVE button in `recording`, and in `live` a LIVE badge, the viewer count and a comment. The display and the phone's place are independent: a step may change one and leave the other.
 
 New plain props that the Abraham and Isaac scenes use, for other props to go into, rest on or stick in: `satchel`, `bowl`, `rock`, `altar` (three stones; `[-0.30, 0.18]` from its center is the gap between the first two).
+
+Milestone 6 adds two more, both standing on `y`: `barbell` (two boulders and a log; `width`, `height`; attachment points `left` and `right` where the hands grip the log) and `magazine` (`width`, `height`; `cover`, the words on its cover, one to a line and as large as fits; `stack`, a pile of that many lying flat). Held between two hands (`"joints": ["lwrist", "rwrist"]`), a barbell stays on their middle.
 
 ## The `scroll`
 
@@ -1419,6 +1547,9 @@ otherwise (a static cut, or a move that ends on the fitted frame).
   Abraham's hand, before he is on stage), the character is built as the
   next `fade_in` will build it (its offset, `x`, `scale`, build and pose)
   to find the hand, and is not added to the scene.
+- **A character**: the figure as it is drawn; a character who has not
+  faded in yet (a shot that opens a scene) is built as its next
+  `fade_in` will build it, and framed there (Milestone 6).
 - **Readable text**: when the subject bears text (a scroll's lines, a
   phone's screen) and its smallest cap height would fill less than 3% of
   the frame's height (`shot_targets.TEXT_MIN`), the frame closes in on

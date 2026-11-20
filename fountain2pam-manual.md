@@ -1185,6 +1185,19 @@ choreography.
 - `scenes` is for project mode: the steps each scene file starts
   (`before`) and ends (`after`) with, such as its background, its props
   and who is on stage when it opens.
+- `scenes.<scene>.say` *(Milestone 6)*: keys that every uncued line of a
+  character gets in that scene, added to the `say` step the line
+  compiles to (a cued line has its own steps).  For example, Abraham
+  stands to the left of Isaac in Scene 2, so his bubbles go on his left:
+
+  ```json
+  "scene2": {"before": [ ... ], "after": [ ... ],
+             "say": {"abraham": {"side": "left"},
+                     "isaac": {"side": "right"}}}
+  ```
+
+  A value must be an object for each character; otherwise the cue file
+  is rejected.  Without `say`, uncued lines compile as before.
 
 ### How an element compiles
 
@@ -1360,6 +1373,19 @@ repeating the full `CHARACTER` annotation.
 ---
 
 ## 15. Changelog
+
+### Milestone 6, Stage 6a (PAM 1.0.1)
+
+All opt-in: a screenplay compiled without a cue file, or with a cue file
+that does not use it, comes out as before.
+
+- **`scenes.<scene>.say`** in the cue file — keys that every uncued line
+  of a character gets in that scene (section 13).
+- Cues may use the player's new Milestone 6 syntax (`perform`, `react`
+  with `fragment`, `sound_cue` on the frame clock, the acting poses, the
+  `barbell` and `magazine` props): the compiler copies a cue as it is,
+  so nothing changed here for them.  See section 9 of
+  `pam-player_manual.md`.
 
 ### Milestone 5 (PAM 1.0.1)
 

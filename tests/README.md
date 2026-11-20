@@ -21,6 +21,8 @@ python -m pytest -k rope          # Stage 4c: the rope, its shapes, its
 python -m pytest -k choreography  # Milestone 3, with its completion test
 python -m pytest -k fountain_cues # Milestone 5: cues, the project, and its
                                   # completion test (about a minute)
+python -m pytest -k performance   # Milestone 6, Stage 6a: acting phases,
+                                  # tics, and Scenes 1 and 2 (a few minutes)
 python -m pytest -k golden   # golden-trace comparison only
 python -m pytest -k validate # validator only (a few seconds)
 ```
@@ -51,6 +53,7 @@ something extra and are skipped without it:
 | `test_prop_states.py` | Milestone 4, Stage 4a, without a renderer. The prop state machines (the knife, the phone, an item's own, and doors, lids and the Governor as machines of the same kind); what a `prop_transition` may and may not do; the validator on stateful props, also in timed blocks; the continuity ledger file (written, read by the next scene, overrides reported, nothing rewritten when nothing changed); and the six-scene project, with the roadmap's completion test for the knife (below). |
 | `test_prop_trace.py` | The same things as the player plays them: prop identities and `prop_state_changed` events in the trace, where every part is on every frame of the knife break, a transition as a step of a timed block, a hand held on a part of the knife, the phone's display changing while the phone stays put (and the reverse), the blade stuck in the altar, the ledger written by playing equal to the one written by validating, and doors, a lid and the Governor through `prop_transition`. The scroll: its text in the trace on every frame of every step that writes or crosses out, exactly as `prop_states.text_row` shows it; its steps in timed blocks; its grip in the hand on every frame, also while Abraham runs; its shape in each state; and in the project, the trace and the ledger agreeing at the end of every scene. The rope: its two pieces and their shapes in the trace, one rope until it snaps, every frame of a change sampled, the coil riding on Abraham's shoulder as he walks, the knot following Isaac's wrists on every frame, pulled tight over its frames, the broken ends springing apart and the pieces lying where the snap puts them; its steps in timed blocks; and in the project, the trace and the ledger agreeing at the end of every scene. |
 | `test_fountain_cues.py` | Milestone 5. Beat notes change nothing without a cue file; a cued action or line compiles to a copy of its cue, an empty cue to nothing, an uncued beat as before; the cue report (orphaned cues, beats without cues, duplicates, notes that are not identifiers, cues filed under another scene); malformed cue files; the project's source is the recorded copy of the script, and its scene files are what `fountain2pam.py --project` compiles; no invented cast or props in a project. `pam/shot_targets.py` on its own (the frame for a box, closing in on text, the steps of a shot), the validator on `fit` and `margin`, a fitted cut in a timed block, and an insert without `fit` framed as before. The roadmap's completion test (below). |
+| `test_performance.py` | Milestone 6, Stage 6a. The `perform` action: steps placed by acting phase, `until`, a routine's phases given by acting phase, the problems it reports; retiming one phase moves exactly the steps it should and rewrites nothing. `react` with `fragment` (a tic on the frame clock) and `sound_cue` on exact frames; a tic is a pose writer. The acting poses keep the bones and the shoulders of each build and have mirrors facing left. The `barbell` and `magazine` props; the cue file's `scenes.<id>.say`. Traced: a small scene played with two phase tables (the timing changes as expected and a tic returns to its pose), and Scenes 1 and 2 of the project, with the key pose of every gag (below). |
 | `test_validate.py` | The JSON validator and the `pam-validate` command, including what they report for each fixture. |
 | `test_action_specs.py` | `pam/action_specs.py` lists exactly the actions `pam_player.py` dispatches. |
 | `test_fountain2pam_warnings.py` | `fountain2pam.py --warnings-json`, and that the validator reports the same `# REVIEW` comments. |
@@ -673,3 +676,30 @@ the block runner. To try a newer Manim, install it and run `python -m pytest`:
 `test_timeline_blocks.py`, `test_timeline_hardening.py` and
 `test_choreography.py` exercise all three, and `test_golden_traces.py` says
 whether anything else moved.
+
+## The Stage 6a checks (Milestone 6: Scenes 1 and 2 performed)
+
+The roadmap's acceptance rows for Scenes 1 and 2 are judgments
+("reads clearly"); `test_performance.py` checks what can be measured,
+on a trace of each scene:
+
+| Scene | Gag | What the trace must show |
+|---|---|---|
+| 1 | Abraham writes | the text is written over 30 frames while his quill hand moves |
+| 1 | the insert | at least 24 frames on a fitted insert, with the quill off the line |
+| 1 | the question mark | the period becomes `?` on the second insert; a hold of 12 frames or more to read KNIFE?, with nothing over the line |
+| 1 | the THUD | his head rises during the startle and he ends looking toward the cave |
+| 2 | scale contrast | Isaac's height over Abraham's is 0.80/0.48, on one floor, in one shot |
+| 2 | the lift | the barbell above Isaac's head, then on the floor as THUD! comes |
+| 2 | counting | five finger taps (a beat each), none on "And then...", then the hand held up to his face |
+| 2 | the wrist pull | his hand on Isaac's wrist for the whole pull, and Isaac's feet do not move |
+| 2 | the fall | flat on his back, then a comic hold of 9 frames or more |
+| 2 | the cork-pop | the hands together through the pop, Abraham off the ground, then upright |
+| 2 | the hug | the arms do not reach around; he is still holding on during "Have you thought about a diet?" |
+| 2 | the broken knife | the handle in Isaac's hand and the blade in the bowl |
+| 1, 2 | dialogue | every sentence of the script is spoken in a bubble, and no bubble says words the script does not |
+
+They also check that every cue of the two scenes is compiled, that the
+Scene 2 routines are on beat notes of action lines, and that the two
+scenes end where the ledger says. The contact sheets in the pull
+request are the visual check.

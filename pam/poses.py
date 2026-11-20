@@ -1884,3 +1884,23 @@ def build_poses(proportions: dict, torso_y_override: float | None = None) -> dic
         "poses":          poses_reg,
     }
 
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  ACTING POSES  (Milestone 6; pam/acting_poses.py)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  Written as changes to a base pose of the figure's own build, so that a
+#  broad or narrow figure keeps its proportions.  Here they are built on
+#  the default poses (for the validator and for code without a figure);
+#  pam.actions._resolve_pose builds them on the figure's own base.
+
+def _acting_defaults():
+    from pam import acting_poses as _ap
+    base = {"standing_side": STANDING_SIDE, "standing_front": STANDING_FRONT,
+            "sitting_down": SITTING_DOWN}
+    return {n: _ap.resolve(n, base.__getitem__) for n in sorted(_ap.names())
+            if n not in POSES}
+
+
+POSES.update(_acting_defaults())

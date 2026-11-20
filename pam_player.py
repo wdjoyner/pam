@@ -562,6 +562,9 @@ from pam.poses import POSES, STANDING_FRONT, STANDING_SIDE, scale_pose
 from pam.poses import DOG_JOINTS, DOG_STANDING
 from pam.props import build_prop, resolve_position
 from pam.actions import ACTION_REGISTRY, _resolve_speaker
+from pam.actions import _figure_type_of
+from pam.tics import fragment_applies as _fragment_applies
+from pam.tics import get_fragment as _get_fragment
 from pam import hooks as _pam_hooks
 from pam import timeline as _pam_timeline
 from pam import prop_states as _pam_prop_states
@@ -3259,7 +3262,8 @@ class PAMPlayer(MovingCameraScene):
             object."""
             spec = cast.get(name)
             if isinstance(spec, dict) and spec.get("fig") is not None:
-                return [spec["fig"]]
+                # (its drawn parts: a figure is not a mobject itself)
+                return [spec["fig"].group]
             mgr = _pam_prop_states.get(self)
             mob = mgr.mobs.get(name) if mgr is not None else None
             if mob is None:
@@ -3430,6 +3434,12 @@ class PAMPlayer(MovingCameraScene):
                         moving.add(id(link.mob))
             boxes, caps, texts = [], [], []
             for n in names:
+                if n in cast and not _fit_subject_mobs(n):
+                    # a character who has not faded in yet: where the
+                    # fade_in to come puts them (Milestone 6)
+                    ghost = _fit_ghost(n)
+                    if ghost is not None:
+                        boxes.append(st.mobject_box(ghost.group, None))
                 for mob in _fit_subject_mobs(n):
                     seen = on_stage - moving
                     here = st.mobject_box(mob, seen)
@@ -3812,6 +3822,88 @@ class PAMPlayer(MovingCameraScene):
                                for pose, dx, n in kfs],
                     "end": end_sfx}
 
+        def _tl_label(step: dict, info: dict):
+            """A sound_cue in a timed block: the word fades in, holds and
+            fades out, as the sound_cue action plays it, on exact frames."""
+            Phase = _pam_timeline.Phase
+            parts = info["parts"]
+            end_sfx = _tl_sound(step, "sound_cue")
+            if not step.get("display", True) or not step.get("label"):
+                return {"phases": [Phase(info["frames"])], "end": end_sfx}
+            made = {}
+
+            def _fade_in():
+                txt = Text(step["label"], font="Courier New",
+                           font_size=step.get("font_size", 22),
+                           color=step.get("color", "#ffdd55"), weight=BOLD)
+                txt.move_to(np.array([step.get("x", 0.0),
+                                      step.get("y", 1.8), 0]))
+                made["txt"] = txt
+                return [FadeIn(txt, scale=1.15)]
+            return {"phases": [Phase(parts["in"], _fade_in),
+                               Phase(parts["hold"]),
+                               Phase(parts["out"],
+                                     lambda: [FadeOut(made["txt"],
+                                                      scale=0.85)])],
+                    "end": end_sfx}
+
+        def _tl_tic(step: dict, info: dict):
+            """A mannerism (pam/tics.py, ``react`` with ``fragment``) in
+            a timed block: each keyframe of its cycle is a delta from
+            the pose the figure has when the tic starts, and the last
+            piece returns it to that pose."""
+            Phase = _pam_timeline.Phase
+            tname = step.get("who")
+            tfig = _get_fig(tname) if tname else None
+            if tfig is None or getattr(tfig, "pose", None) is None:
+                print(f"PAMPlayer: react — '{tname}' has no live figure, "
+                      f"skipping.")
+                return None
+            frag_name = step.get("fragment")
+            ftype = _figure_type_of(tfig)
+            if not _fragment_applies(frag_name, ftype):
+                print(f"PAMPlayer: react — fragment '{frag_name}' is not "
+                      f"for a {ftype} figure; holding still instead.")
+                return {"phases": [Phase(info["frames"])],
+                        "end": _tl_sound(step, "react")}
+            cycle = list(_get_fragment(frag_name).get("cycle", []))
+            try:
+                reps = max(1, int(step.get("cycles", 1)))
+            except (TypeError, ValueError):
+                reps = 1
+            start = {}
+
+            def _key(deltas):
+                def _anims():
+                    if "pose" not in start:
+                        start["pose"] = tfig.pose
+                    base = start["pose"]
+                    if deltas is None:
+                        target = base
+                    else:
+                        target = {j: np.array(p, dtype=float)
+                                  for j, p in base.items()}
+                        for j, (ddx, ddy) in deltas.items():
+                            if j in target:
+                                b = target[j]
+                                target[j] = np.array(
+                                    [b[0] + ddx, b[1] + ddy, 0.0])
+                    anims = tfig._pose_anims(target, tfig.offset)
+                    tfig.pose = target
+                    return anims
+                return _anims
+
+            keys = [d for _ in range(reps) for d in cycle] + [None]
+            phases = [Phase(n, _key(d))
+                      for d, n in zip(keys, info["keyframes"])]
+
+            def _restore():
+                if "pose" in start:
+                    tfig.pose = start["pose"]
+            if phases:
+                phases[-1].after = _restore
+            return {"phases": phases, "end": _tl_sound(step, "react")}
+
         def _tl_start(step: dict, info: dict, block):
             """What a step of a timed block does (called by
             pam.timeline.Block on the frame the step starts)."""
@@ -3846,6 +3938,10 @@ class PAMPlayer(MovingCameraScene):
                 return started
             if kind == "loco":
                 return _tl_loco(step, info)
+            if kind == "tic":
+                return _tl_tic(step, info)
+            if kind == "label":
+                return _tl_label(step, info)
             if kind == "prop":
                 return _tl_prop_step(step, info, block)
             if kind != "anim":
@@ -4022,6 +4118,13 @@ class PAMPlayer(MovingCameraScene):
                 else:
                     print("PAMPlayer: 'sequence' must be a top-level step "
                           "with a 'do' list and no '_comment'; skipping.")
+                continue
+            if act == "perform":
+                # (pam/timeline.py expands every perform into a timed
+                # parallel block when the screenplay is loaded, so one
+                # can only get here inside an ordinary parallel block)
+                print("PAMPlayer: 'perform' must be a top-level step or a "
+                      "step of a sequence; skipping.")
                 continue
 
             # ── in-scene audio cues (v0.9.21, backburner item 7) ─────────
@@ -5586,7 +5689,8 @@ class PAMPlayer(MovingCameraScene):
             #   "rt_out"  — fade-out run time (default 0.2)
             #   "x"       — world x offset (default 0.0 / centre)
             #   "y"       — world y offset (default 1.8 / above stage)
-            if act == "sound_cue":
+            if act == "sound_cue" and not (
+                    _timeline_on and _pam_timeline.is_timed_label(step)):
                 if not step.get("display", True):
                     continue
                 cue_label = step.get("label", "")
@@ -5599,7 +5703,8 @@ class PAMPlayer(MovingCameraScene):
                 if cue_label:
                     cue_txt = Text(
                         cue_label, font="Courier New",
-                        font_size=22, color="#ffdd55", weight=BOLD,
+                        font_size=step.get("font_size", 22),
+                        color=step.get("color", "#ffdd55"), weight=BOLD,
                     ).move_to(np.array([cue_x, cue_y, 0]))
                     self.play(FadeIn(cue_txt, scale=1.15), run_time=rt_in)
                     self.wait(cue_hold)
@@ -5809,6 +5914,8 @@ class PAMPlayer(MovingCameraScene):
                      and _pam_timeline.is_timed_parallel(step))
                     or (act == "say" and _pam_timeline.is_timed_say(step))
                     or _pam_timeline.is_routine(step)
+                    or _pam_timeline.is_timed_tic(step)
+                    or _pam_timeline.is_timed_label(step)
                     or _pam_prop_states.is_timed_transition(step)):
                 # a beat on the step itself: inside a sequence it has
                 # been noted already (note_step, above)
