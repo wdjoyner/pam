@@ -457,6 +457,7 @@ def _phone_display(group, body, screen):
             label = _fit(Text("LIVE", font=font, color=WHITE,
                               weight=BOLD), 0.070 * k, 0.030 * k)
             label.move_to(button.get_center())
+            label.pam_text = True   # (pam/shot_targets.py: text to read)
             ui.add(button, label)
         else:
             badge = RoundedRectangle(
@@ -467,11 +468,13 @@ def _phone_display(group, body, screen):
             label = _fit(Text("LIVE", font=font, color=WHITE,
                               weight=BOLD), 0.075 * k, 0.026 * k)
             label.move_to(badge.get_center())
+            label.pam_text = True
             ui.add(badge, label)
             count = _fit(Text(f"{int(display.get('viewers') or 0):,}",
                               font=font, color=WHITE),
                          0.150 * k, 0.050 * k)
             count.move_to(np.array([0, 0.08 * h, 0]))
+            count.pam_text = True
             ui.add(count)
             comment = display.get("comment")
             if comment:
@@ -480,6 +483,7 @@ def _phone_display(group, body, screen):
                                  color="#ffe08a", line_spacing=0.8),
                             0.150 * k, 0.090 * k)
                 text.move_to(np.array([0, -0.20 * h, 0]))
+                text.pam_text = True
                 ui.add(text)
         # drawn upright about the origin; now onto the body
         ui.rotate(ang, about_point=ORIGIN)
@@ -800,6 +804,7 @@ def _scroll_text(row, color, m=SCROLL):
             y = base + m["strike_y"] * cw
             ui.add(Line(np.array([x0, y, 0]), np.array([x1, y, 0]),
                         color=color, stroke_width=1.4))
+    ui.pam_text = True      # (pam/shot_targets.py frames text to be read)
     return ui
 
 

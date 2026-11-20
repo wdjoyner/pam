@@ -1,5 +1,8 @@
 [
  {
+  "_comment": "# Compiled by fountain2pam.py --project from source/script.fountain (scene 6) and cues/animation_cues.json.  Edit those, not this file."
+ },
+ {
   "action": "set_background",
   "color": "#a9c8e6"
  },
@@ -33,6 +36,23 @@
   "rt": 0.2
  },
  {
+  "_comment": "# SCENE: EXT. MOUNT MORIAH - CONTINUOUS"
+ },
+ {
+  "_subscene_marker": "scene6_shot01",
+  "_shot_meta": {
+   "framing": "wide",
+   "subject": "ensemble",
+   "move": "static",
+   "transition": "cut",
+   "lighting": null,
+   "freeform": false
+  }
+ },
+ {
+  "_comment": "# CUE s06_handle_down (2 steps): Abraham sets the handle on the ground, far from the blade. He turns his "
+ },
+ {
   "action": "prop_transition",
   "prop": "knife.handle",
   "frames": 9,
@@ -47,6 +67,71 @@
  {
   "action": "wait",
   "frames": 9
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "I can't remember what God said next.",
+  "side": "right",
+  "hold": 1.26
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "So I'll say it.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "And then I take my son home.",
+  "side": "right",
+  "hold": 1.26
+ },
+ {
+  "_comment": "# REVIEW: He pulls at Isaac's knot. It will not budge. He tries with his teeth."
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "Told you. Square knot.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "_comment": "# REVIEW: through the rope"
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "Not now.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "Dad, you're still live.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "Then let them hear it.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "God doesn't want us sacrificing one another.",
+  "side": "right",
+  "hold": 1.26
+ },
+ {
+  "_comment": "# CUE s06_rope_snaps (2 steps): Abraham puts his arms around Isaac's shoulders, as far as they will go. "
  },
  {
   "action": "parallel",
@@ -92,6 +177,9 @@
   "frames": 6
  },
  {
+  "_comment": "# CUE s06_recovers_phone (1 step): Isaac recovers the phone. The viewer count climbs again."
+ },
+ {
   "action": "prop_transition",
   "prop": "phone",
   "frames": 9,
@@ -104,6 +192,9 @@
    "joint": "rwrist",
    "by": "bottom"
   }
+ },
+ {
+  "_comment": "# CUE s06_count_climbs_again (2 steps): Isaac recovers the phone. The viewer count climbs again."
  },
  {
   "action": "prop_transition",
@@ -119,6 +210,48 @@
   "frames": 9
  },
  {
+  "action": "say",
+  "who": "isaac",
+  "text": "That was awesome.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "I'm calling it the \"Don't Sacrifice Your Son\" challenge.",
+  "side": "right",
+  "hold": 1.62
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "I preferred the lamb.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "So... Ocean City Friday?",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "action": "wait",
+  "t": 0.8
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "I'll drive.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "_comment": "# CUE s06_scroll_from_belt (1 step): He takes the scroll from his belt and unrolls it, pulls a quill from the"
+ },
+ {
   "action": "prop_transition",
   "prop": "scroll",
   "frames": 6,
@@ -131,11 +264,17 @@
   }
  },
  {
+  "_comment": "# CUE s06_unrolls (1 step): He takes the scroll from his belt and unrolls it, pulls a quill from the"
+ },
+ {
   "action": "prop_transition",
   "prop": "scroll",
   "to": "unrolled",
   "frames": 6,
   "beat": "unrolls"
+ },
+ {
+  "_comment": "# CUE s06_takes_quill (1 step): He takes the scroll from his belt and unrolls it, pulls a quill from the"
  },
  {
   "action": "prop_transition",
@@ -149,6 +288,9 @@
   }
  },
  {
+  "_comment": "# CUE s06_revision (1 step): He takes the scroll from his belt and unrolls it, pulls a quill from the"
+ },
+ {
   "action": "prop_transition",
   "prop": "scroll",
   "to": "edited",
@@ -160,9 +302,69 @@
   }
  },
  {
+  "_subscene_marker": "scene6_shot02",
+  "_shot_meta": {
+   "framing": "insert",
+   "subject": "scroll",
+   "move": "static",
+   "transition": "hold",
+   "lighting": null,
+   "freeform": false,
+   "fit": "bounds"
+  }
+ },
+ {
+  "_comment": "# CUE s06_insert (1 step): INSERT - THE SCROLL: \"AND ABRAHAM RAISED HIS SON.\""
+ },
+ {
   "action": "wait",
   "frames": 15,
   "beat": "insert"
+ },
+ {
+  "_subscene_marker": "scene6_shot03",
+  "_shot_meta": {
+   "framing": "wide",
+   "subject": "ensemble",
+   "move": "static",
+   "transition": "cut",
+   "lighting": null,
+   "freeform": false
+  }
+ },
+ {
+  "_comment": "# REVIEW: Isaac's phone BUZZES."
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "Uncle Nahor and Aunt Milcah commented. \"Saw the stream.",
+  "side": "right",
+  "hold": 1.62
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "We're at your cave. Where is everybody?\"",
+  "side": "right",
+  "hold": 1.26
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "They're at the cave?",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "With luggage.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "_comment": "# CUE s06_quill_away (1 step): Abraham bolts up the mountain, away from home, the open scroll in his ha"
  },
  {
   "action": "prop_transition",
@@ -174,6 +376,9 @@
    "mode": "in",
    "hidden": true
   }
+ },
+ {
+  "_comment": "# CUE s06_bolts (2 steps): Abraham bolts up the mountain, away from home, the open scroll in his ha"
  },
  {
   "action": "parallel",
@@ -200,5 +405,11 @@
  {
   "action": "wait",
   "frames": 6
+ },
+ {
+  "_comment": "# REVIEW: The scroll trails behind them like a banner."
+ },
+ {
+  "_comment": "# REVIEW: FADE OUT."
  }
 ]

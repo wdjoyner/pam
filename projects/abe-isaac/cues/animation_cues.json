@@ -1,0 +1,1133 @@
+{
+ "cue_format": 1,
+ "_comment": [
+  "Choreography cues for Abraham and Isaac, Revisited (PAM roadmap, Milestone 5).",
+  "A cue is a list of PAM steps, compiled in place of the screenplay element whose [[beat: id]] note names it; 'scenes' holds what each scene file starts and ends with.",
+  "The steps are the hand-authored blocking of Milestone 4, moved here unchanged from the scene files, which fountain2pam.py --project now writes."
+ ],
+ "scenes": {
+  "scene1": {
+   "before": [
+    {
+     "action": "set_background",
+     "color": "#a9c8e6"
+    },
+    {
+     "action": "fade_in",
+     "who": "abraham",
+     "rt": 0.2
+    }
+   ],
+   "after": [
+    {
+     "action": "fade_out",
+     "who": "abraham",
+     "rt": 0.2
+    }
+   ]
+  },
+  "scene2": {
+   "before": [
+    {
+     "action": "set_background",
+     "color": "#a9c8e6"
+    },
+    {
+     "action": "props",
+     "rt": 0.2,
+     "items": {
+      "bowl": {
+       "type": "bowl",
+       "x": -0.55,
+       "y": -2.6
+      }
+     }
+    },
+    {
+     "action": "fade_in",
+     "who": "isaac",
+     "rt": 0.2
+    }
+   ]
+  },
+  "scene3": {
+   "before": [
+    {
+     "action": "set_background",
+     "color": "#a9c8e6"
+    },
+    {
+     "action": "fade_in",
+     "who": "isaac",
+     "rt": 0.2
+    },
+    {
+     "action": "fade_in",
+     "who": "abraham",
+     "rt": 0.2
+    }
+   ]
+  },
+  "scene4": {
+   "before": [
+    {
+     "action": "set_background",
+     "color": "#a9c8e6"
+    },
+    {
+     "action": "props",
+     "rt": 0.2,
+     "items": {
+      "altar": {
+       "type": "altar",
+       "x": 1.6,
+       "y": -2.6
+      },
+      "rock": {
+       "type": "rock",
+       "x": -3.2,
+       "y": -2.6,
+       "width": 0.5,
+       "height": 0.45
+      }
+     }
+    },
+    {
+     "action": "fade_in",
+     "who": "isaac",
+     "rt": 0.2
+    },
+    {
+     "action": "fade_in",
+     "who": "abraham",
+     "rt": 0.2
+    }
+   ]
+  },
+  "scene5": {
+   "before": [
+    {
+     "action": "set_background",
+     "color": "#a9c8e6"
+    },
+    {
+     "action": "props",
+     "rt": 0.2,
+     "items": {
+      "altar": {
+       "type": "altar",
+       "x": 1.6,
+       "y": -2.6
+      },
+      "rock": {
+       "type": "rock",
+       "x": -3.2,
+       "y": -2.6,
+       "width": 0.5,
+       "height": 0.45
+      }
+     }
+    },
+    {
+     "action": "fade_in",
+     "who": "isaac",
+     "rt": 0.2,
+     "pose": "reach_forward"
+    },
+    {
+     "action": "fade_in",
+     "who": "abraham",
+     "rt": 0.2
+    }
+   ]
+  },
+  "scene6": {
+   "before": [
+    {
+     "action": "set_background",
+     "color": "#a9c8e6"
+    },
+    {
+     "action": "props",
+     "rt": 0.2,
+     "items": {
+      "altar": {
+       "type": "altar",
+       "x": 1.6,
+       "y": -2.6
+      },
+      "rock": {
+       "type": "rock",
+       "x": -3.2,
+       "y": -2.6,
+       "width": 0.5,
+       "height": 0.45
+      }
+     }
+    },
+    {
+     "action": "fade_in",
+     "who": "isaac",
+     "rt": 0.2,
+     "pose": "reach_forward"
+    },
+    {
+     "action": "fade_in",
+     "who": "abraham",
+     "rt": 0.2
+    }
+   ]
+  }
+ },
+ "cues": {
+  "s01_takes_quill": {
+   "scene": "scene1",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "quill",
+     "frames": 6,
+     "beat": "takes_quill",
+     "attached": {
+      "to": "abraham",
+      "joint": "rwrist",
+      "angle": 30
+     }
+    }
+   ]
+  },
+  "s01_writes": {
+   "scene": "scene1",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "scroll",
+     "to": "edited",
+     "frames": 30,
+     "beat": "writes",
+     "text": {
+      "write": "AND ABRAHAM RAISED THE KNIFE."
+     }
+    }
+   ]
+  },
+  "s01_insert": {
+   "scene": "scene1",
+   "steps": [
+    {
+     "action": "wait",
+     "frames": 12,
+     "beat": "insert"
+    }
+   ]
+  },
+  "s01_question_mark": {
+   "scene": "scene1",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "scroll",
+     "frames": 6,
+     "beat": "question_mark",
+     "text": {
+      "replace": ".",
+      "with": "?",
+      "line": 2
+     }
+    }
+   ]
+  },
+  "s01_thud": {
+   "scene": "scene1",
+   "steps": [
+    {
+     "action": "parallel",
+     "id": "s01_thud",
+     "frames": 24,
+     "do": [
+      {
+       "action": "wait",
+       "frames": 6,
+       "beat": "thud"
+      },
+      {
+       "action": "prop_transition",
+       "prop": "quill",
+       "at": 6,
+       "frames": 6,
+       "beat": "quill_away",
+       "attached": {
+        "to": "satchel",
+        "mode": "in",
+        "hidden": true
+       }
+      },
+      {
+       "action": "prop_transition",
+       "prop": "scroll",
+       "to": "rolled",
+       "at": 9,
+       "frames": 9,
+       "beat": "into_belt",
+       "attached": {
+        "to": "abraham",
+        "joint": "rhip",
+        "mode": "in",
+        "angle": 25
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "s02_checks_clips": {
+   "scene": "scene2",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "phone",
+     "beat": "checks_clips",
+     "attached": {
+      "to": "isaac",
+      "joint": "rwrist",
+      "by": "bottom"
+     }
+    },
+    {
+     "action": "wait",
+     "frames": 9
+    }
+   ]
+  },
+  "s02_rope_by_entrance": {
+   "scene": "scene2",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "rope",
+     "beat": "rope_by_entrance",
+     "attached": {
+      "to": null,
+      "x": -2.6,
+      "y": -2.6
+     }
+    }
+   ]
+  },
+  "s02_abraham_enters": {
+   "scene": "scene2",
+   "steps": [
+    {
+     "action": "fade_in",
+     "who": "abraham",
+     "rt": 0.2
+    }
+   ]
+  },
+  "s02_sacrificing_with": {
+   "scene": "scene2",
+   "steps": [
+    {
+     "action": "say",
+     "who": "isaac",
+     "text": "What are you sacrificing me with?",
+     "frames": 24,
+     "frames_in": 3,
+     "frames_out": 3
+    }
+   ]
+  },
+  "s02_draws_knife": {
+   "scene": "scene2",
+   "steps": [
+    {
+     "action": "morph",
+     "who": "abraham",
+     "pose": "look_up_point",
+     "frames": 6
+    },
+    {
+     "action": "prop_transition",
+     "prop": "knife",
+     "beat": "display",
+     "attached": {
+      "to": "abraham",
+      "joint": "rwrist",
+      "by": "blade",
+      "angle": 180
+     }
+    },
+    {
+     "action": "wait",
+     "frames": 9
+    },
+    {
+     "action": "constrain",
+     "id": "take",
+     "type": "joint_to_prop",
+     "who": "isaac",
+     "joint": "lwrist",
+     "prop": "knife.handle",
+     "blend": 6
+    },
+    {
+     "action": "wait",
+     "frames": 9,
+     "beat": "takes_handle"
+    }
+   ],
+   "note": "The first five steps of the Stage 4a sequence s02_knife."
+  },
+  "s02_knife_breaks": {
+   "scene": "scene2",
+   "steps": [
+    {
+     "action": "parallel",
+     "id": "s02_break",
+     "frames": 30,
+     "do": [
+      {
+       "action": "release",
+       "id": "take",
+       "at": 3
+      },
+      {
+       "action": "prop_transition",
+       "prop": "knife",
+       "to": "broken",
+       "at": 3,
+       "frames": 6,
+       "beat": "break",
+       "parts": {
+        "handle": {
+         "attached": {
+          "to": "isaac",
+          "joint": "lwrist"
+         }
+        },
+        "blade": {
+         "attached": {
+          "to": "bowl",
+          "point": "top",
+          "mode": "in",
+          "angle": 250,
+          "offset": [
+           0,
+           -0.02
+          ]
+         },
+         "rate": "rush_into"
+        }
+       }
+      },
+      {
+       "action": "morph",
+       "who": "isaac",
+       "pose": "standing_front",
+       "at": 3,
+       "frames": 9
+      },
+      {
+       "action": "morph",
+       "who": "abraham",
+       "pose": "standing_side",
+       "at": 9,
+       "frames": 6
+      },
+      {
+       "action": "say",
+       "who": "isaac",
+       "text": "That'll be a short ceremony.",
+       "at": 18,
+       "frames": 12,
+       "frames_in": 3,
+       "frames_out": 3
+      },
+      {
+       "_subscene_marker": "s02_wide_after_break",
+       "at": 18,
+       "_shot_meta": {
+        "framing": "wide",
+        "subject": "ensemble",
+        "move": "static",
+        "transition": "cut"
+       }
+      }
+     ]
+    }
+   ],
+   "note": "The timed block s02_break of the sequence s02_knife, with one step added in Milestone 5: a cut to the wide shot on frame 18, where Isaac speaks."
+  },
+  "s02_short_ceremony": {
+   "scene": "scene2",
+   "steps": [],
+   "note": "Isaac says this line on frame 18 of s02_break (cue s02_knife_breaks), so nothing is compiled here."
+  },
+  "s02_handle_down": {
+   "scene": "scene2",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "knife.handle",
+     "frames": 6,
+     "beat": "handle_down",
+     "attached": {
+      "to": "bowl",
+      "point": "top",
+      "mode": "in",
+      "offset": [
+       0.08,
+       0.0
+      ]
+     }
+    },
+    {
+     "action": "wait",
+     "frames": 6
+    }
+   ],
+   "note": "Isaac puts the handle in the bowl (a Stage 4a blocking choice)."
+  },
+  "s02_into_satchel": {
+   "scene": "scene2",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "knife",
+     "frames": 9,
+     "beat": "gather",
+     "parts": {
+      "handle": {
+       "attached": {
+        "to": "abraham",
+        "joint": "rwrist"
+       }
+      },
+      "blade": {
+       "attached": {
+        "to": "abraham",
+        "joint": "lwrist",
+        "angle": 180
+       }
+      }
+     }
+    },
+    {
+     "action": "wait",
+     "frames": 6
+    },
+    {
+     "action": "prop_transition",
+     "prop": "knife",
+     "frames": 6,
+     "beat": "into_satchel",
+     "parts": {
+      "handle": {
+       "attached": {
+        "to": "satchel",
+        "mode": "in",
+        "hidden": true
+       }
+      },
+      "blade": {
+       "attached": {
+        "to": "satchel",
+        "mode": "in",
+        "hidden": true
+       }
+      }
+     }
+    },
+    {
+     "action": "wait",
+     "frames": 9,
+     "beat": "hold"
+    }
+   ]
+  },
+  "s02_slings_rope": {
+   "scene": "scene2",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "rope",
+     "frames": 9,
+     "beat": "slings_rope",
+     "attached": {
+      "to": "abraham",
+      "joint": "rshoulder",
+      "mode": "on"
+     }
+    }
+   ]
+  },
+  "s02_pockets_phone": {
+   "scene": "scene2",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "phone",
+     "frames": 6,
+     "beat": "pockets_phone",
+     "attached": {
+      "to": "isaac",
+      "joint": "rhip",
+      "hidden": true
+     }
+    },
+    {
+     "action": "wait",
+     "frames": 6
+    }
+   ],
+   "note": "Isaac pockets the phone as he leaves (a Stage 4a blocking choice)."
+  },
+  "s03_climb": {
+   "scene": "scene3",
+   "steps": [
+    {
+     "action": "parallel",
+     "id": "s03_climb",
+     "do": [
+      {
+       "action": "walk_to",
+       "who": "isaac",
+       "x": 2.4,
+       "frames": 24
+      },
+      {
+       "action": "walk_to",
+       "who": "abraham",
+       "x": 0.2,
+       "at": 6,
+       "frames": 30
+      }
+     ]
+    },
+    {
+     "action": "wait",
+     "frames": 9
+    }
+   ]
+  },
+  "s04_props_phone": {
+   "scene": "scene4",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "phone",
+     "to": "recording",
+     "frames": 9,
+     "beat": "props_phone",
+     "attached": {
+      "to": "rock",
+      "point": "top",
+      "by": "bottom"
+     }
+    },
+    {
+     "action": "wait",
+     "frames": 6
+    }
+   ]
+  },
+  "s04_takes_pieces_out": {
+   "scene": "scene4",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "knife",
+     "frames": 6,
+     "beat": "takes_pieces_out",
+     "parts": {
+      "handle": {
+       "attached": {
+        "to": "abraham",
+        "joint": "rwrist"
+       }
+      },
+      "blade": {
+       "attached": {
+        "to": "abraham",
+        "joint": "lwrist"
+       }
+      }
+     }
+    },
+    {
+     "action": "wait",
+     "frames": 6
+    }
+   ]
+  },
+  "s04_blade_into_satchel": {
+   "scene": "scene4",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "knife",
+     "to": "blade_carried",
+     "frames": 6,
+     "beat": "blade_into_satchel",
+     "parts": {
+      "blade": {
+       "attached": {
+        "to": "satchel",
+        "mode": "in",
+        "hidden": true
+       }
+      }
+     }
+    },
+    {
+     "action": "wait",
+     "frames": 9
+    }
+   ]
+  },
+  "s04_winds_rope": {
+   "scene": "scene4",
+   "steps": [
+    {
+     "action": "parallel",
+     "id": "s04_tie",
+     "frames": 18,
+     "do": [
+      {
+       "action": "morph",
+       "who": "isaac",
+       "pose": "reach_forward",
+       "frames": 18,
+       "beat": "holds_out_wrists"
+      },
+      {
+       "action": "prop_transition",
+       "prop": "rope",
+       "to": "tied",
+       "frames": 18,
+       "beat": "winds_rope",
+       "attached": {
+        "to": "isaac",
+        "joints": [
+         "lwrist",
+         "rwrist"
+        ],
+        "mode": "around"
+       },
+       "at": 0
+      }
+     ]
+    },
+    {
+     "action": "wait",
+     "frames": 6
+    }
+   ]
+  },
+  "s04_yanks_knot": {
+   "scene": "scene4",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "rope",
+     "to": "tightened",
+     "frames": 3,
+     "beat": "yanks_knot"
+    },
+    {
+     "action": "wait",
+     "frames": 6
+    }
+   ]
+  },
+  "s04_picks_up_phone": {
+   "scene": "scene4",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "phone",
+     "frames": 9,
+     "beat": "picks_up_phone",
+     "attached": {
+      "to": "abraham",
+      "joint": "lwrist",
+      "by": "bottom"
+     }
+    },
+    {
+     "action": "morph",
+     "who": "abraham",
+     "pose": "reach_side_l",
+     "frames": 6
+    }
+   ],
+   "note": "The Stage 4a step, and one step added in Milestone 5: Abraham holds the phone out, so that the knife handle in his other hand does not cover the LIVE button in the insert."
+  },
+  "s04_red_button": {
+   "scene": "scene4",
+   "steps": [
+    {
+     "action": "wait",
+     "frames": 9,
+     "beat": "red_button"
+    }
+   ]
+  },
+  "s05_goes_live": {
+   "scene": "scene5",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "phone",
+     "to": "live",
+     "display": {
+      "viewers": 3
+     },
+     "beat": "goes_live"
+    }
+   ]
+  },
+  "s05_count_climbs": {
+   "scene": "scene5",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "phone",
+     "display": {
+      "viewers": 240
+     },
+     "frames": 30,
+     "beat": "count_climbs"
+    }
+   ]
+  },
+  "s05_props_phone": {
+   "scene": "scene5",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "phone",
+     "frames": 9,
+     "attached": {
+      "to": "rock",
+      "point": "top",
+      "by": "bottom"
+     }
+    }
+   ]
+  },
+  "s05_were_on": {
+   "scene": "scene5",
+   "steps": [
+    {
+     "action": "say",
+     "who": "isaac",
+     "text": "Dad. We're on.",
+     "frames": 18,
+     "frames_in": 3,
+     "frames_out": 3
+    }
+   ]
+  },
+  "s05_blade": {
+   "scene": "scene5",
+   "steps": [
+    {
+     "action": "parallel",
+     "id": "s05_blade",
+     "frames": 30,
+     "do": [
+      {
+       "action": "prop_transition",
+       "prop": "satchel",
+       "frames": 5,
+       "rate": "rush_into",
+       "beat": "satchel_slips",
+       "attached": {
+        "to": null,
+        "x": -1.25,
+        "y": -2.47
+       }
+      },
+      {
+       "action": "prop_transition",
+       "prop": "knife",
+       "to": "blade_embedded",
+       "at": 3,
+       "frames": 9,
+       "beat": "blade_sticks",
+       "parts": {
+        "blade": {
+         "attached": {
+          "to": "altar",
+          "point": [
+           -0.2998,
+           0.176
+          ],
+          "by": "bottom",
+          "mode": "embedded",
+          "angle": 270,
+          "offset": [
+           0,
+           -0.08
+          ]
+         },
+         "rate": "rush_into"
+        }
+       }
+      },
+      {
+       "action": "wait",
+       "frames": 18,
+       "at": 12,
+       "beat": "silence"
+      }
+     ]
+    }
+   ]
+  },
+  "s05_count_doubles": {
+   "scene": "scene5",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "phone",
+     "display": {
+      "viewers": 480,
+      "comment": "IS THAT A REAL KNIFE"
+     },
+     "frames": 15,
+     "beat": "count_doubles"
+    },
+    {
+     "action": "wait",
+     "frames": 9
+    }
+   ]
+  },
+  "s06_handle_down": {
+   "scene": "scene6",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "knife.handle",
+     "frames": 9,
+     "beat": "handle_down",
+     "attached": {
+      "to": null,
+      "x": -2.2,
+      "y": -2.57,
+      "angle": 0
+     }
+    },
+    {
+     "action": "wait",
+     "frames": 9
+    }
+   ]
+  },
+  "s06_rope_snaps": {
+   "scene": "scene6",
+   "steps": [
+    {
+     "action": "parallel",
+     "id": "s06_snap",
+     "frames": 24,
+     "do": [
+      {
+       "action": "morph",
+       "who": "isaac",
+       "pose": "standing_front",
+       "frames": 8,
+       "beat": "flexes"
+      },
+      {
+       "action": "prop_transition",
+       "prop": "rope",
+       "to": "snapped",
+       "at": 1,
+       "frames": 12,
+       "rate": "rush_into",
+       "beat": "rope_snaps",
+       "parts": {
+        "piece_a": {
+         "attached": {
+          "to": null,
+          "x": 0.25,
+          "y": -2.6
+         }
+        },
+        "piece_b": {
+         "attached": {
+          "to": null,
+          "x": 2.95,
+          "y": -2.6
+         }
+        }
+       }
+      }
+     ]
+    },
+    {
+     "action": "wait",
+     "frames": 6
+    }
+   ]
+  },
+  "s06_recovers_phone": {
+   "scene": "scene6",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "phone",
+     "frames": 9,
+     "beat": "isaac_recovers_phone",
+     "display": {
+      "comment": null
+     },
+     "attached": {
+      "to": "isaac",
+      "joint": "rwrist",
+      "by": "bottom"
+     }
+    }
+   ]
+  },
+  "s06_count_climbs_again": {
+   "scene": "scene6",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "phone",
+     "display": {
+      "viewers": 900
+     },
+     "frames": 20,
+     "beat": "count_climbs_again"
+    },
+    {
+     "action": "wait",
+     "frames": 9
+    }
+   ]
+  },
+  "s06_scroll_from_belt": {
+   "scene": "scene6",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "scroll",
+     "frames": 6,
+     "beat": "scroll_from_belt",
+     "attached": {
+      "to": "abraham",
+      "joint": "lwrist",
+      "mode": "held",
+      "angle": 0
+     }
+    }
+   ]
+  },
+  "s06_unrolls": {
+   "scene": "scene6",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "scroll",
+     "to": "unrolled",
+     "frames": 6,
+     "beat": "unrolls"
+    }
+   ]
+  },
+  "s06_takes_quill": {
+   "scene": "scene6",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "quill",
+     "frames": 6,
+     "beat": "takes_quill",
+     "attached": {
+      "to": "abraham",
+      "joint": "rwrist",
+      "angle": 30
+     }
+    }
+   ]
+  },
+  "s06_revision": {
+   "scene": "scene6",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "scroll",
+     "to": "edited",
+     "frames": 24,
+     "beat": "revision",
+     "text": {
+      "replace": "THE KNIFE?",
+      "with": "HIS SON."
+     }
+    }
+   ]
+  },
+  "s06_insert": {
+   "scene": "scene6",
+   "steps": [
+    {
+     "action": "wait",
+     "frames": 15,
+     "beat": "insert"
+    }
+   ]
+  },
+  "s06_quill_away": {
+   "scene": "scene6",
+   "steps": [
+    {
+     "action": "prop_transition",
+     "prop": "quill",
+     "frames": 6,
+     "beat": "quill_away",
+     "attached": {
+      "to": "satchel",
+      "mode": "in",
+      "hidden": true
+     }
+    }
+   ]
+  },
+  "s06_bolts": {
+   "scene": "scene6",
+   "steps": [
+    {
+     "action": "parallel",
+     "id": "s06_bolt",
+     "frames": 24,
+     "do": [
+      {
+       "action": "prop_transition",
+       "prop": "scroll",
+       "to": "trailing",
+       "frames": 6,
+       "beat": "trails"
+      },
+      {
+       "action": "walk_to",
+       "who": "abraham",
+       "x": -2.6,
+       "at": 3,
+       "frames": 18,
+       "beat": "bolts"
+      }
+     ]
+    },
+    {
+     "action": "wait",
+     "frames": 6
+    }
+   ]
+  }
+ }
+}

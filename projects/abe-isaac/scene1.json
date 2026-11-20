@@ -1,5 +1,8 @@
 [
  {
+  "_comment": "# Compiled by fountain2pam.py --project from source/script.fountain (scene 1) and cues/animation_cues.json.  Edit those, not this file."
+ },
+ {
   "action": "set_background",
   "color": "#a9c8e6"
  },
@@ -7,6 +10,23 @@
   "action": "fade_in",
   "who": "abraham",
   "rt": 0.2
+ },
+ {
+  "_comment": "# SCENE: EXT. DESERT - OUTSIDE ABRAHAM'S CAVE - DAY"
+ },
+ {
+  "_subscene_marker": "scene1_shot01",
+  "_shot_meta": {
+   "framing": "medium",
+   "subject": "Abraham",
+   "move": "static",
+   "transition": "cut",
+   "lighting": null,
+   "freeform": false
+  }
+ },
+ {
+  "_comment": "# CUE s01_takes_quill (1 step): ABRAHAM (50s), a small, serious man with a scholar's posture, sits on a "
  },
  {
   "action": "prop_transition",
@@ -20,6 +40,9 @@
   }
  },
  {
+  "_comment": "# CUE s01_writes (1 step): ABRAHAM (50s), a small, serious man with a scholar's posture, sits on a "
+ },
+ {
   "action": "prop_transition",
   "prop": "scroll",
   "to": "edited",
@@ -30,9 +53,38 @@
   }
  },
  {
+  "_subscene_marker": "scene1_shot02",
+  "_shot_meta": {
+   "framing": "insert",
+   "subject": "scroll",
+   "move": "static",
+   "transition": "cut",
+   "lighting": null,
+   "freeform": false,
+   "fit": "bounds"
+  }
+ },
+ {
+  "_comment": "# CUE s01_insert (1 step): INSERT - THE SCROLL: \"AND ABRAHAM RAISED THE KNIFE.\""
+ },
+ {
   "action": "wait",
   "frames": 12,
   "beat": "insert"
+ },
+ {
+  "_subscene_marker": "scene1_shot03",
+  "_shot_meta": {
+   "framing": "medium",
+   "subject": "Abraham",
+   "move": "static",
+   "transition": "cut",
+   "lighting": null,
+   "freeform": false
+  }
+ },
+ {
+  "_comment": "# CUE s01_question_mark (1 step): Abraham studies the line, frowns, and turns the period into a question m"
  },
  {
   "action": "prop_transition",
@@ -44,6 +96,9 @@
    "with": "?",
    "line": 2
   }
+ },
+ {
+  "_comment": "# CUE s01_thud (1 step): Abraham studies the line, frowns, and turns the period into a question m"
  },
  {
   "action": "parallel",

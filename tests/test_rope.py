@@ -426,7 +426,10 @@ def test_the_rope_goes_through_the_script_inside_each_scene(project):
 def test_no_scene_overrides_the_rope(project):
     _, reports, _ = project
     for sid, r in reports.items():
-        assert r.warnings == [], (sid, r.format())
+        # (the scenes are compiled from the screenplay since Milestone
+        # 5: its prose that no cue choreographs is left for review)
+        assert [w for w in r.warnings if w.code != "review-comment"] \
+            == [], (sid, r.format())
         assert "overrides" not in r.ledger["entry"], sid
 
 

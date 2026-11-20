@@ -25,6 +25,9 @@ Usage
     python fountain2pam.py screenplay.fountain --prompts-only --prompts tntd_subscenes.json
     python fountain2pam.py screenplay.fountain --shot-count
     python fountain2pam.py screenplay.fountain --shot-count --csv shots.csv
+    python fountain2pam.py screenplay.fountain --cues cues.json
+    python fountain2pam.py --project projects/abe-isaac
+    python fountain2pam.py --project projects/abe-isaac --check
 
 Pipeline
 --------
@@ -392,6 +395,46 @@ Render character gallery after sync::
 
         [[ PRODUCTION NOTE: Sidel's accent is mid-Atlantic, not Venusian. ]]
 
+``BEAT``  (element-scoped, Milestone 5)
+    A beat identifier next to an action paragraph or a line of dialogue
+    (at the end of its line, or on its own line just before it)::
+
+        Abraham grabs Isaac's wrist. Nothing moves. [[beat: s02_pull_attempt]]
+
+    With a cue file (``--cues`` or ``--project``) the element compiles
+    to the cue's hand-authored PAM steps instead of being interpreted,
+    and the compiler reports every cue whose beat is gone and every beat
+    with no cue (see "Choreography cues" below).  Without one, a BEAT
+    note does nothing, as an unknown note key never did.
+
+``MARGIN``  (CAMERA sub-key, Milestone 5)
+    ``[[ CAMERA: FRAMING=insert | SUBJECT=phone | MARGIN=0.15 ]]`` frames
+    the shot from its subject's bounding box, with that fraction of the
+    frame clear on each side: the marker's ``_shot_meta`` gets
+    ``"fit": "bounds"`` and ``"margin"`` (pam/shot_targets.py).
+    ``SUBJECT`` may join several names with ``+``.
+
+Choreography cues and projects (Milestone 5)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+A cue file (``load_cue_file``)::
+
+    {"cue_format": 1,
+     "scenes": {"scene2": {"before": [steps], "after": [steps]}},
+     "cues": {"s02_pull_attempt": {"scene": "scene2", "steps": [steps]},
+              "s02_short_line": []}}
+
+``--cues FILE`` compiles one file as before, with every cued element
+replaced by a copy of its cue's steps (an empty cue compiles to
+nothing).  ``--project DIR`` compiles a project (``DIR/project.json``:
+``source``, ``cues``, ``sidecar``, ``scenes``) into one scene file per
+scene heading, with the project's cast and props, a camera cut at every
+CAMERA note, inserts framed from their subject, and each scene's
+``before`` and ``after`` steps; ``--check`` writes nothing and fails if
+a scene file is out of date or the cue report finds anything.  Both
+print a cue report (``cue_report``); ``--warnings-json`` writes it as
+``"cues"``.  Without either option nothing here runs, and the output is
+what it was before Milestone 5.
+
 Beat-scoping
 ~~~~~~~~~~~~
 ``MOOD`` is scene-level: set it once, directly below the scene heading.
@@ -429,10 +472,18 @@ try:
     for _n in ["VGroup", "Line", "Rectangle", "Circle", "Polygon",
                "RegularPolygon", "Text", "FadeIn", "FadeOut", "np"]:
         setattr(_fake, _n, type(_n, (), {"__init__": lambda s, **k: None}))
+    # (imported into a process that already has Manim, such as the
+    # tests, the real module is put back afterwards)
+    _real_manim = sys.modules.get("manim")
     sys.modules["manim"] = _fake
-    _spec.loader.exec_module(_mod)
-    PROP_TYPES = set(_mod.PROP_TYPES.keys())
-    del sys.modules["manim"]
+    try:
+        _spec.loader.exec_module(_mod)
+        PROP_TYPES = set(_mod.PROP_TYPES.keys())
+    finally:
+        if _real_manim is not None:
+            sys.modules["manim"] = _real_manim
+        else:
+            del sys.modules["manim"]
 except Exception:
     PROP_TYPES = {"chair", "desk", "table", "console", "computer",
                   "workstation", "terminal", "hat", "door", "dodecahedron"}
@@ -757,6 +808,20 @@ def parse_camera_tag(raw: str) -> dict:
 
         elif key == "lighting":
             result["lighting"] = parse_lighting_value(val)
+
+        elif key == "margin":
+            # Milestone 5: frame the subject from its bounding box, leaving
+            # this fraction of the frame clear on each side (see
+            # pam/shot_targets.py).  Only present when the note gives it.
+            try:
+                m = float(val)
+            except ValueError:
+                m = None
+            if m is None or not 0.0 <= m < 0.5:
+                print(f"  [CAMERA] warning: MARGIN must be a number from 0 "
+                      f"to below 0.5, not {val!r} — ignored", file=sys.stderr)
+            else:
+                result["margin"] = m
 
         else:
             print(f"  [CAMERA] warning: unrecognised sub-key {key!r} — ignored",
@@ -1381,6 +1446,302 @@ def _extract_fountain_notes(raw_text: str) -> dict:
                 note_events.append(event)
 
     return {"scene_notes": scene_notes, "note_events": note_events}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CHOREOGRAPHY CUES  (Milestone 5 of "PAM: The Road to Blender")
+#
+#  A beat note, [[beat: s02_pull_attempt]], next to an action paragraph or a
+#  line of dialogue names a curated PAM step list in a cue file.  When the
+#  screenplay is compiled with that cue file (--cues, or --project), the
+#  element compiles to its cue instead of to what the action interpreter
+#  would make of it, so recompiling the Fountain never overwrites
+#  hand-authored choreography.  The compiler reports every cue whose beat
+#  is no longer in the screenplay and every beat that has no cue.
+#
+#  Nothing here runs without --cues or --project: the BEAT key is not one of
+#  _KNOWN_NOTE_KEYS, so a screenplay compiled without a cue file comes out
+#  exactly as before (a BEAT note was, and stays, ignored).
+# ─────────────────────────────────────────────────────────────────────────────
+
+CUE_FORMAT = 1
+
+# A beat identifier: a letter, then letters, digits, "_", "-" or ".".
+_BEAT_ID_RE = re.compile(r'^[A-Za-z][A-Za-z0-9_.\-]*$')
+
+
+def _extract_beat_notes(raw_text: str) -> list[dict]:
+    """Every ``[[ BEAT: id ]]`` note in *raw_text*, in file order:
+    ``{"line", "id", "valid", "scene"}``, where ``line`` is the 1-based
+    line the note starts on, ``valid`` whether the value is a beat
+    identifier, and ``scene`` the index (from 0) of the scene heading it
+    follows (``None`` before the first heading)."""
+    heads = [m.start() for m in re.finditer(r'^(INT\.?|EXT\.?)\s+.+',
+                                            raw_text,
+                                            re.IGNORECASE | re.MULTILINE)]
+    out = []
+    for m in _NOTE_RE.finditer(raw_text):
+        km = _NOTE_KEY_RE.match(m.group(1).strip())
+        if not km or km.group(1).strip().lower() != "beat":
+            continue
+        value = re.sub(r'\s+', ' ', km.group(2).strip())
+        scene = None
+        for i, pos in enumerate(heads):
+            if pos < m.start():
+                scene = i
+        out.append({"line": raw_text.count("\n", 0, m.start()) + 1,
+                    "id": value,
+                    "valid": bool(_BEAT_ID_RE.match(value)),
+                    "scene": scene})
+    return out
+
+
+def load_cue_file(path) -> dict:
+    """Read and check a cue file.  Returns ``{"cues": {id: {"steps",
+    "scene", "note"}}, "scenes": {scene: {"before", "after"}},
+    "path"}``.  Raises ``ValueError`` on a file that is not one.
+
+    The file::
+
+        {"cue_format": 1,
+         "scenes": {"scene2": {"before": [steps], "after": [steps]}},
+         "cues": {"s02_pull_attempt": {"scene": "scene2",
+                                       "steps": [steps],
+                                       "note": "..."},
+                  "s02_short_line": []}}
+
+    A cue is a list of PAM steps, or an object with ``steps`` (and
+    optionally ``scene``, the scene it belongs to, and ``note``).  An
+    empty list is a cue too: the element it names compiles to nothing
+    (its choreography is in another cue)."""
+    with open(path, "r", encoding="utf-8") as f:
+        try:
+            data = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"{path}: not valid JSON ({e})")
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: a cue file is a JSON object")
+    fmt = data.get("cue_format", CUE_FORMAT)
+    if fmt != CUE_FORMAT:
+        raise ValueError(f"{path}: cue_format {fmt!r} is not supported "
+                         f"(this compiler reads {CUE_FORMAT})")
+    raw = data.get("cues", {})
+    if not isinstance(raw, dict):
+        raise ValueError(f"{path}: 'cues' must be an object")
+    cues = {}
+    for cid, val in raw.items():
+        if not _BEAT_ID_RE.match(cid):
+            raise ValueError(f"{path}: cue {cid!r} is not a beat identifier")
+        if isinstance(val, list):
+            val = {"steps": val}
+        if not isinstance(val, dict) or not isinstance(val.get("steps"),
+                                                        list):
+            raise ValueError(f"{path}: cue {cid!r} must be a list of steps "
+                             f"or an object with a 'steps' list")
+        for k, step in enumerate(val["steps"]):
+            if not isinstance(step, dict):
+                raise ValueError(f"{path}: cue {cid!r}, step {k + 1} is not "
+                                 f"an object")
+        cues[cid] = {"steps": val["steps"], "scene": val.get("scene"),
+                     "note": val.get("note")}
+    scenes = data.get("scenes", {})
+    if not isinstance(scenes, dict):
+        raise ValueError(f"{path}: 'scenes' must be an object")
+    for sname, block in scenes.items():
+        if not isinstance(block, dict) or not all(
+                isinstance(block.get(k, []), list)
+                for k in ("before", "after")):
+            raise ValueError(f"{path}: scenes.{sname} must be an object "
+                             f"with 'before' and 'after' step lists")
+    return {"cues": cues, "scenes": scenes, "path": str(path)}
+
+
+def _cue_steps(cue: dict) -> list:
+    """A fresh copy of a cue's steps (the compiled file must never share
+    objects with the cue file)."""
+    return json.loads(json.dumps(cue["steps"]))
+
+
+def _walk_steps(steps):
+    """Every step in *steps*, and in the ``do`` lists of blocks and
+    sequences inside them."""
+    for s in steps:
+        if isinstance(s, dict):
+            yield s
+            yield from _walk_steps(s.get("do") or [])
+
+
+def load_project(project_dir) -> dict:
+    """Read a PAM project folder (``project.json``; see ``--project``).
+
+    ``project.json``::
+
+        {"source":  "source/script.fountain"   (or {"file": ..., ...}),
+         "cues":    "cues/animation_cues.json",
+         "sidecar": "pam_sidecar.json",
+         "scenes":  ["scene1.json", ..., "scene6.json"]}
+
+    The scenes are the files the screenplay's scene headings compile to,
+    in order.  Returns the paths, the loaded cue file and sidecar, the
+    sidecar's cast, and the names of every prop the project declares."""
+    pdir = Path(project_dir)
+    pj = pdir / "project.json"
+    try:
+        data = json.loads(pj.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise ValueError(f"{pj}: not found")
+    except json.JSONDecodeError as e:
+        raise ValueError(f"{pj}: not valid JSON ({e})")
+    src = data.get("source")
+    if isinstance(src, dict):
+        src = src.get("file")
+    if not src:
+        raise ValueError(f"{pj}: 'source' names no Fountain file")
+    scenes = data.get("scenes") or []
+    if not scenes or not all(isinstance(s, str) for s in scenes):
+        raise ValueError(f"{pj}: 'scenes' must list the scene files")
+    cue_path = pdir / data.get("cues", "cues/animation_cues.json")
+    cue_file = load_cue_file(cue_path)
+    side_path = pdir / data.get("sidecar", "pam_sidecar.json")
+    sidecar = []
+    if side_path.exists():
+        sidecar = json.loads(side_path.read_text(encoding="utf-8"))
+    cast, props, continuity = {}, set(), set()
+    for block in sidecar if isinstance(sidecar, list) else []:
+        a = block.get("action")
+        if a == "cast":
+            cast.update(block.get("characters") or {})
+        elif a in ("props", "scene_props"):
+            props.update((block.get("items") or {}).keys())
+        elif a == "continuity":
+            continuity.update((block.get("props") or {}).keys())
+    props |= continuity
+    for steps in ([c["steps"] for c in cue_file["cues"].values()]
+                  + [b.get(k, []) for b in cue_file["scenes"].values()
+                     for k in ("before", "after")]):
+        for s in _walk_steps(steps):
+            if s.get("action") in ("props", "scene_props"):
+                props.update((s.get("items") or {}).keys())
+            elif s.get("action") == "spawn_prop" and s.get("prop"):
+                props.add(s["prop"])
+    return {"dir": pdir, "file": pj, "data": data,
+            "source": pdir / src, "cues_path": cue_path, "cues": cue_file,
+            "sidecar_path": side_path, "sidecar": sidecar,
+            "scene_files": [pdir / s for s in scenes],
+            "scenes": [Path(s).stem for s in scenes],
+            "cast": cast, "props": props, "continuity_props": continuity}
+
+
+# Interpreted actions that a project's scenes never get automatically:
+# they need a prop the action interpreter invents (a seat, a desk, a
+# landline), or they would move or remove a prop the cues look after.
+_PROJECT_NEEDS_PROPS = {"sit_down", "stand_up", "punch_button", "hang_up",
+                        "search_drawers", "remove_prop"}
+_PROP_KEYS = ("prop", "on", "target")
+
+
+def _project_blocks(acts: list, project: dict) -> str | None:
+    """Why the interpreted actions *acts* of one line cannot go into a
+    project scene as they are (``None`` when they can): the reason names
+    the prop they need."""
+    for a in _walk_steps(acts):
+        act = a.get("action")
+        if act in _PROJECT_NEEDS_PROPS:
+            return f"'{act}' needs props the cues place"
+        for k in _PROP_KEYS:
+            v = a.get(k)
+            if not isinstance(v, str) or not v:
+                continue
+            v = v.split(".")[0]          # (a part of a composite prop)
+            if v in project["continuity_props"]:
+                return (f"'{act}' would move '{v}', which only cues move "
+                        f"(it is in the continuity ledger)")
+            if v not in project["props"] and v not in project["cast"]:
+                return f"'{act}' needs a prop '{v}' this project does not have"
+    return None
+
+
+def cue_report(beats: list, cue_file: dict, used: list,
+               scene_names: list | None = None) -> dict:
+    """What a compilation with a cue file wants a human to look at.
+
+    *beats*: the beat notes (``_extract_beat_notes``), each with
+    ``"placed"`` (False for a note next to no action or dialogue).
+    *used*: ``{"id", "scene", "line", "steps"}`` for each cue compiled.
+    *scene_names*: the project's scene names, in order (project mode).
+
+    Keys: ``cues_used``, ``orphaned_cues`` (cues whose beat is not in
+    the screenplay), ``beats_without_cues``, ``duplicate_beats``,
+    ``invalid_beats`` (notes whose value is not a beat identifier),
+    ``misplaced_beats``, ``wrong_scene`` (a cue that says it belongs to
+    another scene), ``orphaned_scene_setups`` (a ``scenes`` entry for a
+    scene the project does not have), and ``counts``."""
+    cues = cue_file["cues"]
+    valid = [b for b in beats if b["valid"]]
+    ids = [b["id"] for b in valid]
+    name = (lambda i: scene_names[i]
+            if scene_names and i is not None and i < len(scene_names)
+            else (f"scene {i + 1}" if i is not None else None))
+    rep = {
+        "cue_file": cue_file.get("path"),
+        "cues_used": [{"id": u["id"], "scene": u["scene"], "line": u["line"],
+                       "steps": u["steps"]} for u in used],
+        "orphaned_cues": sorted(c for c in cues if c not in ids),
+        "beats_without_cues": [{"id": b["id"], "line": b["line"],
+                                "scene": name(b["scene"])}
+                               for b in valid if b["id"] not in cues],
+        "duplicate_beats": sorted({i for i in ids if ids.count(i) > 1}),
+        "invalid_beats": [{"value": b["id"], "line": b["line"]}
+                          for b in beats if not b["valid"]],
+        "misplaced_beats": [{"id": b["id"], "line": b["line"]}
+                            for b in valid if not b.get("placed", True)],
+        "wrong_scene": [],
+        "orphaned_scene_setups": [],
+    }
+    for b in valid:
+        c = cues.get(b["id"])
+        if c and c.get("scene") and scene_names \
+                and c["scene"] != name(b["scene"]):
+            rep["wrong_scene"].append({"id": b["id"], "cue_scene": c["scene"],
+                                       "beat_scene": name(b["scene"])})
+    if scene_names is not None:
+        rep["orphaned_scene_setups"] = sorted(
+            s for s in cue_file.get("scenes", {}) if s not in scene_names)
+    rep["counts"] = {k: len(rep[k]) for k in rep
+                     if isinstance(rep[k], list)}
+    return rep
+
+
+def format_cue_report(rep: dict) -> list[str]:
+    """The console lines of a cue report (empty when nothing needs a
+    look and every beat compiled to its cue)."""
+    out = []
+    c = rep["counts"]
+    out.append(f"Cues:       {rep.get('cue_file')}  ({c['cues_used']} "
+               f"compiled, {c['orphaned_cues']} orphaned, "
+               f"{c['beats_without_cues']} beat(s) without a cue)")
+    for cid in rep["orphaned_cues"]:
+        out.append(f"  ⚠  orphaned cue '{cid}': no [[beat: {cid}]] in the "
+                   f"screenplay")
+    for b in rep["beats_without_cues"]:
+        out.append(f"  ⚠  beat '{b['id']}' (line {b['line']}, {b['scene']}) "
+                   f"has no cue; compiled automatically")
+    for i in rep["duplicate_beats"]:
+        out.append(f"  ⚠  beat '{i}' appears more than once in the "
+                   f"screenplay")
+    for b in rep["invalid_beats"]:
+        out.append(f"  ⚠  [[beat: {b['value']}]] (line {b['line']}) is not "
+                   f"a beat identifier; ignored")
+    for b in rep["misplaced_beats"]:
+        out.append(f"  ⚠  beat '{b['id']}' (line {b['line']}) is not next "
+                   f"to an action or a line of dialogue; ignored")
+    for w in rep["wrong_scene"]:
+        out.append(f"  ⚠  cue '{w['id']}' says it belongs to "
+                   f"{w['cue_scene']}, but its beat is in {w['beat_scene']}")
+    for s in rep["orphaned_scene_setups"]:
+        out.append(f"  ⚠  the cue file sets up '{s}', which is not one of "
+                   f"the project's scenes")
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3650,8 +4011,23 @@ class ScenePromptBuilder:
 def convert_fountain(fountain_path: str, scale: float = 0.7,
                      title_override: str = None,
                      clip_mode: str = "per-speaker",
-                     shot_count: bool = False):
+                     shot_count: bool = False,
+                     cues: dict | None = None,
+                     project: dict | None = None,
+                     cue_result: dict | None = None):
     """Convert a Fountain file to PAM actions + Blender/stills prompts.
+
+    Milestone 5 (both opt-in; without them nothing below changes):
+
+    cues       : a cue file (``load_cue_file``).  An action paragraph or a
+                 line of dialogue with a ``[[beat: id]]`` note compiles to
+                 the cue's steps.
+    project    : a project (``load_project``), which implies its cue file.
+                 One action list per scene heading, cast and props from the
+                 project, a camera cut where each CAMERA note is, and each
+                 scene's ``before`` and ``after`` steps from the cue file.
+    cue_result : a dict that receives ``"report"`` (``cue_report``) and,
+                 in project mode, ``"scenes"`` (one action list per scene).
 
     Returns
     -------
@@ -3667,13 +4043,26 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
     scene_notes    = fountain_notes["scene_notes"]
     note_events    = fountain_notes["note_events"]   # ordered by line_number
 
+    # ── Milestone 5: beat notes and cues (opt-in) ────────────────────────
+    _project = project
+    if _project is not None and cues is None:
+        cues = _project["cues"]
+    _cue_mode = cues is not None
+    _beats = _extract_beat_notes(raw_text) if _cue_mode else []
+    for _b in _beats:
+        _b["placed"] = True
+    _beat_queue = [b for b in _beats if b["valid"]]
+    _cues_used: list = []
+
     # ── CHARACTER annotations: sync to characters.txt ────────────────────
     char_annotation_recs: list[dict] = []
     for raw_char in scene_notes.pop("__characters__", []):
         rec = parse_character_line(raw_char)
         if rec:
             char_annotation_recs.append(rec)
-    if char_annotation_recs:
+    if char_annotation_recs and _project is None:
+        # (a project's cast is its sidecar's; nothing is written beside
+        # its source copy)
         chars_path = Path(fountain_path).parent / "characters.txt"
         n = sync_characters_file(char_annotation_recs, str(chars_path))
         print(f"  [CHARACTER] synced {n} record(s) → {chars_path}",
@@ -3767,7 +4156,7 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
             elif credit:
                 subtitle_text = credit
 
-    if title_text:
+    if title_text and _project is None:
         t = {"action": "title", "text": title_text}
         if subtitle_text:
             t["subtitle"] = subtitle_text
@@ -3905,6 +4294,13 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
     hg_characters = [c for c in characters if c not in prop_char_map]
     # ── Assign positions ─────────────────────────────────────────────────
     char_positions = _assign_positions(hg_characters)
+    if _project is not None:
+        # where the project's cast stands (dialogue sides, filler walks)
+        for cname in hg_characters:
+            spec = _project["cast"].get(cname.lower().split()[0]) or {}
+            off = spec.get("offset")
+            if isinstance(off, (list, tuple)) and off:
+                char_positions[cname] = float(off[0])
     prop_positions = _assign_prop_positions(sorted(prop_nouns), char_positions)
 
     for cname, ptype in prop_char_map.items():
@@ -4025,7 +4421,8 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                     "animate": "spin",
                 },
             }
-    actions.append({"action": "cast", "characters": cast_spec})
+    if _project is None:
+        actions.append({"action": "cast", "characters": cast_spec})
 
     # ── Build prop-character display names ───────────────────────────────
     # Maps prop type key → human display name for use in prompts.
@@ -4090,7 +4487,7 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
         "#e8c547", "#8899aa",
     ]
 
-    if prop_nouns:
+    if prop_nouns and _project is None:
         items = {}
         for pn in sorted(prop_nouns):
             if pn in worn_props:
@@ -4242,6 +4639,10 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                 camera=cam,
                 lighting=lighting,
             )
+            # ── Milestone 5, project mode: a cut where the CAMERA note is ─
+            if (_project is not None and isinstance(cam, dict)
+                    and not cam.get("freeform") and cam.get("framing")):
+                _emit_shot(cam, lighting)
             # ── CAPTION ───────────────────────────────────────────────────
             caption = ev.get("caption")
             if caption is not None:
@@ -4268,10 +4669,102 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
     # Injects a _subscene_marker entry into the PAM JSON so pam_player
     # --camera-mode can sync camera state by subscene_id.
     def _on_subscene_close(ss_id: str, shot_meta: dict):
+        if _project is not None:
+            return      # project mode: the cuts are where the CAMERA notes are
         actions.append({
             "_subscene_marker": ss_id,
             "_shot_meta":       shot_meta,
         })
+
+    # ── Milestone 5 (cue and project modes) ──────────────────────────────
+    _scene_idx = [-1]            # index of the scene being compiled
+    _scene_starts: list = []     # where each scene starts in *actions*
+    _shot_no = [0]
+
+    def _emit_shot(cam: dict, lighting):
+        """Project mode: a ``_subscene_marker`` for a CAMERA note, on the
+        spot of the note.  An insert, or any shot with MARGIN, is framed
+        from its subject's bounding box (``fit``, pam/shot_targets.py)."""
+        _shot_no[0] += 1
+        names = _project["scenes"]
+        i = _scene_idx[0]
+        stem = names[i] if 0 <= i < len(names) else "opening"
+        meta = {"framing": cam.get("framing"), "subject": cam.get("subject"),
+                "move": cam.get("move"), "transition": cam.get("transition"),
+                "lighting": lighting or None, "freeform": False}
+        if (cam.get("framing") or "").lower() == "insert" or "margin" in cam:
+            meta["fit"] = "bounds"
+            if "margin" in cam:
+                meta["margin"] = cam["margin"]
+        actions.append({"_subscene_marker": f"{stem}_shot{_shot_no[0]:02d}",
+                        "_shot_meta": meta})
+
+    def _element_end(start: int) -> int:
+        """The last raw line (1-based) of the paragraph that starts on
+        0-based line *start*."""
+        j = start
+        while j + 1 < len(_raw_lines) and _raw_lines[j + 1].strip():
+            j += 1
+        return j + 1
+
+    def _cue_line(cname: str) -> int:
+        """The 0-based raw line of the character cue *cname* at or after
+        the cursor: the line that is the cue itself (``ISAAC``, ``ISAAC
+        (V.O.)``), not an action line that starts with the name."""
+        want = re.sub(r'\s+', ' ', cname).strip().upper()
+        for j in range(_raw_cursor, len(_raw_lines)):
+            line = re.sub(r'\s+', ' ', _raw_lines[j]).strip().lstrip('@')
+            if line.upper() == want or (
+                    line.upper().startswith(want)
+                    and line[len(want):].lstrip().startswith(('(', '^'))):
+                return j
+        return _raw_cursor
+
+    def _take_beats(last_line: int) -> list:
+        """The beat notes up to and including *last_line* that have not
+        been taken by an earlier element."""
+        out = []
+        while _beat_queue and _beat_queue[0]["line"] <= last_line:
+            out.append(_beat_queue.pop(0))
+        return out
+
+    def _drop_beats(before_line: int):
+        """Beat notes before *before_line* that no element took (a note
+        next to a scene heading or a transition)."""
+        while _beat_queue and _beat_queue[0]["line"] < before_line:
+            _beat_queue.pop(0)["placed"] = False
+
+    def _compile_cues(beats: list, text: str) -> bool:
+        """Emit the cues of an element's *beats*.  True when at least one
+        beat has a cue (the element is then not compiled automatically);
+        a beat of such an element that has none leaves a REVIEW note."""
+        if not any(b["id"] in cues["cues"] for b in beats):
+            return False
+        brief = re.sub(r'\s+', ' ', text).strip()
+        for b in beats:
+            cue = cues["cues"].get(b["id"])
+            if cue is None:
+                actions.append({"_comment": f"# REVIEW: beat {b['id']} has "
+                                            f"no cue: {brief}"})
+                continue
+            steps = _cue_steps(cue)
+            note = f"# CUE {b['id']} ({len(steps)} step"
+            note += ")" if len(steps) == 1 else "s)"
+            actions.append({"_comment": f"{note}: {brief[:72]}"})
+            for s in steps:
+                actions.append(s)
+                if s.get("action"):
+                    current_scene.add_pam_action(s)
+            for s in _walk_steps(steps):
+                if s.get("action") == "fade_in" and s.get("who"):
+                    faded_in.add(s["who"])
+            scene_name = (_project["scenes"][_scene_idx[0]]
+                          if _project is not None
+                          and 0 <= _scene_idx[0] < len(_project["scenes"])
+                          else None)
+            _cues_used.append({"id": b["id"], "scene": scene_name,
+                               "line": b["line"], "steps": len(steps)})
+        return True
 
     scene_prompts = []
     current_scene = ScenePromptBuilder(
@@ -4420,6 +4913,21 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
             heading = str(elem.line)
             _advance_raw_cursor_to(heading)
             _fire_pending_notes(_raw_cursor + 1)
+            if _cue_mode:
+                _drop_beats(_raw_cursor + 2)
+            if _project is not None:
+                # project mode: one action list per scene heading
+                _scene_idx[0] += 1
+                _scene_starts.append(len(actions))
+                _shot_no[0] = 0
+                faded_in.clear()
+                # who the scene's "before" steps bring on
+                _names = _project["scenes"]
+                if _scene_idx[0] < len(_names):
+                    _setup = cues["scenes"].get(_names[_scene_idx[0]], {})
+                    for _s in _walk_steps(_setup.get("before", [])):
+                        if _s.get("action") == "fade_in" and _s.get("who"):
+                            faded_in.add(_s["who"])
             if current_scene.heading != "(opening)" or current_scene.setting_lines:
                 scene_prompts.append(current_scene.build_prompt())
             # Look up Fountain+ notes for this scene heading
@@ -4454,6 +4962,8 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
             trans = str(elem.line).upper().strip()
             _advance_raw_cursor_to(trans)
             _fire_pending_notes(_raw_cursor + 1)
+            if _cue_mode:
+                _drop_beats(_raw_cursor + 2)
             if "FADE IN" in trans:
                 for cname in characters:
                     key = char_key[cname]
@@ -4473,6 +4983,14 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
 
             if not is_prop_char and key not in faded_in:
                 _emit_fade_in(key)
+
+            if _cue_mode:
+                # Milestone 5: a line of dialogue with a cued beat
+                _here = _take_beats(_element_end(_cue_line(cname)))
+                if _here and _compile_cues(_here, " ".join(
+                        t for p, t in _dialog_blocks(elem) if not p)):
+                    current_scene.add_beat(f"{cname.title()} speaks.")
+                    continue
 
             blocks = _dialog_blocks(elem)
             for is_paren, text in blocks:
@@ -4511,6 +5029,10 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                     cname = str(dlg.character).strip()
                     _advance_raw_cursor_to(cname, exact=True)
                     _fire_pending_notes(_raw_cursor + 1)
+                    if _cue_mode:   # (no cues for dual dialogue)
+                        for _b in _take_beats(
+                                _element_end(_cue_line(cname))):
+                            _b["placed"] = False
                     key = char_key.get(cname, cname.lower())
                     last_who = key
                     is_prop_char = key in prop_char_keys
@@ -4543,6 +5065,8 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
             text = _action_text(elem)
             _advance_raw_cursor_to(text[:40])
             _fire_pending_notes(_raw_cursor + 1)
+            _here = (_take_beats(_element_end(_raw_cursor))
+                     if _cue_mode else [])
 
             # ── Dot-syntax sub-location slug (v0.9.6) ────────────────────
             # Fountain lines like ".Secretary's pod" are parsed by screenplain
@@ -4560,6 +5084,8 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                     "_comment": f"# zone: {zone_name}",
                 })
                 current_scene.add_setting(f"[Zone: {zone_name}]")
+                for _b in _here:
+                    _b["placed"] = False
                 continue
 
             if getattr(elem, 'centered', False):
@@ -4567,6 +5093,13 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                 clean = "\n".join(l for l in lines if l.strip())
                 a = {"action": "on_screen_text", "text": clean, "hold": 2.0}
                 _emit(a)
+                for _b in _here:
+                    _b["placed"] = False
+                continue
+
+            # Milestone 5: an action paragraph with a cued beat
+            if _here and _compile_cues(_here, text):
+                current_scene.add_setting(text)
                 continue
 
             who_found = _find_character_in_text(text, characters, last_who)
@@ -4665,6 +5198,16 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                     patched.append(a)
             pam_acts = patched
 
+            # Milestone 5, project mode: an interpreted line that needs a
+            # prop the project does not have, or would move one the cues
+            # look after, is left for review instead
+            if _project is not None:
+                _why = _project_blocks(pam_acts, _project)
+                if _why:
+                    pam_acts = [{"_comment": f"# REVIEW: {text}  "
+                                             f"[not compiled: {_why}]"}]
+                    is_review = True
+
             for a in pam_acts:
                 # Resolve raw character names to PAM keys via char_key
                 if "who" in a and a["who"] not in prop_char_keys:
@@ -4752,8 +5295,21 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
             # recognized actions already fed via _emit → add_pam_action
 
     # ── Final fade out ───────────────────────────────────────────────────
-    if actions and actions[-1].get("action") != "fade_out":
+    # (not in project mode: a scene ends with its "after" steps)
+    if (_project is None and actions
+            and actions[-1].get("action") != "fade_out"):
         _emit({"action": "fade_out", "who": "all"})
+
+    # ── Milestone 5: the cue report, and the scenes of a project ─────────
+    if _cue_mode:
+        _drop_beats(len(_raw_lines) + 2)
+        names = _project["scenes"] if _project is not None else None
+        report = cue_report(_beats, cues, _cues_used, names)
+        if cue_result is not None:
+            cue_result["report"] = report
+        if _project is not None and cue_result is not None:
+            cue_result["scenes"] = _split_project_scenes(
+                actions, _scene_starts, _project, cues)
 
     # ── Flush final scene prompt ─────────────────────────────────────────
     scene_prompts.append(current_scene.build_prompt())
@@ -4801,6 +5357,77 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
 # ─────────────────────────────────────────────────────────────────────────────
 #  OUTPUT HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _split_project_scenes(actions: list, starts: list, project: dict,
+                          cue_file: dict) -> list:
+    """Cut a project's compiled action list at its scene headings, and
+    give each scene its ``before`` and ``after`` steps.  Returns one
+    action list per scene of the project (``ValueError`` when the
+    screenplay has more or fewer scene headings than the project has
+    scene files)."""
+    names = project["scenes"]
+    if len(starts) != len(names):
+        raise ValueError(
+            f"the screenplay has {len(starts)} scene heading(s) but the "
+            f"project lists {len(names)} scene file(s)")
+    try:
+        src = project["source"].relative_to(project["dir"])
+    except ValueError:
+        src = project["source"]
+    try:
+        cue_rel = project["cues_path"].relative_to(project["dir"])
+    except ValueError:
+        cue_rel = project["cues_path"]
+    bounds = list(starts) + [len(actions)]
+    out = []
+    for i, name in enumerate(names):
+        body = actions[bounds[i]:bounds[i + 1]]
+        setup = cue_file.get("scenes", {}).get(name, {})
+        before = _cue_steps({"steps": setup.get("before", [])})
+        after = _cue_steps({"steps": setup.get("after", [])})
+        head = {"_comment": f"# Compiled by fountain2pam.py --project from "
+                            f"{src.as_posix()} (scene {i + 1}) and "
+                            f"{cue_rel.as_posix()}.  Edit those, not this "
+                            f"file."}
+        # (the setup comes first: a cut framed from its subject needs the
+        # subject declared, so a scene's opening shot follows it)
+        out.append([head] + before + body + after)
+    return out
+
+
+def compile_project(project_dir) -> dict:
+    """Compile a PAM project (see ``load_project``): the screenplay with
+    its cue file, one action list per scene.
+
+    Returns ``{"project", "scenes" (lists of actions, in order),
+    "files" (where each goes), "report" (``cue_report``)}``.  Writes
+    nothing; ``write_project_scenes`` does."""
+    project = load_project(project_dir)
+    result: dict = {}
+    convert_fountain(str(project["source"]), project=project,
+                     cue_result=result)
+    return {"project": project, "scenes": result["scenes"],
+            "files": project["scene_files"], "report": result["report"]}
+
+
+def scene_json(actions: list) -> str:
+    """How a compiled scene is written (as the hand-authored scene files
+    of the project were)."""
+    return json.dumps(actions, indent=1, ensure_ascii=False) + "\n"
+
+
+def write_project_scenes(compiled: dict) -> list:
+    """Write the scenes of ``compile_project``; returns the files that
+    changed."""
+    changed = []
+    for path, scene in zip(compiled["files"], compiled["scenes"]):
+        text = scene_json(scene)
+        old = path.read_text(encoding="utf-8") if path.exists() else None
+        if old != text:
+            path.write_text(text, encoding="utf-8")
+            changed.append(path)
+    return changed
+
 
 def write_screenplay(actions, output_path, keep_comments=True):
     """Write the PAM JSON screenplay.
@@ -5158,7 +5785,8 @@ def main():
     parser = argparse.ArgumentParser(
         description="Convert a Fountain screenplay to PAM JSON + AI prompts."
     )
-    parser.add_argument("fountain", help="Path to the .fountain file")
+    parser.add_argument("fountain", nargs="?",
+                        help="Path to the .fountain file (not with --project)")
     parser.add_argument("-o", "--output",
                         help="Output PAM .json path (default: <stem>.json)")
     parser.add_argument("--prompts",
@@ -5247,7 +5875,58 @@ def main():
         ),
     )
 
+    parser.add_argument(
+        "--cues",
+        metavar="PATH",
+        help=(
+            "Choreography cue file (Milestone 5).  An action paragraph or "
+            "a line of dialogue with a [[beat: id]] note compiles to the "
+            "cue's PAM steps instead of being interpreted; the compiler "
+            "reports cues whose beat is gone and beats with no cue."
+        ),
+    )
+
+    parser.add_argument(
+        "--project",
+        metavar="DIR",
+        help=(
+            "Compile a PAM project folder (DIR/project.json): its screenplay "
+            "with its cue file, one scene file per scene heading, cast and "
+            "props from the project, a camera cut at every CAMERA note, "
+            "and inserts framed from their subject's bounding box.  "
+            "Writes the scene files named in project.json."
+        ),
+    )
+
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help=(
+            "With --project: write nothing; exit with status 1 if a scene "
+            "file is not what the screenplay and the cues compile to, or "
+            "if the cue report finds anything."
+        ),
+    )
+
     args = parser.parse_args()
+
+    if args.project:
+        if args.fountain or args.cues:
+            parser.error("--project reads its screenplay and cue file from "
+                         "project.json; give neither with it")
+        sys.exit(_main_project(args))
+    if not args.fountain:
+        parser.error("the .fountain file is required (or use --project)")
+    if args.check:
+        parser.error("--check goes with --project")
+
+    cue_file = None
+    if args.cues:
+        try:
+            cue_file = load_cue_file(args.cues)
+        except (OSError, ValueError) as e:
+            parser.error(str(e))
+    cue_result: dict = {}
 
     # --csv implies --shot-count
     shot_count = args.shot_count or bool(args.csv)
@@ -5265,7 +5944,8 @@ def main():
     try:
         actions, prompts = convert_fountain(
             args.fountain, scale=args.scale, title_override=args.title,
-            clip_mode=args.clip_mode, shot_count=shot_count)
+            clip_mode=args.clip_mode, shot_count=shot_count,
+            cues=cue_file, cue_result=cue_result)
     finally:
         if _tee is not None:
             sys.stderr = _tee._stream
@@ -5361,17 +6041,84 @@ def main():
 
     hints = _patch_hints(actions, prompts)
 
+    if cue_file is not None:
+        print()
+        for line in format_cue_report(cue_result["report"]):
+            print(line)
+
     if args.warnings_json:
         report = collect_warnings(
             written, fountain=args.fountain, pam_output=pam_out,
             messages=_tee.lines, validation=val_warnings,
             patch_hints=hints)
+        if cue_file is not None:
+            report["cues"] = cue_result["report"]
         write_warnings(report, args.warnings_json)
         c = report["counts"]
         print(f"Warnings:   {args.warnings_json}  "
               f"({c['review_comments']} review, "
               f"{c['validation_warnings']} validation, "
               f"{c['patch_hints']} patch, {c['messages']} conversion)")
+
+
+def _main_project(args) -> int:
+    """``fountain2pam.py --project DIR``: compile, then write the scene
+    files (or, with ``--check``, compare them).  Returns the exit
+    status."""
+    _tee = None
+    if args.warnings_json:
+        _tee = _StderrTee(sys.stderr)
+        sys.stderr = _tee
+    try:
+        compiled = compile_project(args.project)
+    except (OSError, ValueError) as e:
+        print(f"fountain2pam: {e}", file=sys.stderr)
+        return 2
+    finally:
+        if _tee is not None:
+            sys.stderr = _tee._stream
+    proj, rep = compiled["project"], compiled["report"]
+    print(f"Project:    {proj['file']}")
+    print(f"Screenplay: {proj['source']}")
+    stale = []
+    for path, scene in zip(compiled["files"], compiled["scenes"]):
+        n_act = sum(1 for a in scene if "action" in a)
+        n_cut = sum(1 for a in _walk_steps(scene) if "_subscene_marker" in a)
+        n_rev = sum(1 for a in scene
+                    if "REVIEW" in str(a.get("_comment", "")))
+        same = path.exists() and path.read_text(encoding="utf-8") \
+            == scene_json(scene)
+        if not same:
+            stale.append(path)
+        flag = "" if same else (" (out of date)" if args.check
+                                else " (written)")
+        print(f"  {path.name:14s} {n_act:3d} actions, {n_cut:2d} cuts, "
+              f"{n_rev:2d} review{flag}")
+    if not args.check:
+        write_project_scenes(compiled)
+    for line in format_cue_report(rep):
+        print(line)
+    if args.warnings_json:
+        reviews = []
+        for path, scene in zip(compiled["files"], compiled["scenes"]):
+            for r in collect_warnings(scene)["review_comments"]:
+                reviews.append({"scene": path.name, **r})
+        report = {"project": str(proj["file"]),
+                  "fountain": str(proj["source"]),
+                  "review_comments": reviews,
+                  "messages": list(_tee.lines), "cues": rep}
+        report["counts"] = {"review_comments": len(reviews),
+                            "messages": len(report["messages"])}
+        write_warnings(report, args.warnings_json)
+        print(f"Warnings:   {args.warnings_json}")
+    findings = sum(v for k, v in rep["counts"].items() if k != "cues_used")
+    if args.check:
+        if stale:
+            print(f"{len(stale)} scene file(s) out of date: run "
+                  f"fountain2pam.py --project {args.project}")
+        return 1 if stale or findings else 0
+    print("Validate:   ./pam-validate --project " + str(args.project))
+    return 0
 
 
 def _patch_hints(actions: list, prompts: dict) -> list:

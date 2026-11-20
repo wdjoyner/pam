@@ -114,7 +114,7 @@
 
 \title{PAM Reference Book\\[0.4em]\normalsize for PAM 1.0.1}
 \author{David Joyner; source documents co-authored with Claude}
-\date{November 19, 2026}
+\date{November 20, 2026}
 
 \begin{document}
 \frontmatter
@@ -741,6 +741,12 @@ Emits
 \texttt{say} \\
 \texttt{CHARACTER} & Per-scene character override & cast-block entry \\
 \texttt{PRODUCTION\ NOTE} & Metadata only & (nothing --- for humans) \\
+\texttt{BEAT} (Milestone 5) & A beat identifier next to an action or a
+line of dialogue & with \texttt{-{}-cues} or \texttt{-{}-project}, the
+cue's hand-authored steps; otherwise nothing (\S14.15) \\
+\texttt{MARGIN} in \texttt{CAMERA} (Milestone 5) & Frame the shot from
+its subject's bounding box & \texttt{fit} and \texttt{margin} in
+\texttt{\_shot\_meta} (\S14.15) \\
 \end{longtable}
 
 Example:
@@ -906,7 +912,7 @@ Headline changes
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-1.0.1 & The Blender roadmap, Milestones 1 to 3. \textbf{Regression
+1.0.1 & The Blender roadmap, Milestones 1 to 5. \textbf{Regression
 baseline}: golden-trace tests and \texttt{pam-validate}.
 \textbf{Timeline}: a 15 fps frame clock and the \texttt{frames} key;
 \texttt{sequence} and named beats; timed \texttt{parallel} blocks with
@@ -928,7 +934,11 @@ trace and in Blender; the \texttt{quill}. \textbf{Stage 4c}: the
 \texttt{rope}, a deformable prop whose shape follows what it is
 attached to on every frame and which snaps into two pieces, traced as
 control points and rebuilt in Blender as curves; attachments
-\texttt{around} several \texttt{joints}. All opt-in. See
+\texttt{around} several \texttt{joints}. \textbf{Milestone 5}:
+choreography cues (\texttt{[[beat: id]]} notes and a cue file; the
+compiler reports orphaned cues and beats without cues), projects
+(\texttt{fountain2pam.py -{}-project}), and shots framed from their
+subject's bounding box (\texttt{pam/shot\_targets.py}). All opt-in. See
 \S14. \\
 0.9.23 & Backburner items 10--11, 18, and item-6 Option C.
 \textbf{2.5D depth system} (items 10--11): optional
@@ -4507,14 +4517,15 @@ active at once.
 \section{14. Runtime additions for the Blender roadmap (PAM 1.0.1): the
 timeline, constraints, choreography and stateful props}\label{runtime-additions-timeline}\index{timeline}\index{frame clock}
 
-Milestones 1, 2 and 3 of \emph{PAM: The Road to Blender}, its
-vertical slice, and Stages 4a and 4b of Milestone 4. Everything in this section
+Milestones 1 to 5 of \emph{PAM: The Road to Blender} (Milestone 4 in
+three stages, 4a, 4b and 4c) and its vertical slice. Everything in this section
 is opt-in: a screenplay that uses none
 of the keys and actions below is loaded, played and traced exactly as
 before. The modules are \texttt{pam/timeline.py},
 \texttt{pam/constraints.py}, \texttt{pam/choreography.py} and
 \texttt{pam/prop\_states.py}; each
-begins with its design notes.
+begins with its design notes, as do \texttt{pam/shot\_targets.py} and
+the Milestone 5 part of \texttt{fountain2pam.py}.
 
 \subsection{\texorpdfstring{14.1 The frame clock and \texttt{frames}}{14.1 The frame clock and frames}}\label{the-frame-clock}\index{frames@\texttt{frames}}
 
@@ -5666,6 +5677,103 @@ points on every frame the trace has them; nothing is solved. New
 expected state, pieces and location at the end of every scene, without
 rendering. \texttt{abe-isaac\_rope-snap.json} is the rope's whole
 story in one scene, with a golden trace.
+
+\subsection{14.15 Fountain+ cues, projects, and shots framed from their
+subject}\label{fountain-cues}\index{cues}\index{beat note}\index{fit@\texttt{fit}}\index{margin@\texttt{margin}}\index{fountain2pam.py@\texttt{fountain2pam.py}!cues and projects}\index{shot\_targets@\texttt{pam/shot\_targets.py}}
+
+Milestone 5. The screenplay stays readable as a screenplay; movement
+the action interpreter can read off the prose still compiles
+automatically, and choreography it cannot is written once, by hand, in
+a \textbf{cue file}, named in the screenplay by a \textbf{beat note}
+next to the action line or line of dialogue it belongs to. Recompiling
+the screenplay copies the cue in, so it never overwrites hand-authored
+choreography. Everything here is opt-in: without \texttt{-{}-cues} or
+\texttt{-{}-project}, \texttt{fountain2pam.py} compiles a screenplay as
+before, beat notes and all; and a shot without \texttt{fit} is framed as
+before.
+
+\begin{verbatim}
+Abraham draws a battered knife from his satchel. Isaac takes it
+by the handle. [[beat: s02_draws_knife]]
+
+[[ CAMERA: FRAMING=insert | SUBJECT=knife | MOVE=static ]]
+
+The handle comes away in Isaac's fingers. The blade drops into a
+wooden bowl with a CLANG. [[beat: s02_knife_breaks]]
+\end{verbatim}
+
+\begin{verbatim}
+{"cue_format": 1,
+ "scenes": {"scene2": {"before": [ ... ], "after": [ ... ]}},
+ "cues": {"s02_draws_knife":  {"scene": "scene2", "steps": [ ... ]},
+          "s02_knife_breaks": {"scene": "scene2", "steps": [ ... ]},
+          "s02_short_ceremony": []}}
+\end{verbatim}
+
+\textbf{Beat notes.} \texttt{[[beat: id]]} names the action paragraph or
+line of dialogue on its line, or the one that follows it. An identifier
+is a letter, then letters, digits, \texttt{\_}, \texttt{-} or
+\texttt{.}; prefixing it with the scene (\texttt{s02\_}) keeps it unique.
+An element may have several. The scene-purpose notes of Draft 3
+(\texttt{[[\#2 | BEAT: WTF / Reactions | ...]]}) are not beat notes.
+
+\textbf{Cues.} A cue is a list of PAM steps, or an object with
+\texttt{steps}, \texttt{scene} and \texttt{note}. An element with a
+cued beat compiles to a \texttt{\# CUE} comment and a copy of the cue's
+steps, for each beat in order; an empty cue compiles to nothing (a line
+of dialogue another cue already speaks on an exact frame). An element
+whose beats have no cue compiles as it always did.
+
+\textbf{The report.} The compiler lists every cue whose beat no longer
+appears in the screenplay (\emph{orphaned cues}), every beat with no cue,
+beats that appear twice, notes whose value is not an identifier, beat
+notes next to nothing a cue can replace, cues filed under another scene,
+and scene setups for scenes the project does not have; with
+\texttt{-{}-warnings-json} it is written as \texttt{"cues"}.
+
+\textbf{Projects.} \texttt{fountain2pam.py -{}-project DIR} reads
+\texttt{DIR/project.json} (\texttt{source}, \texttt{cues},
+\texttt{sidecar}, \texttt{scenes}) and compiles one scene file per scene
+heading: the cast and props come from the project, never from the
+compiler (an uncued line that would need an invented prop, or would move
+one the continuity ledger carries, is left for review); a camera cut is
+placed where each \texttt{CAMERA} note is; every insert is framed from
+its subject; and each scene starts and ends with the cue file's
+\texttt{before} and \texttt{after} steps. \texttt{-{}-check} writes
+nothing and fails if a scene file is out of date or the report finds
+anything. \texttt{projects/abe-isaac} is laid out this way: its
+screenplay is a copy of the script in \texttt{writing-guides} (the
+authoritative literary version) with the commit it was taken from, its
+41 cues are the hand-authored Milestone 4 blocking, and its six scene
+files are compiler output.
+
+\textbf{Shots framed from their subject.} A \texttt{\_shot\_meta} with
+\texttt{"fit": "bounds"} is not framed from the \texttt{framing} table
+and the subject's horizontal position but from the subject's bounding
+box (\texttt{pam/shot\_targets.py}): what is visible of it (a composite
+prop's parts that are on stage, wherever they are); where the steps of
+the shot take it before the next cut (the blade that drops into the
+bowl); and, for a prop that has not reached its attachment yet, where
+the prop-state books keep it. \texttt{"margin"} (default 0.12) is the
+fraction of the frame clear on each side. When the subject bears text
+(a scroll's lines, a phone's screen) whose cap height would fill less
+than 3\% of the frame's height, the frame closes in on the text.
+\texttt{subject} may join several names with \texttt{+}. In Fountain+,
+\texttt{MARGIN=0.15} in a \texttt{CAMERA} note asks for it.
+
+\begin{verbatim}
+{"_subscene_marker": "scene5_shot04", "_shot_meta": {
+  "framing": "insert", "subject": "phone", "move": "static",
+  "fit": "bounds"}}
+\end{verbatim}
+
+\textbf{The completion test.} \texttt{tests/test\_fountain\_cues.py}
+recompiles the project and finds every cue in its scene, verbatim (the
+Milestone 4 tests then run on the compiled scenes, and the six scenes
+write the Milestone 4 ledger byte for byte); renames and deletes beats
+and checks that the orphaned cues are reported; and traces the scenes
+and checks, on every frame of the scroll, broken-knife and phone
+inserts, that the subject is in the frame and its text is readable.
 
 \chapter{Character Properties
 Reference}\label{character-properties-reference}

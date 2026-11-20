@@ -859,7 +859,7 @@ A `parallel` block is timed when the block has `frames`, or when any step in its
 | `constrain`, `release` | the contact starts or ends on that frame |
 | `prop_transition` | a prop changes state on that frame; with `frames`, its move to a new attachment, a number on its display that climbs, text written on a scroll or crossed out, or a rope changing shape (wound round, pulled tight, snapping), takes that long (see "Stateful props" below) |
 | `pull_immovable`, `cork_pop_up`, `mismatched_hug` | a choreography routine (below): its phases follow one another, each a set number of frames; `frames` is the whole routine |
-| `_subscene_marker` | a camera cut on that frame; with `frames`, or an animated `move` (`push`, `pull`, `pan-follow`, `drift`, `zoom`), the camera travels for that long |
+| `_subscene_marker` | a camera cut on that frame; with `frames`, or an animated `move` (`push`, `pull`, `pan-follow`, `drift`, `zoom`), the camera travels for that long. A shot with `"fit": "bounds"` (section 11) is framed from its subject, and from where the block's steps take the subject before the block's next cut |
 | `sequence` | a track: its steps follow one another, the first starting on the sequence's `at`. Use one per actor |
 
 ### Limitations
@@ -1370,6 +1370,60 @@ Usually:
 - a prop name
 - a scene-object name
 - `governor` / `dodecahedron`
+
+A shot with `fit` (below) may also name a part of a composite prop
+(`knife.blade`), and several subjects joined by `+` (`knife+bowl`).
+
+## `fit` and `margin`: a shot framed from its subject (Milestone 5)
+
+```json
+{"_subscene_marker": "s05_phone", "_shot_meta": {
+  "framing": "insert", "subject": "phone", "move": "static",
+  "fit": "bounds", "margin": 0.12}}
+```
+
+With `"fit": "bounds"` the camera is not set from the `framing` table and
+the subject's horizontal position, but from the subject's bounding box
+(`pam/shot_targets.py`).  `framing` and `move` keep their meaning
+otherwise (a static cut, or a move that ends on the fitted frame).
+
+### Keys
+- `fit` — `"bounds"`, the only value
+- `margin` — the fraction of the frame left clear on each side of the
+  subject, from 0 to below 0.5 (default 0.12)
+
+### What is framed
+- **What is visible of the subject**: every part of it that is on stage
+  and drawn. A composite prop is framed from its parts wherever they are
+  (the broken knife: the handle in a hand and the blade in the bowl); a
+  part that is hidden (in a satchel) is left out.
+- **Where the shot takes it**: the steps after the cut, up to the next
+  cut, are read before the cut is made. A `prop_transition` among them
+  that sends the subject, or a part of it, to a new attachment adds the
+  place it is going (the blade that will drop into the bowl), so the
+  subject stays in the frame for the whole shot. A cut that is a step of
+  a timed block reads the block's steps from its frame up to the block's
+  next cut.
+- **Where it belongs**: a stateful prop that has not been put on its
+  attachment yet is framed where the prop-state books keep it.
+- **Readable text**: when the subject bears text (a scroll's lines, a
+  phone's screen) and its smallest cap height would fill less than 3% of
+  the frame's height (`shot_targets.TEXT_MIN`), the frame closes in on
+  the text instead.
+- The frame is never narrower than 0.5 units nor wider than the stage
+  (14.2), and it is kept on the stage from left to right.
+
+The console shows each fitted shot, for example
+`CAM fit text w=0.54 x=-1.06 y=-1.31, text 5.8% of the height subject=scroll`.
+A fitted shot whose subject is not on stage and not in the books is
+framed as before, with a message. `pam-validate` checks `fit` and
+`margin`, and warns when a fitted shot names no subject or one that is
+not a known character or prop.
+
+A shot without `fit` is framed exactly as before. In Fountain+,
+`MARGIN=` in a `CAMERA` note asks for it, and `fountain2pam.py
+--project` gives every insert `fit` (section 13 of
+`fountain2pam-manual.md`).
 
 ---
 

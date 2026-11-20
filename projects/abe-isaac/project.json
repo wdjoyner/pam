@@ -1,0 +1,17 @@
+{
+ "project": "abe-isaac",
+ "title": "Abraham and Isaac, Revisited",
+ "source": {
+  "file": "source/script.fountain",
+  "copy_of": {
+   "repository": "wdjoyner/writing-guides",
+   "path": "shorts/abe-and-isaac/script.fountain",
+   "commit": "214644795daba284b2d8234d42f37480b83f37af",
+   "sha256": "1558adf69847622c18d78657c34123b1cd52cdc03fe0e117cdbd4e2f5587727e"
+  },
+  "_comment": "The script in writing-guides is the authoritative literary version; this is a copy of it with the commit it was taken from.  To update it, copy the file again and record the new commit and sha256."
+ },
+ "cues": "cues/animation_cues.json",
+ "sidecar": "pam_sidecar.json",
+ "scenes": ["scene1.json", "scene2.json", "scene3.json", "scene4.json", "scene5.json", "scene6.json"]
+}
