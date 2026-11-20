@@ -1,5 +1,8 @@
 [
  {
+  "_comment": "# Compiled by fountain2pam.py --project from source/script.fountain (scene 3) and cues/animation_cues.json.  Edit those, not this file."
+ },
+ {
   "action": "set_background",
   "color": "#a9c8e6"
  },
@@ -12,6 +15,23 @@
   "action": "fade_in",
   "who": "abraham",
   "rt": 0.2
+ },
+ {
+  "_comment": "# SCENE: EXT. PATH TO MOUNT MORIAH - DAY"
+ },
+ {
+  "_subscene_marker": "scene3_shot01",
+  "_shot_meta": {
+   "framing": "wide",
+   "subject": "ensemble",
+   "move": "pan-follow",
+   "transition": "cut",
+   "lighting": null,
+   "freeform": false
+  }
+ },
+ {
+  "_comment": "# CUE s03_climb (2 steps): Isaac carries three altar stones and the log barbell. Abraham staggers a"
  },
  {
   "action": "parallel",
@@ -35,5 +55,165 @@
  {
   "action": "wait",
   "frames": 9
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "We go up the mountain. I build the altar.",
+  "side": "right",
+  "hold": 1.62
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "You tie me up.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "You raise what's left of that knife and tell",
+  "side": "right",
+  "hold": 1.62
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "everybody God doesn't want people sacrificing people.",
+  "side": "right",
+  "hold": 1.26
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "Then we substitute a lamb.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "_comment": "# REVIEW: Abraham stops to catch his breath. Isaac stops with him, not breathing hard at all."
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "A morality lesson?",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "A challenge!",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "\"Sacrifice a Lamb for God.\" It'll be huge on TikTok.",
+  "side": "right",
+  "hold": 1.8
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "We'll try it. But no improvising.",
+  "side": "right",
+  "hold": 1.08
+ },
+ {
+  "_hint": "PATCH NEEDED — from: \"They walk on. Isaac bounds over a rock. Abraham climbs it on his hands and knees.\"\n     Replace the walk_to below with:\n     {\"action\": \"parallel\", \"rt_per_kf\": 0.22, \"do\": [\n       {\"who\": \"isaac\", \"action\": \"walk_to\", \"x\": 0.0},\n       {\"who\": \"abraham\", \"action\": \"walk_to\", \"x\": -0.0}\n     ]}\n     Set x to the destination world x coordinate.\n     Add turns: {\"action\": \"turn\", \"who\": \"isaac\", \"pose\": \"standing_side\"} before and {\"pose\": \"standing_front\"} after."
+ },
+ {
+  "action": "turn",
+  "who": "isaac",
+  "pose": "standing_side"
+ },
+ {
+  "action": "walk_to",
+  "who": "isaac",
+  "x": 1.0
+ },
+ {
+  "action": "turn",
+  "who": "isaac",
+  "pose": "standing_front"
+ },
+ {
+  "_comment": "# REVIEW: They walk on. Isaac bounds over a rock. Abraham climbs it on his hands and knees."
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "You sure you're up for this, Dad?",
+  "side": "right",
+  "hold": 1.26
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "I am the father of nations.",
+  "side": "right",
+  "hold": 1.08
+ },
+ {
+  "_comment": "# REVIEW: He reaches the top. His sandal slips. Isaac catches him by the collar without putting down the stones. Abraham dangles."
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "Where's the lamb?",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "I thought you brought the lamb.",
+  "side": "right",
+  "hold": 1.08
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "I brought the altar.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "God will provide.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "He provided the knife.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "_hint": "PATCH NEEDED — from: \"Isaac sets his father on the path and walks on.\"\n     Replace the walk_to below with:\n     {\"action\": \"parallel\", \"rt_per_kf\": 0.22, \"do\": [\n       {\"who\": \"isaac\", \"action\": \"walk_to\", \"x\": 0.0},\n       {\"who\": \"other_character\", \"action\": \"walk_to\", \"x\": -0.0}\n     ]}\n     Set x to the destination world x coordinate.\n     Add turns: {\"action\": \"turn\", \"who\": \"isaac\", \"pose\": \"standing_side\"} before and {\"pose\": \"standing_front\"} after."
+ },
+ {
+  "action": "turn",
+  "who": "isaac",
+  "pose": "standing_side"
+ },
+ {
+  "action": "walk_to",
+  "who": "isaac",
+  "x": 1.0
+ },
+ {
+  "action": "turn",
+  "who": "isaac",
+  "pose": "standing_front"
+ },
+ {
+  "_comment": "# REVIEW: Isaac sets his father on the path and walks on."
  }
 ]

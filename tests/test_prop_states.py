@@ -780,7 +780,10 @@ def test_no_scene_overrides_the_ledger(project):
     test_every_explicit_override_is_reported.)"""
     _, reports = project
     for sid, r in reports.items():
-        assert r.warnings == [], (sid, r.format())
+        # (the scenes are compiled from the screenplay since Milestone
+        # 5: its prose that no cue choreographs is left for review)
+        assert [w for w in r.warnings if w.code != "review-comment"] \
+            == [], (sid, r.format())
         assert "overrides" not in r.ledger["entry"], sid
 
 
@@ -833,9 +836,8 @@ def test_breaking_the_continuity_is_caught(tmp_path):
     and 4 (which have no bowl) cannot open."""
     root = tt.copy_project(tmp_path / "p")
     s2 = json.loads((root / "scene2.json").read_text())
-    seq = next(s for s in s2 if s.get("action") == "sequence")
     for beat in ("gather", "into_satchel"):
-        step = next(s for s in seq["do"] if s.get("beat") == beat)
+        step = next(s for s in s2 if s.get("beat") == beat)
         del step["parts"]["blade"]
     (root / "scene2.json").write_text(json.dumps(s2))
     reports = {r.ledger["scene"]: r for r in validate_project(root)}

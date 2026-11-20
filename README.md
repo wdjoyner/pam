@@ -467,6 +467,7 @@ python fountain2pam.py scene.fountain \
 | `PHONE` | Phone/intercut speech mode | `say` with O.S. bubble metadata |
 | `CHARACTER` | Per-scene character override | Cast-block entry/update |
 | `PRODUCTION NOTE` | Human-only metadata | No executable action |
+| `BEAT` (Milestone 5) | A beat identifier next to an action or a line of dialogue: `[[beat: s02_pull_attempt]]` | With `--cues` or `--project`, the cue's hand-authored steps; otherwise nothing |
 
 ### Fountain formatting rule
 
@@ -1335,6 +1336,24 @@ manim -pql pam_player.py PAMPlayer
 | `close` | Character close-up |
 | `insert` | Prop close-up |
 
+### Shots framed from their subject (Milestone 5)
+
+A legacy `insert` is 7 units wide and centered at `y = 1.5`, which misses a prop on the floor or in a hand. Give the shot `"fit": "bounds"` and it is framed from its subject's bounding box instead (`pam/shot_targets.py`):
+
+```json
+{"_subscene_marker": "s05_phone", "_shot_meta": {
+  "framing": "insert", "subject": "phone", "move": "static",
+  "fit": "bounds", "margin": 0.12}}
+```
+
+- the box is that of what is visible of the subject: for a composite prop, its parts that are on stage (the broken knife: the handle in a hand and the blade in the bowl);
+- it also holds where the shot takes the subject before the next cut: a `prop_transition` after the cut that sends the subject, or a part of it, somewhere (the blade that drops into the bowl) is framed where it is going;
+- `margin` (default 0.12) is the fraction of the frame left clear on each side;
+- text on the subject (a scroll's lines, a phone's screen) must be readable: when its cap height would be under 3% of the frame's height, the frame closes in on the text;
+- `subject` may name several things joined by `+` (`"knife+bowl"`), and may be a character.
+
+A shot without `fit` is framed exactly as before. In Fountain+, `MARGIN=0.15` in a `CAMERA` note asks for it, and `fountain2pam.py --project` gives every insert `fit`.
+
 ### Move vocabulary
 
 | Move | Typical behavior |
@@ -1537,7 +1556,8 @@ pam/
 ├── props_accessories.py     accessory builders such as silver hair
 ├── character_gallery.py     visual regression / documentation utility
 ├── hooks.py                 optional events for outside tools (pam.hooks)
-├── fountain2pam.py          Fountain+ to PAM JSON converter
+├── shot_targets.py          frames a shot from its subject's bounding box (Milestone 5)
+├── fountain2pam.py          Fountain+ to PAM JSON converter (cues, projects)
 ├── pam_trace.py             records a motion trace for the Blender export
 ├── trace2blender.py         builds an animated .blend from a motion trace
 ├── pam2blender.py           PAM JSON to Blender layout exporter
@@ -1786,6 +1806,49 @@ Doors, the elevator, the avatar pod's lid and the Governor already had states. T
 In the trace (version 5), `"prop_states"` gives each stateful prop's identity (the prop objects of its parts), its states and its display frame by frame, and `"prop_events"` lists every `prop_state_changed`. `trace2blender.py` builds each part once from that, follows its attachments, and gives the phone its screens. A scroll's text is in the trace frame by frame (`"text"` in its `"prop_states"` record): every letter as it is written and every line through struck text as it grows. `trace2blender.py` builds the scroll's roll, sheet and ribbon, shows each in its state, and sets the text in the same columns, keyed on the same frames. `abe-isaac_scroll-revision.json` is the scroll by itself. A rope's pieces carry their shape in the trace frame by frame, as control points (`"shape"` on each piece's prop object: sampled pieces, as for constrained limbs), and `trace2blender.py` builds each piece as a curve object whose points are keyed on the same frames; `abe-isaac_rope-snap.json` is the rope by itself. A hand held on a prop (`joint_to_prop`) now holds in Blender too: where the builder puts the prop somewhere other than Manim did (set on the floor, riding on a hand), the hand's samples are moved with it and the elbow solved again by the same rules.
 
 The key-by-key reference is section 9 of `pam-player_manual.md` ("Stateful props"), and the first page of `pam/prop_states.py`.
+
+### Fountain+ cues and projects (Milestone 5)
+
+Milestone 5 of the Blender roadmap. The screenplay stays a screenplay; choreography that cannot be read off its prose lives in a separate cue file, keyed by a **beat identifier** in a Fountain note next to the action line (or line of dialogue) it belongs to:
+
+```fountain
+Abraham draws a battered knife from his satchel. Isaac takes it by the handle. [[beat: s02_draws_knife]]
+
+[[ CAMERA: FRAMING=insert | SUBJECT=knife | MOVE=static | TRANSITION=cut ]]
+
+The handle comes away in Isaac's fingers. The blade drops into a wooden bowl with a CLANG. [[beat: s02_knife_breaks]]
+```
+
+```json
+{"cue_format": 1,
+ "scenes": {"scene2": {"before": [{"action": "set_background", "color": "#a9c8e6"}],
+                       "after": []}},
+ "cues": {"s02_draws_knife":  {"scene": "scene2", "steps": [ ... ]},
+          "s02_knife_breaks": {"scene": "scene2", "steps": [ ... ]},
+          "s02_short_ceremony": []}}
+```
+
+```bash
+python fountain2pam.py script.fountain --cues cues.json -o script.json   # one file
+python fountain2pam.py --project projects/abe-isaac                     # a project's scenes
+python fountain2pam.py --project projects/abe-isaac --check             # are they up to date?
+```
+
+Familiar actions still compile automatically. An element with a cued beat compiles to its cue's steps, copied as they are, so recompiling the Fountain never overwrites hand-authored choreography; an empty cue compiles to nothing (the line is spoken inside another cue). The compiler reports every cue whose beat no longer appears in the screenplay, every beat with no cue, beats that appear twice, notes that are not identifiers, and cues filed under another scene. Without `--cues` or `--project`, beat notes are ignored, as they always were, and the output is unchanged.
+
+`--project DIR` reads `DIR/project.json`: the screenplay (a copy of the authoritative script, with the commit it was taken from), the cue file, the sidecar, and the scene files, one per scene heading. In project mode the cast and props come from the project (no invented chairs or doors: a line that would need one is left for review), a camera cut is placed where each `CAMERA` note is, every insert is framed from its subject (`fit`, above), and each scene starts and ends with the cue file's `before` and `after` steps. `projects/abe-isaac` is laid out this way; its six scene files are compiler output, and the hand-authored Milestone 4 blocking lives in `cues/animation_cues.json`.
+
+| New syntax | What it does |
+|---|---|
+| `[[beat: id]]` (Fountain+) | Names the action paragraph or line of dialogue it is next to (on the same line, or on its own line just before). An identifier is a letter, then letters, digits, `_`, `-` or `.`. |
+| `MARGIN=0.15` in `CAMERA` (Fountain+) | The fraction of the frame clear on each side; the shot is framed from its subject's bounding box. |
+| `--cues PATH`, `--project DIR`, `--check` (fountain2pam.py) | Compile with a cue file; compile a project's scenes; with `--project`, write nothing and fail if a scene is out of date or the cue report finds anything. |
+| Cue file (`cue_format: 1`) | `cues`: `{id: [steps]}` or `{id: {"steps", "scene", "note"}}`; `scenes`: `{scene: {"before", "after"}}`. |
+| `project.json` | `source` (a path, or `{"file", "copy_of": {"repository", "path", "commit", "sha256"}}`), `cues`, `sidecar`, `scenes`. |
+| `"fit": "bounds"`, `"margin"` in `_shot_meta` | Frame the shot from its subject's bounding box (see "Camera system"). |
+| `"subject": "knife+bowl"` | A fitted shot frames all of them. |
+
+The roadmap's completion test is in `tests/test_fountain_cues.py`: recompiling the screenplay keeps every cue verbatim and the six scenes write the Milestone 4 ledger byte for byte; on every frame of the scroll, broken-knife and phone inserts the subject is in the frame and its text is readable; and orphaned cues are reported. The reference is section 13 of `fountain2pam-manual.md` and section 11 of `pam-player_manual.md`.
 
 ### Timed parallel blocks: overlapping action on the frame clock
 

@@ -567,6 +567,7 @@ from pam import timeline as _pam_timeline
 from pam import prop_states as _pam_prop_states
 from pam import constraints as _pam_constraints
 from pam import choreography as _pam_choreography
+from pam import shot_targets as _pam_shot_targets
 
 
 BG_COLOR    = "#0a0e1a"
@@ -673,6 +674,11 @@ def _apply_camera(meta: dict, scene: "MovingCameraScene",
     rt_override     : if given, use this run_time instead of the value from
                       _MOVE_RT.  Used by the ``zoom`` move so the caller can
                       pass meta["rt"] without touching the table.
+
+    A shot with ``"fit"`` (Milestone 5) arrives with ``"_frame"``, the
+    width and center ``pam/shot_targets.py`` worked out from the
+    subject's bounding box; it is used as it is.  Every other shot is
+    framed from the tables below, as it always was.
     """
     frame = getattr(getattr(scene, "camera", None), "frame", None)
     if frame is None:
@@ -721,6 +727,10 @@ def _apply_camera(meta: dict, scene: "MovingCameraScene",
     # Governor hovers above the table — raise y for insert/close shots on it
     if subject in ("governor", "dodecahedron") and framing in ("insert", "close"):
         target_y = 1.5
+
+    fitted = meta.get("_frame")
+    if fitted is not None:          # (Milestone 5: framed from the subject)
+        target_w, (target_x, target_y) = fitted
 
     if rt > 0:
         scene.play(
@@ -776,6 +786,10 @@ def _camera_anim(meta: dict, scene: "MovingCameraScene",
 
     if subject in ("governor", "dodecahedron") and framing in ("insert", "close"):
         target_y = 1.5
+
+    fitted = meta.get("_frame")
+    if fitted is not None:          # (Milestone 5: framed from the subject)
+        target_w, (target_x, target_y) = fitted
 
     return frame.animate.set_width(target_w).move_to(
         np.array([target_x, target_y, 0]))
@@ -2235,6 +2249,14 @@ class PAMPlayer(MovingCameraScene):
     ``insert``        7.0         Extreme close — prop or detail
     ===============  ===========  ====================================
 
+    A shot whose metadata has ``"fit": "bounds"`` (Milestone 5) is not
+    framed from this table: its width and center come from the
+    subject's bounding box, with ``"margin"`` (default 0.12) clear on
+    each side, holding where the shot's steps take the subject before
+    the next cut and closing in on text too small to read
+    (pam/shot_targets.py).  ``subject`` may then join several names with
+    ``+``.  Every other shot is framed as the table says.
+
     MOVE values and their camera behaviour
     ---------------------------------------
     ============  =========  ==========================================
@@ -3230,6 +3252,174 @@ class PAMPlayer(MovingCameraScene):
                       f"x=[{zspec['x_min']:.1f}, {zspec['x_max']:.1f}]")
             return meta, char_x
 
+        # ── Milestone 5: shots framed from their subject ─────────────────
+        def _fit_subject_mobs(name: str):
+            """The mobjects a fitted shot measures for subject *name*: a
+            character's figure, or a prop, a part of one or a scene
+            object."""
+            spec = cast.get(name)
+            if isinstance(spec, dict) and spec.get("fig") is not None:
+                return [spec["fig"]]
+            mgr = _pam_prop_states.get(self)
+            mob = mgr.mobs.get(name) if mgr is not None else None
+            if mob is None:
+                mob = props.get_raw(name)
+            if mob is None and name in _scene_objects:
+                mob = _scene_objects[name].get("mob")
+            if mob is None:
+                return []
+            group = getattr(mob, "group", None)     # governor, dog
+            return [group if group is not None
+                    and not hasattr(mob, "get_family") else mob]
+
+        def _fit_dest_xy(att: dict):
+            """Where an attachment puts what it holds, as things are now
+            (None when what it names is not on stage)."""
+            off = np.array(att.get("offset") or [0.0, 0.0], float)
+            to = att.get("to")
+            if to is None:
+                if "x" in att or "y" in att:
+                    return np.array([float(att.get("x", 0.0)),
+                                     float(att.get("y", 0.0))]) + off
+                return None
+            fig = _get_fig(to) if to in cast else None
+            if fig is not None:
+                names = att.get("joints") or [att.get("joint", "rwrist")]
+                dots = getattr(fig, "dots", {}) or {}
+                pts = [dots[j].get_center()[:2] for j in names if j in dots]
+                if not pts:
+                    return None
+                return np.mean(np.array(pts, float), axis=0) + off
+            mobs = _fit_subject_mobs(to)
+            if not mobs:
+                return None
+            try:
+                xy = _pam_prop_states.point_of(mobs[0], att.get("point"))
+            except Exception:
+                xy = mobs[0].get_center()[:2]
+            return np.array([float(xy[0]), float(xy[1])]) + off
+
+        def _fit_by_shift(mob, att: dict):
+            """How far the center of *mob* is from the place of it that
+            sits on its attachment (``by``: a point, a part, or the
+            prop's anchor, such as a scroll's grip)."""
+            c = np.array(mob.get_center()[:2], float)
+            by = att.get("by")
+            ref = None
+            try:
+                if by in _pam_prop_states.POINTS:
+                    ref = _pam_prop_states.point_of(mob, by)
+                elif by and by in (getattr(mob, "pam_parts", None) or {}):
+                    ref = mob.pam_parts[by].get_center()[:2]
+                elif by and callable(getattr(mob, "pam_point", None)):
+                    ref = mob.pam_point(by)
+                elif not by and callable(getattr(mob, "pam_anchor", None)):
+                    ref = mob.pam_anchor()
+            except Exception:
+                ref = None
+            if ref is None:
+                return np.zeros(2)
+            return c - np.array([float(ref[0]), float(ref[1])])
+
+        def _fit_box_at(mob, att: dict):
+            """The box *mob* has where attachment *att* puts it, as
+            things are now (None when that is not known)."""
+            size = _pam_shot_targets.mobject_box(mob)
+            dest = _fit_dest_xy(att)
+            if size is None or dest is None:
+                return None
+            return size.moved_to(dest + _fit_by_shift(mob, att))
+
+        def _fit_books(name: str):
+            """``[(prop or part, attachment)]`` for subject *name* as the
+            prop-state books have it: where each visible piece of it
+            belongs, also when it has not been put there yet."""
+            mgr = _pam_prop_states.get(self)
+            if mgr is None:
+                return []
+            base, _, part = name.partition(".")
+            rec = mgr.world.props.get(base)
+            if rec is None:
+                return []
+            out = []
+            parts = rec.get("parts") or {}
+            joined = all((p.get("attached") or {}).get("mode") == "joined"
+                         for p in parts.values())
+            if not parts or joined:
+                if not part:
+                    out.append((base, rec.get("attached")))
+            else:
+                for pn, p in parts.items():
+                    if not part or pn == part:
+                        out.append((f"{base}.{pn}", p.get("attached")))
+            return [(n, a) for n, a in out
+                    if isinstance(a, dict) and not a.get("hidden")]
+
+        def _fit_meta(meta: dict, upcoming, after_at=None) -> dict:
+            """A shot with ``fit``: the same shot description with
+            ``_frame``, the width and center that hold its subject (see
+            pam/shot_targets.py).  *upcoming*: the steps after the cut
+            (for where the shot sends its subject before the next cut).
+            Any other shot is returned unchanged."""
+            if not isinstance(meta, dict) or not meta.get("fit"):
+                return meta
+            st = _pam_shot_targets
+            names = st.subject_names(meta.get("subject"))
+            on_stage = {id(m) for m in self.mobjects}
+            boxes, caps, texts = [], [], []
+            for n in names:
+                for mob in _fit_subject_mobs(n):
+                    here = st.mobject_box(mob, on_stage)
+                    boxes.append(here)
+                    cap = st.text_height(mob)
+                    if cap is not None:
+                        caps.append(cap)
+                        if here is not None:
+                            texts.append(st.text_box(mob))
+                # where the books keep it (a prop that has not been put on
+                # its attachment yet, or is on its way there)
+                for target, att in _fit_books(n):
+                    for mob in _fit_subject_mobs(target):
+                        b = _fit_box_at(mob, att)
+                        boxes.append(b)
+                        tb = st.text_box(mob)
+                        if b is None or tb is None \
+                                or st.mobject_box(mob, on_stage) is not None:
+                            continue
+                        # not on stage yet: its text goes where it goes
+                        cx, cy = mob.get_center()[:2]
+                        texts.append(tb.moved_to(
+                            (tb.center[0] + b.center[0] - cx,
+                             tb.center[1] + b.center[1] - cy)))
+            # where the shot sends it before the next cut
+            for step in st.shot_transitions(upcoming or [], after_at):
+                for target, att in st.moved_targets(step):
+                    if not st.concerns(target, names):
+                        continue
+                    mobs = _fit_subject_mobs(target)
+                    if mobs:
+                        boxes.append(_fit_box_at(mobs[0], att))
+            box = st.Box.around(boxes)
+            if box is None:
+                print(f"PAMPlayer: shot — nothing of "
+                      f"{meta.get('subject')!r} is on stage to fit; "
+                      f"framing it as before.")
+                return meta
+            frame = getattr(getattr(self, "camera", None), "frame", None)
+            aspect = (float(frame.width) / float(frame.height)
+                      if frame is not None and frame.height
+                      else st.ASPECT)
+            margin = meta.get("margin", st.DEFAULT_MARGIN)
+            if not isinstance(margin, (int, float)) or isinstance(margin, bool):
+                margin = st.DEFAULT_MARGIN      # (pam-validate reports it)
+            w, c, info = st.fit_frame(
+                box, margin=margin, aspect=aspect,
+                text=st.Box.around(texts) if texts else None,
+                cap_height=min(caps) if caps else None)
+            print(f"  CAM {st.describe(w, c, info)} "
+                  f"subject={meta.get('subject')}")
+            return {**meta, "_frame": (w, c)}
+
         # ── timeline: steps of a timed parallel block ────────────────────
         # pam/timeline.py plays a timed block (Block.run); the closures
         # below tell it what each step does: on the frame a step starts,
@@ -3365,12 +3555,18 @@ class PAMPlayer(MovingCameraScene):
                               f"'{cue['path']}' ({e}); continuing silent.")
             return _end
 
+        _tl_blocks: list = []       # the timed blocks being played
+
         def _tl_camera(step: dict):
             """A camera marker in a timed block: a cut on this frame,
             or a move that lasts the marker's frames."""
             if not _camera_mode:
                 return {"phases": []}
             meta, char_x = _marker_context(step)
+            if meta.get("fit"):
+                meta = _fit_meta(meta, _tl_blocks[-1].get("do", [])
+                                 if _tl_blocks else [],
+                                 after_at=step.get("at", 0) or 0)
             info = _pam_timeline.describe(step, meta=meta)
             if info["kind"] != "camera":
                 print(f"PAMPlayer: camera move '{info.get('move')}' cannot "
@@ -3632,7 +3828,11 @@ class PAMPlayer(MovingCameraScene):
                 _pam_hooks.emit("action_begin", action_id=_aid, name=None,
                                 action="parallel", step=step, scene=self,
                                 collect_anims=False)
-            _pam_timeline.Block(self, step, _tl_start, quiet=quiet).run()
+            _tl_blocks.append(step)
+            try:
+                _pam_timeline.Block(self, step, _tl_start, quiet=quiet).run()
+            finally:
+                _tl_blocks.pop()
             if _aid is not None:
                 _pam_hooks.emit("action_end", action_id=_aid, name=None,
                                 action="parallel", step=step, scene=self,
@@ -3682,6 +3882,7 @@ class PAMPlayer(MovingCameraScene):
             if "_subscene_marker" in step:
                 if _camera_mode:
                     meta, char_x = _marker_context(step)
+                    meta = _fit_meta(meta, actions[_step_idx + 1:])
                     # For static cuts: apply immediately (no scene time used).
                     # For animated moves: defer so the camera moves concurrently
                     # with the next FadeIn(bubble) rather than before it.

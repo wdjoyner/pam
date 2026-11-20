@@ -790,6 +790,48 @@ class _Validator:
         for level, code, msg in ch.problems:
             self.add(level, code, msg, index, act, path.rstrip("."))
 
+    # ── a shot framed from its subject (Milestone 5) ─────────────────
+    def check_shot_fit(self, meta, index, path):
+        """``fit`` and ``margin`` on a ``_shot_meta`` (see
+        pam/shot_targets.py): what they may be, and that the subject
+        names something the camera can measure."""
+        fit = meta.get("fit")
+        if "fit" in meta and fit != "bounds":
+            self.add(ERROR, "bad-shot-fit",
+                     f"fit must be \"bounds\", not {fit!r}", index, None,
+                     path + "fit")
+        if "margin" in meta:
+            m = meta["margin"]
+            if not (isinstance(m, (int, float)) and not isinstance(m, bool)
+                    and 0.0 <= m < 0.5):
+                self.add(ERROR, "bad-shot-margin",
+                         f"margin must be a number from 0 to below 0.5 "
+                         f"(the fraction of the frame clear on each side), "
+                         f"not {m!r}", index, None, path + "margin")
+            elif "fit" not in meta:
+                self.add(WARNING, "margin-without-fit",
+                         "margin is only used by a shot with \"fit\": "
+                         "\"bounds\"", index, None, path + "margin")
+        if fit != "bounds":
+            return
+        from pam.shot_targets import subject_names
+        names = subject_names(meta.get("subject"))
+        if not names or names == ["ensemble"]:
+            self.add(WARNING, "shot-fit-subject",
+                     "a fitted shot needs a subject to frame (a character, "
+                     "a prop, or a part of one); the player frames it as "
+                     "before", index, None, path + "subject")
+            return
+        for name in names:
+            base = name.split(".", 1)[0]
+            if self.world.has(name, "any") or self.world.has(base, "any") \
+                    or base in self.states.props:
+                continue
+            self.add(WARNING, "unknown-shot-subject",
+                     f"'{name}' is not a known character or prop at this "
+                     f"step; the player frames the shot as before",
+                     index, None, path + "subject")
+
     # ── one step ─────────────────────────────────────────────────────
     def step(self, step, index, path="", parallel=False, timed=False):
         if not isinstance(step, dict):
@@ -814,6 +856,8 @@ class _Validator:
         if isinstance(meta, dict):
             self.check_durations(meta, index, step.get("action"),
                                  path + "_shot_meta.")
+            if "fit" in meta or "margin" in meta:
+                self.check_shot_fit(meta, index, path + "_shot_meta.")
 
         if "action" not in step:
             if not any(k in step for k in specs.ANNOTATION_KEYS):

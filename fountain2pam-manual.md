@@ -64,6 +64,7 @@ but are read by `fountain2pam.py` during conversion.
    - [FOCUS](#focus--beat-scoped) *(new in v0.9.7)*
    - [PRODUCTION NOTE](#production-note--file-level)
    - [ZONE (dot-slug)](#zone-sub-location-dot-slugs)
+   - [BEAT](#beat--element-scoped) *(Milestone 5)*
 5. [CAMERA sub-key vocabulary](#5-camera-sub-key-vocabulary)
 6. [LIGHTING vocabulary](#6-lighting-vocabulary)
 7. [Action interpreter](#7-action-interpreter)
@@ -72,8 +73,9 @@ but are read by `fountain2pam.py` during conversion.
 10. [Output files](#10-output-files)
 11. [Character registry](#11-character-registry)
 12. [Validation and patch guide](#12-validation-and-patch-guide)
-13. [Complete example](#13-complete-example)
-14. [Changelog](#14-changelog)
+13. [Choreography cues and projects](#13-choreography-cues-and-projects) *(Milestone 5)*
+14. [Complete example](#14-complete-example)
+15. [Changelog](#15-changelog)
 
 ---
 
@@ -123,6 +125,8 @@ Multi-line example:
 | `[[ FOCUS: RESET ]]` | Beat | Restore full brightness *(v0.9.7)* |
 | `[[ PRODUCTION NOTE: Sidel's accent is mid-Atlantic. ]]` | File | Non-rendering note |
 | `.Secretary's pod` | Scene | Sub-location zone shift |
+| `[[ beat: s02_pull_attempt ]]` | Element | Names the action or line it is next to; compiles to its cue with `--cues` / `--project` *(Milestone 5)* |
+| `[[ CAMERA: FRAMING=insert \| SUBJECT=phone \| MARGIN=0.15 ]]` | Beat | Frame the shot from its subject's bounding box *(Milestone 5)* |
 
 ---
 
@@ -518,6 +522,36 @@ shift its camera region without starting a new scene.
 
 ---
 
+### BEAT — element-scoped *(Milestone 5)*
+
+A beat identifier names the action paragraph or line of dialogue it sits
+next to, so that a cue file can give that element hand-authored PAM steps
+(section 13).  Put the note at the end of the line, or on its own line
+just before the element:
+
+```fountain
+Abraham grabs Isaac's wrist. Nothing moves. [[beat: s02_pull_attempt]]
+
+ISAAC
+That'll be a short ceremony. [[beat: s02_short_ceremony]]
+```
+
+- The identifier is a letter, then letters, digits, `_`, `-` or `.`.
+  Prefixing it with the scene (`s02_`) keeps it unique in the screenplay.
+- One element may have several beats; their cues are compiled in the order
+  the notes are written.
+- The note is invisible to screenplay renderers, and the identifier
+  survives any rewrite of the prose around it.
+- **Without `--cues` or `--project` a beat note does nothing**, as before
+  Milestone 5 (an unknown note key was always ignored).  The
+  scene-purpose notes some screenplays carry, such as
+  `[[#2 | BEAT: WTF / Reactions | ... ]]`, are not beat notes: their key is
+  not `BEAT`.
+- A beat note next to a scene heading, a transition, dual dialogue, a
+  `.zone` line or a centered line names nothing; the compiler reports it.
+
+---
+
 ## 5. CAMERA sub-key vocabulary
 
 ### FRAMING
@@ -583,6 +617,27 @@ separate `[[ LIGHTING: ]]` note.  Accepts the same values — see §6.
 ```fountain
 [[ CAMERA: FRAMING=close | SUBJECT=Nona | MOVE=static | TRANSITION=cut | LIGHTING=deep-shadow ]]
 ```
+
+### MARGIN *(Milestone 5)*
+
+`MARGIN=0.15` frames the shot from its subject's bounding box, leaving that
+fraction of the frame clear on each side (a number from 0 to below 0.5).
+The compiled marker's `_shot_meta` gets `"fit": "bounds"` and
+`"margin": 0.15`; `pam_player.py` then frames what is visible of the
+subject, where the shot takes it before the next cut, and its text at a
+readable size (section 11 of `pam-player_manual.md`).  In project mode
+(`--project`) every `insert` is framed this way, with the default margin
+(0.12) when the note gives none.
+
+`SUBJECT` may name several things joined by `+`, all of which a fitted
+shot holds:
+
+```fountain
+[[ CAMERA: FRAMING=insert | SUBJECT=knife+bowl | MOVE=static | TRANSITION=cut | MARGIN=0.1 ]]
+```
+
+Without MARGIN, and outside project mode, a CAMERA note compiles exactly as
+before.
 
 ---
 
@@ -756,6 +811,7 @@ comments in the PAM JSON explaining the inference.
 
 ```
 python fountain2pam.py <fountain_file> [options]
+python fountain2pam.py --project <dir> [--check] [--warnings-json <file>]
 ```
 
 | Option | Default | Description |
@@ -771,6 +827,10 @@ python fountain2pam.py <fountain_file> [options]
 | `--title <text>` | From title page | Override title in output |
 | `--no-comments` | off | Strip `_comment` / `_hint` entries from PAM JSON |
 | `--no-validate` | off | Skip post-conversion validation checks |
+| `--warnings-json <file>` | — | Also write everything that needs a look as JSON (with `--cues` or `--project`, a `cues` report too) |
+| `--cues <file>` | — | Compile with a choreography cue file (section 13) *(Milestone 5)* |
+| `--project <dir>` | — | Compile a project's scenes from `<dir>/project.json`; no `<fountain_file>` (section 13) *(Milestone 5)* |
+| `--check` | off | With `--project`: write nothing; exit 1 if a scene file is out of date or the cue report finds anything *(Milestone 5)* |
 
 ### Clip modes
 
@@ -1071,7 +1131,140 @@ PATCH GUIDE  (manual edits needed in PAM JSON)
 
 ---
 
-## 13. Complete example
+## 13. Choreography cues and projects
+
+*Milestone 5 of "PAM: The Road to Blender".*  The screenplay should stay
+readable as a screenplay.  Movement the action interpreter can read off
+the prose ("Bob walks to the left") still compiles automatically;
+choreography it cannot (a pull on a wrist that does not move, a knife
+that comes apart) is written once, by hand, in a **cue file**, and named
+in the screenplay by a beat note (section 4, BEAT).  Recompiling the
+screenplay then copies the cue in, so it never overwrites hand-authored
+choreography.
+
+### The cue file
+
+```json
+{
+ "cue_format": 1,
+ "scenes": {
+  "scene2": {"before": [{"action": "set_background", "color": "#a9c8e6"},
+                        {"action": "fade_in", "who": "isaac", "rt": 0.2}],
+             "after": []}
+ },
+ "cues": {
+  "s02_draws_knife": {"scene": "scene2",
+                      "steps": [{"action": "morph", "who": "abraham",
+                                 "pose": "look_up_point", "frames": 6}],
+                      "note": "anything"},
+  "s02_slings_rope": [{"action": "prop_transition", "prop": "rope",
+                       "frames": 9, "attached": {"to": "abraham",
+                                                 "joint": "rshoulder"}}],
+  "s02_short_ceremony": []
+ }
+}
+```
+
+- A **cue** is a list of PAM steps, any steps a scene may have (timed
+  blocks, sequences, prop transitions, camera markers, lines of dialogue),
+  or an object with `steps` and, optionally, `scene` (the scene its beat
+  belongs to; the compiler checks it) and `note`.
+- An **empty cue** compiles to nothing: use it for a line of dialogue that
+  another cue already speaks on an exact frame, so that it is not spoken
+  twice.
+- `scenes` is for project mode: the steps each scene file starts
+  (`before`) and ends (`after`) with, such as its background, its props
+  and who is on stage when it opens.
+
+### How an element compiles
+
+| The element has | It compiles to |
+|---|---|
+| no beat note | what it compiled to before Milestone 5 |
+| beats, one or more with a cue | a `# CUE id (n steps): <its prose>` comment and the cue's steps, for each beat in order; a beat of the element that has no cue leaves a `# REVIEW: beat id has no cue` comment |
+| beats, none with a cue | what it compiled to before (and the report lists the beats) |
+
+The steps are copied: the compiled file never shares an object with the
+cue file, and two beats with the same cue get two copies.  The speaker of
+a cued line of dialogue is faded in first if they are not on stage, as
+for any line.
+
+### The report
+
+With `--cues` or `--project` the console ends with a **Cues** section, and
+`--warnings-json` writes it as `"cues"`:
+
+| Key | What it lists |
+|---|---|
+| `cues_used` | every cue compiled: id, scene, line, number of steps |
+| `orphaned_cues` | cues whose beat no longer appears in the screenplay |
+| `beats_without_cues` | beats the cue file has no cue for (their element was compiled automatically) |
+| `duplicate_beats` | beats that appear more than once |
+| `invalid_beats` | `[[beat: ...]]` notes whose value is not an identifier |
+| `misplaced_beats` | beat notes next to nothing a cue can replace (section 4) |
+| `wrong_scene` | cues whose `scene` is not the scene their beat is in |
+| `orphaned_scene_setups` | `scenes` entries for a scene the project does not have |
+
+```text
+Cues:       cues/animation_cues.json  (40 compiled, 1 orphaned, 1 beat(s) without a cue)
+  ⚠  orphaned cue 's02_knife_breaks': no [[beat: s02_knife_breaks]] in the screenplay
+  ⚠  beat 's02_knife_snaps' (line 105, scene2) has no cue; compiled automatically
+```
+
+### Projects
+
+`--project DIR` compiles a whole animation project.  `DIR/project.json`
+says where everything is:
+
+```json
+{
+ "project": "abe-isaac",
+ "source": {"file": "source/script.fountain",
+            "copy_of": {"repository": "wdjoyner/writing-guides",
+                        "path": "shorts/abe-and-isaac/script.fountain",
+                        "commit": "<the commit it was copied from>",
+                        "sha256": "<of the copy>"}},
+ "cues": "cues/animation_cues.json",
+ "sidecar": "pam_sidecar.json",
+ "scenes": ["scene1.json", "scene2.json", "scene3.json",
+            "scene4.json", "scene5.json", "scene6.json"]
+}
+```
+
+`source` may also be a plain path.  The screenplay kept with the project
+is a copy of the authoritative literary version (for the short, the script
+in `writing-guides`); `copy_of` records which, so that the copy is
+reproducible.  In project mode:
+
+- each **scene heading** compiles to the next file in `scenes` (the
+  screenplay must have as many headings as the project has scene files);
+- the **cast and props come from the project**: no `title`, `cast` or
+  `props` block is written (the player merges the sidecar), nothing is
+  written next to the screenplay (`characters.txt`, `characters.json`),
+  and the line-by-line interpreter's invented props (chairs, doors, desks)
+  are not used: an uncued line that would need one, or that would move a
+  prop the continuity ledger carries, is left as a `# REVIEW` comment with
+  the reason;
+- a **camera cut is placed where each structured `CAMERA` note is**
+  (a `_subscene_marker` named `<scene>_shotNN`), instead of once per
+  speaker's clip; every `insert`, and every shot with `MARGIN`, is framed
+  from its subject's bounding box (`"fit": "bounds"`);
+- each scene starts with its `before` steps and ends with its `after`
+  steps from the cue file, and has no automatic closing `fade_out`;
+- the scene files are written only when they change, as JSON with a
+  one-space indent, after a comment that says they are compiled output.
+
+```bash
+python fountain2pam.py --project projects/abe-isaac            # compile
+python fountain2pam.py --project projects/abe-isaac --check    # up to date?
+./pam-validate --project projects/abe-isaac                    # the ledger
+```
+
+Prompts (`prompts.json`) are not written in project mode.
+
+---
+
+## 14. Complete example
 
 ```fountain
 Title: Too Nice to Die
@@ -1156,7 +1349,20 @@ repeating the full `CHARACTER` annotation.
 
 ---
 
-## 14. Changelog
+## 15. Changelog
+
+### Milestone 5 (PAM 1.0.1)
+
+All opt-in: a screenplay compiled without `--cues` or `--project` comes out
+as before, beat notes and all.
+
+- **Choreography cues** — `[[ beat: id ]]` notes, `--cues`, the cue file
+  and its report: orphaned cues, beats without cues (section 13).
+- **Projects** — `--project` and `--check`, `project.json` (section 13).
+- **MARGIN** — a `CAMERA` sub-key: frame the shot from its subject's
+  bounding box (section 5).  `SUBJECT` may join names with `+`.
+- Importing `fountain2pam` into a process that already has Manim no longer
+  replaces the `manim` module.
 
 ### v0.9.8
 

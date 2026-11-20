@@ -2,9 +2,10 @@
 
 Regression tests for *PAM: The Road to Blender*: the Milestone 1 baseline,
 the vertical slice, the Milestone 2 timeline, the Milestone 3 constraints
-and choreography routines, and Milestone 4 (stateful props and the
+and choreography routines, Milestone 4 (stateful props and the
 continuity ledger, Stage 4a; the scroll, a text-bearing prop, Stage 4b;
-the rope, a deformable attachment, Stage 4c).
+the rope, a deformable attachment, Stage 4c), and Milestone 5 (Fountain+
+choreography cues, projects, and inserts framed from their subject).
 None of them writes a video, and none writes into the repository.
 
 ```bash
@@ -18,6 +19,8 @@ python -m pytest -k rope          # Stage 4c: the rope, its shapes, its
                                   # completion test (test_rope.py needs no
                                   # renderer and takes a second)
 python -m pytest -k choreography  # Milestone 3, with its completion test
+python -m pytest -k fountain_cues # Milestone 5: cues, the project, and its
+                                  # completion test (about a minute)
 python -m pytest -k golden   # golden-trace comparison only
 python -m pytest -k validate # validator only (a few seconds)
 ```
@@ -27,7 +30,7 @@ something extra and are skipped without it:
 
 | Tests | Need |
 |---|---|
-| `test_fountain2pam_warnings.py` | `screenplain` (as `fountain2pam.py` does) |
+| `test_fountain2pam_warnings.py`, `test_fountain_cues.py` | `screenplain` (as `fountain2pam.py` does) |
 | `test_blender_build.py` | Blender: `pip install bpy`, or a `blender` program on `PATH`, or `BLENDER=/path/to/blender` |
 
 ## What is covered
@@ -47,6 +50,7 @@ something extra and are skipped without it:
 | `test_choreography.py` | Milestone 3. `joint_to_point` and `joint_to_prop` (a hand on a point, a foot planted, a hand that follows a moving prop, a hand on a wrist that is itself held). How a routine's `frames` are shared over its phases. The Scene 2 routines `pull_immovable`, `cork_pop_up` and `mismatched_hug`: phases on their frames, a routine as a step of a timed block, and what each gag must show. The roadmap's completion test (below). |
 | `test_prop_states.py` | Milestone 4, Stage 4a, without a renderer. The prop state machines (the knife, the phone, an item's own, and doors, lids and the Governor as machines of the same kind); what a `prop_transition` may and may not do; the validator on stateful props, also in timed blocks; the continuity ledger file (written, read by the next scene, overrides reported, nothing rewritten when nothing changed); and the six-scene project, with the roadmap's completion test for the knife (below). |
 | `test_prop_trace.py` | The same things as the player plays them: prop identities and `prop_state_changed` events in the trace, where every part is on every frame of the knife break, a transition as a step of a timed block, a hand held on a part of the knife, the phone's display changing while the phone stays put (and the reverse), the blade stuck in the altar, the ledger written by playing equal to the one written by validating, and doors, a lid and the Governor through `prop_transition`. The scroll: its text in the trace on every frame of every step that writes or crosses out, exactly as `prop_states.text_row` shows it; its steps in timed blocks; its grip in the hand on every frame, also while Abraham runs; its shape in each state; and in the project, the trace and the ledger agreeing at the end of every scene. The rope: its two pieces and their shapes in the trace, one rope until it snaps, every frame of a change sampled, the coil riding on Abraham's shoulder as he walks, the knot following Isaac's wrists on every frame, pulled tight over its frames, the broken ends springing apart and the pieces lying where the snap puts them; its steps in timed blocks; and in the project, the trace and the ledger agreeing at the end of every scene. |
+| `test_fountain_cues.py` | Milestone 5. Beat notes change nothing without a cue file; a cued action or line compiles to a copy of its cue, an empty cue to nothing, an uncued beat as before; the cue report (orphaned cues, beats without cues, duplicates, notes that are not identifiers, cues filed under another scene); malformed cue files; the project's source is the recorded copy of the script, and its scene files are what `fountain2pam.py --project` compiles; no invented cast or props in a project. `pam/shot_targets.py` on its own (the frame for a box, closing in on text, the steps of a shot), the validator on `fit` and `margin`, a fitted cut in a timed block, and an insert without `fit` framed as before. The roadmap's completion test (below). |
 | `test_validate.py` | The JSON validator and the `pam-validate` command, including what they report for each fixture. |
 | `test_action_specs.py` | `pam/action_specs.py` lists exactly the actions `pam_player.py` dispatches. |
 | `test_fountain2pam_warnings.py` | `fountain2pam.py --warnings-json`, and that the validator reports the same `# REVIEW` comments. |
@@ -87,7 +91,10 @@ The fixtures are eight screenplays in the repository root:
 
 `projects/abe-isaac/` is another kind of fixture: six scenes and a sidecar
 with a `continuity` block. The tests always work on a private copy of it,
-since validating or playing a scene writes to the ledger.
+since validating or playing a scene writes to the ledger. Since Milestone
+5 its scene files are compiled from `source/script.fountain` and
+`cues/animation_cues.json` (`fountain2pam.py --project`); the Milestone
+4 tests run on them as they are.
 
 The first three predate the timeline. They are the proof that it is opt-in:
 they must keep tracing as version 4 and keep matching their golden traces.
@@ -313,6 +320,54 @@ open in. The roadmap's routine table puts `reach_and_tighten` ("Isaac
 accidentally tightens his knot") in Scene 5. That beat is from Draft 2;
 in Draft 3 Abraham yanks the knot tight himself in Scene 4 and nothing
 happens to the rope in Scene 5, so the scenes follow Draft 3.
+
+## The Milestone 5 completion test
+
+The roadmap's test reads: *recompiling the Fountain screenplay does not
+erase hand-authored choreography or incorrectly frame the critical
+inserts. Orphaned cues are reported.* It is in `test_fountain_cues.py`,
+in three parts, and it renders nothing (the inserts are checked in
+traces, a dry run).
+
+**The choreography is kept.**
+`test_recompiling_keeps_the_hand_authored_choreography` compiles the
+project and finds each of the 41 cues in its scene, verbatim and in one
+piece after its `# CUE` comment, and each scene's `before` and `after`
+steps at its start and end. `test_rewriting_the_prose_keeps_the_choreography`
+rewrites the prose around two beats (and moves one note to its own line)
+and recompiles: the steps come out the same. The Milestone 4 tests run
+on the compiled scenes: the knife, scroll and rope completion tests
+pass, and the ledger the six scenes write is byte for byte the one the
+hand-authored scenes wrote (`test_the_ledger_in_the_repository_is_up_to_date`).
+
+**Orphans are reported.** `test_orphaned_cues_are_reported` renames one
+beat in the screenplay and deletes the paragraph of another: the
+compiler lists the two cues that lost their beats and the beat with no
+cue, and `--check` fails. `test_a_cue_for_another_scene_is_reported`
+does the same for a cue filed under the wrong scene and a setup for a
+scene the project does not have.
+
+**The critical inserts are framed.** Scenes 1, 2, 4, 5 and 6 are traced,
+and every insert is a fitted shot:
+
+| Scene | Insert | Framed on | What the test checks |
+|---|---|---|---|
+| 1 | the scroll, "AND ABRAHAM RAISED THE KNIFE." | its text (5.8% cap height) | all the text in the frame on every frame, filling it from side to side; the line reads as the script says |
+| 2 | the knife coming apart | the knife and where the shot sends its pieces | both pieces and the bowl in the frame on every frame; intact at the cut, broken at the end, the pieces apart |
+| 4 | the phone, a big red LIVE button | the phone (4.1%) | the phone in the frame; its screen shows the record button |
+| 5 | the phone going LIVE, the count climbing | the phone | in the frame; the count reaches 240 |
+| 5 | the count doubling, the comment | the phone on its rock | in the frame; 480 and IS THAT A REAL KNIFE; the legacy insert (7 wide, centered at y = 1.5) would miss it |
+| 6 | the scroll, "AND ABRAHAM RAISED HIS SON." | its text (4.3%) | as in Scene 1 |
+
+On every frame of each insert the smallest text on the subject is at
+least `TEXT_MIN` (3%) of the frame's height, measured on the scroll's
+lines and the phone's screen as they are drawn on that frame.
+
+What "frames well" leaves to a person: the broken-knife insert is 5.2
+units wide, a medium cut-in, because the bowl is 2.2 units below the
+hands; and nothing checks that another prop does not cover the subject
+(in Scene 4 the knife handle covered the LIVE button until a pose step
+was added to the cue `s04_picks_up_phone`).
 
 ## Findings recorded while building the baseline
 
@@ -547,6 +602,47 @@ the built `.blend`, the distance between the constrained hand and the wrist on
 every frame: zero for the wrist-pull, under 0.002 on keyed frames and under
 0.01 between them when the wrist itself moves. They do not judge how the scene
 looks.
+
+**Fountain+ cues and fitted inserts (Milestone 5).** Seven things turned up.
+
+- *The compiler dropped every insert.* Without a project, `fountain2pam.py`
+  places a camera marker where a speaker's clip ends, with the clip's last
+  `CAMERA` note; a `CAMERA` note between two action lines is overwritten by
+  the next one before any clip ends. Compiled that way, none of the six
+  inserts of Draft 3 survives (its markers are all wide or medium shots). This is left alone (it would change
+  the output for every screenplay); in project mode the cut is where the
+  note is.
+- *The legacy insert misses props low on the stage.* It is 7 units wide and
+  centered at y = 1.5, so a phone propped on a rock (y about -2) is below
+  the frame. Fitted shots (`"fit": "bounds"`) are opt-in, so the legacy
+  insert is unchanged.
+- *A broken knife moves out of a frame set at the cut.* At the cut the knife
+  is whole in two hands; the blade then drops 2.2 units into the bowl.
+  Framing the box at the cut would show the hands and lose the blade, so a
+  fitted shot also holds where the shot's steps send its subject before the
+  next cut. The steps are read from the screenplay, not simulated: a target
+  that moves during the shot (Isaac's hand, as he straightens) is taken
+  where it is at the cut, which the margin covers here.
+- *A fitted cut needs its subject declared.* Scene 5 opens on an insert of
+  the phone, but nothing exists before the scene's setup steps run, so a
+  project scene's opening cut comes after its `before` steps (which take
+  9 frames in the wide shot here). A subject that is declared but not yet
+  on its attachment is framed where the prop-state books keep it.
+- *The trace follows a scroll by its grip*, not by the center of its
+  bounding box, so the completion test places the scroll's text on the
+  grip.
+- *Finding a character cue.* The compiler finds an element's line in the
+  file by matching the start of the line, so `ISAAC` also matches the
+  action line `Isaac finally looks up.`; that is left as it is for the
+  notes it already fires, and beat notes use the line that is the cue
+  itself.
+- *`fountain2pam.py` never had PAM's prop types.* It loads `pam/props.py`
+  under a stand-in Manim to read `PROP_TYPES`, the import fails
+  (`linear` is not defined), and it falls back to ten built-in names, so
+  it does not know `knife`, `phone`, `scroll`, `rope`, `bowl` or `altar`.
+  This is left alone (it would change its output); the stand-in module
+  was also left in `sys.modules`, which mattered only in a process that
+  imports Manim afterwards, and it is now removed.
 
 ## Manim version
 

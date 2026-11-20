@@ -1,5 +1,8 @@
 [
  {
+  "_comment": "# Compiled by fountain2pam.py --project from source/script.fountain (scene 4) and cues/animation_cues.json.  Edit those, not this file."
+ },
+ {
   "action": "set_background",
   "color": "#a9c8e6"
  },
@@ -32,6 +35,26 @@
   "rt": 0.2
  },
  {
+  "_comment": "# SCENE: EXT. MOUNT MORIAH - DAY"
+ },
+ {
+  "_subscene_marker": "scene4_shot01",
+  "_shot_meta": {
+   "framing": "wide",
+   "subject": "ensemble",
+   "move": "static",
+   "transition": "cut",
+   "lighting": null,
+   "freeform": false
+  }
+ },
+ {
+  "_comment": "# REVIEW: Isaac arranges the stones into a low altar. Abraham straightens one stone; Isaac moves it back. They agree to leave it crooked.  [not compiled: 'exit_through' needs a prop 'door' this project does not have]"
+ },
+ {
+  "_comment": "# CUE s04_props_phone (2 steps): Isaac props his phone vertically against a smaller rock, its camera aime"
+ },
+ {
   "action": "prop_transition",
   "prop": "phone",
   "to": "recording",
@@ -46,6 +69,16 @@
  {
   "action": "wait",
   "frames": 6
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "Remember: raise the handle, not the blade.",
+  "side": "right",
+  "hold": 1.26
+ },
+ {
+  "_comment": "# CUE s04_takes_pieces_out (2 steps): Abraham takes the two pieces of the knife out of his satchel, drops the "
  },
  {
   "action": "prop_transition",
@@ -72,6 +105,9 @@
   "frames": 6
  },
  {
+  "_comment": "# CUE s04_blade_into_satchel (2 steps): Abraham takes the two pieces of the knife out of his satchel, drops the "
+ },
+ {
   "action": "prop_transition",
   "prop": "knife",
   "to": "blade_carried",
@@ -90,6 +126,9 @@
  {
   "action": "wait",
   "frames": 9
+ },
+ {
+  "_comment": "# CUE s04_winds_rope (2 steps): Abraham takes the two pieces of the knife out of his satchel, drops the "
  },
  {
   "action": "parallel",
@@ -126,6 +165,44 @@
   "frames": 6
  },
  {
+  "action": "say",
+  "who": "isaac",
+  "text": "Looser. I'm supposed to escape after the speech.",
+  "side": "right",
+  "hold": 1.44
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "I'm tying a bow.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "That's a square knot.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "Give it here, I'll tie myself up.",
+  "side": "right",
+  "hold": 1.26
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "I was tying knots before you were born.",
+  "side": "right",
+  "hold": 1.44
+ },
+ {
+  "_comment": "# CUE s04_yanks_knot (2 steps): He yanks the knot tight. Isaac tests it. It holds. He shrugs and lies ba"
+ },
+ {
   "action": "prop_transition",
   "prop": "rope",
   "to": "tightened",
@@ -135,6 +212,23 @@
  {
   "action": "wait",
   "frames": 6
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "Press the red button when you're ready.",
+  "side": "right",
+  "hold": 1.26
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "Then I'll say my part.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "_comment": "# CUE s04_picks_up_phone (2 steps): Abraham picks up the phone."
  },
  {
   "action": "prop_transition",
@@ -148,8 +242,43 @@
   }
  },
  {
+  "action": "morph",
+  "who": "abraham",
+  "pose": "reach_side_l",
+  "frames": 6
+ },
+ {
+  "_subscene_marker": "scene4_shot02",
+  "_shot_meta": {
+   "framing": "insert",
+   "subject": "phone",
+   "move": "static",
+   "transition": "cut",
+   "lighting": null,
+   "freeform": false,
+   "fit": "bounds"
+  }
+ },
+ {
+  "_comment": "# CUE s04_red_button (1 step): ON THE SCREEN: a big red LIVE button."
+ },
+ {
   "action": "wait",
   "frames": 9,
   "beat": "red_button"
+ },
+ {
+  "_subscene_marker": "scene4_shot03",
+  "_shot_meta": {
+   "framing": "wide",
+   "subject": "ensemble",
+   "move": "static",
+   "transition": "cut",
+   "lighting": null,
+   "freeform": false
+  }
+ },
+ {
+  "_comment": "# REVIEW: Abraham nods. He rehearses silently, counting on his fingers, hands shaking. He goes to lean the phone back against its rock."
  }
 ]

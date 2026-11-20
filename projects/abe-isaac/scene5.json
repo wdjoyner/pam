@@ -1,5 +1,8 @@
 [
  {
+  "_comment": "# Compiled by fountain2pam.py --project from source/script.fountain (scene 5) and cues/animation_cues.json.  Edit those, not this file."
+ },
+ {
   "action": "set_background",
   "color": "#a9c8e6"
  },
@@ -33,6 +36,24 @@
   "rt": 0.2
  },
  {
+  "_comment": "# SCENE: EXT. MOUNT MORIAH - CONTINUOUS"
+ },
+ {
+  "_subscene_marker": "scene5_shot01",
+  "_shot_meta": {
+   "framing": "insert",
+   "subject": "phone",
+   "move": "static",
+   "transition": "cut",
+   "lighting": null,
+   "freeform": false,
+   "fit": "bounds"
+  }
+ },
+ {
+  "_comment": "# CUE s05_goes_live (1 step): The phone slips in Abraham's shaking hands. He catches it. His thumb lan"
+ },
+ {
   "action": "prop_transition",
   "prop": "phone",
   "to": "live",
@@ -42,6 +63,9 @@
   "beat": "goes_live"
  },
  {
+  "_comment": "# CUE s05_count_climbs (1 step): ON THE SCREEN: LIVE. The viewer count climbs."
+ },
+ {
   "action": "prop_transition",
   "prop": "phone",
   "display": {
@@ -49,6 +73,20 @@
   },
   "frames": 30,
   "beat": "count_climbs"
+ },
+ {
+  "_subscene_marker": "scene5_shot02",
+  "_shot_meta": {
+   "framing": "wide",
+   "subject": "ensemble",
+   "move": "static",
+   "transition": "cut",
+   "lighting": null,
+   "freeform": false
+  }
+ },
+ {
+  "_comment": "# CUE s05_props_phone (1 step): Abraham props the phone on its rock and backs away from it."
  },
  {
   "action": "prop_transition",
@@ -61,12 +99,63 @@
   }
  },
  {
+  "_comment": "# CUE s05_were_on (1 step): Dad. We're on."
+ },
+ {
   "action": "say",
   "who": "isaac",
   "text": "Dad. We're on.",
   "frames": 18,
   "frames_in": 3,
   "frames_out": 3
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "I wasn't ready.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "Nobody's ever ready. Go.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "_comment": "# REVIEW: Abraham faces the phone. He raises the wooden handle in one hand and counts on the fingers of the other."
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "People of Israel.",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "God said to me: go to Mount Moriah.",
+  "side": "right",
+  "hold": 1.44
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "Build an altar. Tie down my son.",
+  "side": "right",
+  "hold": 1.26
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "Raise my knife --",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "_comment": "# CUE s05_blade (1 step): The satchel slips from his shoulder. The blade slides out, CLATTERS acro"
  },
  {
   "action": "parallel",
@@ -121,6 +210,35 @@
   ]
  },
  {
+  "_subscene_marker": "scene5_shot03",
+  "_shot_meta": {
+   "framing": "medium",
+   "subject": "Isaac",
+   "move": "static",
+   "transition": "hold",
+   "lighting": null,
+   "freeform": false
+  }
+ },
+ {
+  "_comment": "# REVIEW: For once, Isaac has no comeback."
+ },
+ {
+  "_subscene_marker": "scene5_shot04",
+  "_shot_meta": {
+   "framing": "insert",
+   "subject": "phone",
+   "move": "static",
+   "transition": "cut",
+   "lighting": null,
+   "freeform": false,
+   "fit": "bounds"
+  }
+ },
+ {
+  "_comment": "# CUE s05_count_doubles (2 steps): ON THE SCREEN: the viewer count doubles. A comment scrolls past: \"IS THA"
+ },
+ {
   "action": "prop_transition",
   "prop": "phone",
   "display": {
@@ -133,5 +251,46 @@
  {
   "action": "wait",
   "frames": 9
+ },
+ {
+  "_subscene_marker": "scene5_shot05",
+  "_shot_meta": {
+   "framing": "medium",
+   "subject": "Abraham",
+   "move": "static",
+   "transition": "hold",
+   "lighting": null,
+   "freeform": false
+  }
+ },
+ {
+  "action": "say",
+  "who": "abraham",
+  "text": "And then...",
+  "side": "right",
+  "hold": 0.9
+ },
+ {
+  "_comment": "# REVIEW: He has run out of fingers"
+ },
+ {
+  "action": "wait",
+  "t": 0.8
+ },
+ {
+  "_comment": "# REVIEW: At Isaac"
+ },
+ {
+  "_comment": "# REVIEW: At the watching phone."
+ },
+ {
+  "_comment": "# REVIEW: quietly"
+ },
+ {
+  "action": "say",
+  "who": "isaac",
+  "text": "And then?",
+  "side": "right",
+  "hold": 0.9
  }
 ]
