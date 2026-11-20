@@ -1347,7 +1347,9 @@ A legacy `insert` is 7 units wide and centered at `y = 1.5`, which misses a prop
 ```
 
 - the box is that of what is visible of the subject: for a composite prop, its parts that are on stage (the broken knife: the handle in a hand and the blade in the bowl);
-- it also holds where the shot takes the subject before the next cut: a `prop_transition` after the cut that sends the subject, or a part of it, somewhere (the blade that drops into the bowl) is framed where it is going;
+- it also holds where the shot takes the subject before the next cut: a `prop_transition` after the cut that sends the subject, or a part of it, somewhere is framed where it is going (at the attachment, turned to its angle);
+- in a timed block, a move counts only if it is over by the block's next cut; one still under way belongs to the next shot (in Scene 2 the handle comes away in an insert on the knife, and the blade lands in the next one, on `bowl+knife.blade`);
+- a subject held by a character who has not faded in yet is found in the hand of the character as its `fade_in` will build it, so a scene may open on an insert;
 - `margin` (default 0.12) is the fraction of the frame left clear on each side;
 - text on the subject (a scroll's lines, a phone's screen) must be readable: when its cap height would be under 3% of the frame's height, the frame closes in on the text;
 - `subject` may name several things joined by `+` (`"knife+bowl"`), and may be a character.

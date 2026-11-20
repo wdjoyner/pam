@@ -1400,12 +1400,25 @@ otherwise (a static cut, or a move that ends on the fitted frame).
 - **Where the shot takes it**: the steps after the cut, up to the next
   cut, are read before the cut is made. A `prop_transition` among them
   that sends the subject, or a part of it, to a new attachment adds the
-  place it is going (the blade that will drop into the bowl), so the
-  subject stays in the frame for the whole shot. A cut that is a step of
-  a timed block reads the block's steps from its frame up to the block's
-  next cut.
+  place it is going, so the subject stays in the frame for the whole
+  shot. A cut that is a step of a timed block reads the block's steps
+  from its frame up to the block's next cut.
+- **Only what arrives in the shot**: a step of a timed block counts only
+  if it is over by the block's next cut (`at` plus its `frames`, or its
+  run time at 15 fps). A move still under way at the cut belongs to the
+  next shot. In Scene 2 the handle comes away in one shot and the blade,
+  which is still falling at frame 6, lands in the next: an insert on the
+  knife (the hands) and an insert on `bowl+knife.blade`.
+- **A piece on its way is framed where it lands**: a piece the shot sends
+  somewhere is left out of the box where it is at the cut (the blade is
+  still in Isaac's hands when the shot of the bowl begins), and framed at
+  its attachment, turned to the attachment's `angle`.
 - **Where it belongs**: a stateful prop that has not been put on its
-  attachment yet is framed where the prop-state books keep it.
+  attachment yet is framed where the prop-state books keep it. When that
+  is a character who has not faded in yet (Scene 5 opens on the phone in
+  Abraham's hand, before he is on stage), the character is built as the
+  next `fade_in` will build it (its offset, `x`, `scale`, build and pose)
+  to find the hand, and is not added to the scene.
 - **Readable text**: when the subject bears text (a scroll's lines, a
   phone's screen) and its smallest cap height would fill less than 3% of
   the frame's height (`shot_targets.TEXT_MIN`), the frame closes in on

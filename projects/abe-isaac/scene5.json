@@ -3,8 +3,28 @@
   "_comment": "# Compiled by fountain2pam.py --project from source/script.fountain (scene 5) and cues/animation_cues.json.  Edit those, not this file."
  },
  {
+  "_comment": "# SCENE: EXT. MOUNT MORIAH - CONTINUOUS"
+ },
+ {
+  "_subscene_marker": "scene5_shot01",
+  "_shot_meta": {
+   "framing": "insert",
+   "subject": "phone",
+   "move": "static",
+   "transition": "cut",
+   "lighting": null,
+   "freeform": false,
+   "fit": "bounds"
+  }
+ },
+ {
   "action": "set_background",
   "color": "#a9c8e6"
+ },
+ {
+  "action": "fade_in",
+  "who": "abraham",
+  "rt": 0.2
  },
  {
   "action": "props",
@@ -29,26 +49,6 @@
   "who": "isaac",
   "rt": 0.2,
   "pose": "reach_forward"
- },
- {
-  "action": "fade_in",
-  "who": "abraham",
-  "rt": 0.2
- },
- {
-  "_comment": "# SCENE: EXT. MOUNT MORIAH - CONTINUOUS"
- },
- {
-  "_subscene_marker": "scene5_shot01",
-  "_shot_meta": {
-   "framing": "insert",
-   "subject": "phone",
-   "move": "static",
-   "transition": "cut",
-   "lighting": null,
-   "freeform": false,
-   "fit": "bounds"
-  }
  },
  {
   "_comment": "# CUE s05_goes_live (1 step): The phone slips in Abraham's shaking hands. He catches it. His thumb lan"

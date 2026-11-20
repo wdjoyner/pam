@@ -229,7 +229,7 @@ def test_the_scene_files_are_what_the_project_compiles_to(tmp_path):
     proc = run_f2p("--project", str(PROJECT), "--check", cwd=tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "out of date" not in proc.stdout
-    assert "(41 compiled, 0 orphaned, 0 beat(s) without a cue)" \
+    assert "(42 compiled, 0 orphaned, 0 beat(s) without a cue)" \
         in proc.stdout
 
 
@@ -241,7 +241,7 @@ def compiled():
 
 def test_every_beat_has_its_cue_and_every_cue_its_beat(compiled):
     rep = compiled["report"]
-    assert {k: v for k, v in rep["counts"].items() if v} == {"cues_used": 41}
+    assert {k: v for k, v in rep["counts"].items() if v} == {"cues_used": 42}
     assert sorted(c["id"] for c in rep["cues_used"]) == \
         sorted(cue_file()["cues"])
     for c in rep["cues_used"]:
@@ -382,7 +382,8 @@ def camera_at(trace, frame):
 def fitted_shots(trace):
     """``[(first frame, end frame, width, center)]`` of every insert
     (every shot narrower than the legacy insert's 7 units)."""
-    cuts = sorted({round(m["t1"] * trace["fps"]) for m in trace["camera"]})
+    cuts = sorted({0} | {round(m["t1"] * trace["fps"])
+                         for m in trace["camera"]})
     end = round(trace["duration"] * trace["fps"])
     out = []
     for k, f0 in enumerate(cuts):
@@ -391,6 +392,19 @@ def fitted_shots(trace):
         if w < 7.0 - 1e-6:
             out.append((f0, f1, w, c))
     return out
+
+
+def placed(trace, rec, frame):
+    """Has the trace put prop object *rec* where it is on *frame*?  A
+    prop that appears in the hand of a figure as the figure fades in is
+    recorded at the origin, and as moving to the hand during the next
+    step that is not a timed block (the render has it in the hand on
+    every frame).  This is so on main too (the scroll in Scene 2, the
+    phone in Scene 6), and is left alone here; the frames of that move
+    are not checked."""
+    first = rec["moves"][0] if rec["moves"] else None
+    return not (first and first["from"][:2] == [0.0, 0.0]
+                and frame / trace["fps"] < first["t1"] - 1e-4)
 
 
 def inside(box, width, center, slack=1e-3):
@@ -425,8 +439,12 @@ def traces(tmp_path_factory):
 
 
 # scene: the subject of each insert, in order
-INSERTS = {1: ["scroll"], 2: ["knife"], 4: ["phone"], 5: ["phone", "phone"],
-           6: ["scroll"]}
+INSERTS = {1: ["scroll"], 2: ["knife", "bowl"], 4: ["phone"],
+           5: ["phone", "phone"], 6: ["scroll"]}
+# (scene, insert): the pieces that must stay in the frame on every frame,
+# where that is not all of the subject: the blade falls out of the shot
+# of the hands, and lands in the shot of the bowl
+HOLD = {(2, 0): ["knife.handle"], (2, 1): ["bowl"]}
 
 
 def test_each_critical_insert_is_a_fitted_shot(traces):
@@ -466,12 +484,16 @@ def test_inserts_hold_every_visible_piece_on_every_frame(traces):
     for n, subjects in INSERTS.items():
         trace, log = traces[n]
         framed = _fit_lines(log)
-        for (f0, f1, w, c), subject, how in zip(fitted_shots(trace),
-                                                  subjects, framed):
+        for k, ((f0, f1, w, c), subject, how) in enumerate(
+                zip(fitted_shots(trace), subjects, framed)):
             seen = 0
+            names = HOLD.get((n, k))
+            recs = ([tt.prop_object(trace, x) for x in names] if names
+                    else pieces(trace, subject))
             for f in range(f0, f1):
-                for rec in pieces(trace, subject):
-                    if not tt.prop_visible(rec, f):
+                for rec in recs:
+                    if not (tt.prop_visible(rec, f)
+                            and placed(trace, rec, f)):
                         continue
                     seen += 1
                     box = tt.prop_box(trace, rec, f)
@@ -486,29 +508,61 @@ def test_inserts_hold_every_visible_piece_on_every_frame(traces):
             assert seen, (n, subject)
 
 
-def test_the_broken_knife_insert_shows_both_pieces(traces):
-    """Scene 2: the handle comes away in Isaac's fingers and the blade
-    drops into the bowl, all in one shot: by the end of the insert the
-    two pieces are apart, on stage, and both in the frame, and so is the
-    bowl the blade lands in."""
+def test_the_knife_comes_apart_in_two_inserts(traces):
+    """Scene 2: an insert on the knife, whole in two hands, in which the
+    handle comes away and the blade starts to fall out of the shot; then
+    an insert on the bowl, which the blade falls into and lands in, on
+    the frame of its CLANG."""
     trace, _ = traces[2]
-    (f0, f1, w, c), = fitted_shots(trace)
+    (h0, h1, hw, hc), (b0, b1, bw, bc) = fitted_shots(trace)
+    assert h1 == b0                         # one cut after the other
     handle = tt.prop_object(trace, "knife.handle")
     blade = tt.prop_object(trace, "knife.blade")
     bowl = tt.prop_object(trace, "bowl")
-    last = f1 - 1
-    hb, bb = tt.prop_box(trace, handle, last), tt.prop_box(trace, blade, last)
-    assert tt.prop_visible(handle, last) and tt.prop_visible(blade, last)
-    assert abs(hb[1] - bb[1]) > 1.0          # apart: hand and bowl
-    for box in (hb, bb, tt.prop_box(trace, bowl, last)):
-        assert inside(box, w, c), (box, w, c)
     states = tt.prop_state(trace, "knife")["states"]
-    assert tt.state_at(states, f0) == "intact"
-    assert tt.state_at(states, last) == "broken"
-    # the frame is no wider than the two pieces need, with its margins
-    top = max(hb[1] + hb[3] / 2, bb[1] + bb[3] / 2)
-    bottom = min(hb[1] - hb[3] / 2, bb[1] - bb[3] / 2)
-    assert (top - bottom) / (w / ASPECT) > 0.5
+    # the hands: the knife whole at the cut, and tight on it
+    assert tt.state_at(states, h0) == "intact"
+    for rec in (handle, blade):
+        assert inside(tt.prop_box(trace, rec, h0), hw, hc)
+    assert hw < 1.0
+    # the handle comes away in that shot, and stays in it
+    assert tt.state_at(states, h1 - 1) == "broken"
+    # the bowl: the blade lands in it during the shot, and is in the
+    # frame from then on
+    landed = [f for f in range(b0, b1)
+              if tt.prop_box(trace, blade, f) == tt.prop_box(trace, blade,
+                                                              b1 - 1)]
+    assert landed and b0 < landed[0] < b1 - 1
+    for f in landed:
+        assert inside(tt.prop_box(trace, blade, f), bw, bc), f
+    assert inside(tt.prop_box(trace, bowl, b0), bw, bc)
+    assert bw < 1.0
+    # and the shot of the bowl is not cut twice: the CAMERA note before
+    # the blade's line stands for the cut the cue makes on frame 6
+    scene = load(PROJECT / "scene2.json")
+    cuts = [a for a in scene if "_subscene_marker" in a]
+    assert [a["_shot_meta"]["framing"] for a in cuts] == ["wide", "insert"]
+    made = [a["_comment"] for a in scene
+            if a.get("_comment", "").startswith("# CUT ")]
+    assert len(made) == 2 and all("s02_knife_breaks" in m for m in made)
+
+
+def test_scene_5_opens_on_the_phone(traces):
+    """Scene 5 opens on its insert, framed on the phone in Abraham's
+    hand before he has faded in: the camera is on it from the first
+    frame, and the phone is on screen once he has (Abraham fades in
+    first, the rock, the altar and Isaac out of the shot after him)."""
+    trace, log = traces[5]
+    f0, f1, w, c = fitted_shots(trace)[0]
+    assert f0 == 0
+    assert trace["camera_initial"]["width"] == pytest.approx(w)
+    phone = tt.prop_object(trace, "phone")
+    first = next(f for f in range(f0, f1) if tt.prop_visible(phone, f))
+    assert first <= 6, first
+    for f in range(first, f1):
+        if placed(trace, phone, f):
+            assert inside(tt.prop_box(trace, phone, f), w, c), f
+    assert placed(trace, phone, 9)
 
 
 def _scroll_cap(row):
@@ -689,6 +743,13 @@ def test_shot_transitions_stop_at_the_next_cut():
     block = steps[2]["do"]
     assert [s["prop"] for s in st.shot_transitions(block, after_at=10)] \
         == ["d"]
+    # a move still under way at the next cut belongs to the next shot
+    falling = [{"action": "parallel", "do": [
+        {"action": "prop_transition", "prop": "knife", "at": 3, "frames": 6},
+        {"_subscene_marker": "bowl", "at": 6},
+        {"action": "prop_transition", "prop": "lid", "at": 0, "frames": 6}]}]
+    assert [s["prop"] for s in st.shot_transitions(falling)] == ["lid"]
+    assert st.step_frames({"rt": 0.3}) == 5 and st.step_frames({}) == 0
     assert st.moved_targets({"prop": "knife", "parts": {
         "blade": {"attached": {"to": "bowl"}}}}) == \
         [("knife.blade", {"to": "bowl"})]

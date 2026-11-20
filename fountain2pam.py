@@ -1556,6 +1556,14 @@ def load_cue_file(path) -> dict:
     return {"cues": cues, "scenes": scenes, "path": str(path)}
 
 
+def _subject_names(subject) -> list[str]:
+    """The names in a CAMERA SUBJECT (``knife+bowl``), lower case; the
+    same rule as ``pam.shot_targets.subject_names``."""
+    if not subject:
+        return []
+    return [p.strip().lower() for p in str(subject).split("+") if p.strip()]
+
+
 def _cue_steps(cue: dict) -> list:
     """A fresh copy of a cue's steps (the compiled file must never share
     objects with the cue file)."""
@@ -4681,10 +4689,46 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
     _scene_starts: list = []     # where each scene starts in *actions*
     _shot_no = [0]
 
+    # cuts made inside the last cue (a cut on an exact frame of a timed
+    # block), which the CAMERA notes that follow may stand for
+    _cue_cuts: list = []
+    _cue_cuts_from = [0]         # where in *actions* that cue ended
+
+    def _claim_cue_cut(cam: dict):
+        """A cut made by the cue just compiled that this CAMERA note
+        stands for: same framing, and it frames at least the note's
+        subjects.  Only while nothing but comments and cuts has been
+        compiled since that cue."""
+        if not _cue_cuts or any("action" in a
+                                for a in actions[_cue_cuts_from[0]:]):
+            _cue_cuts.clear()
+            return None
+        want = set(_subject_names(cam.get("subject")))
+        for k, (cid, cut) in enumerate(_cue_cuts):
+            meta = cut.get("_shot_meta") or {}
+            if (str(meta.get("framing") or "").lower()
+                    == str(cam.get("framing") or "").lower()
+                    and want <= set(_subject_names(meta.get("subject")))):
+                del _cue_cuts[:k + 1]
+                return cid, cut
+        return None
+
     def _emit_shot(cam: dict, lighting):
         """Project mode: a ``_subscene_marker`` for a CAMERA note, on the
         spot of the note.  An insert, or any shot with MARGIN, is framed
-        from its subject's bounding box (``fit``, pam/shot_targets.py)."""
+        from its subject's bounding box (``fit``, pam/shot_targets.py).
+        A note that a cut inside the cue just compiled stands for (a cut
+        on an exact frame of a timed block) is not cut again."""
+        claimed = _claim_cue_cut(cam)
+        if claimed is not None:
+            cid, cut = claimed
+            at = cut.get("at")
+            when = f" on frame {at} of a block" if at is not None else ""
+            actions.append({"_comment": f"# CUT {cam.get('framing')} on "
+                                        f"{cam.get('subject')}: made by cue "
+                                        f"{cid}{when}"})
+            return
+        _cue_cuts.clear()
         _shot_no[0] += 1
         names = _project["scenes"]
         i = _scene_idx[0]
@@ -4755,6 +4799,10 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                 actions.append(s)
                 if s.get("action"):
                     current_scene.add_pam_action(s)
+            if _project is not None:
+                _cue_cuts.extend((b["id"], c) for c in _walk_steps(steps)
+                                 if "_subscene_marker" in c)
+                _cue_cuts_from[0] = len(actions)
             for s in _walk_steps(steps):
                 if s.get("action") == "fade_in" and s.get("who"):
                     faded_in.add(s["who"])
@@ -4920,6 +4968,7 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                 _scene_idx[0] += 1
                 _scene_starts.append(len(actions))
                 _shot_no[0] = 0
+                _cue_cuts.clear()
                 faded_in.clear()
                 # who the scene's "before" steps bring on
                 _names = _project["scenes"]
@@ -5389,9 +5438,21 @@ def _split_project_scenes(actions: list, starts: list, project: dict,
                             f"{src.as_posix()} (scene {i + 1}) and "
                             f"{cue_rel.as_posix()}.  Edit those, not this "
                             f"file."}
-        # (the setup comes first: a cut framed from its subject needs the
-        # subject declared, so a scene's opening shot follows it)
-        out.append([head] + before + body + after)
+        # A scene that opens on a fitted shot (an insert) opens on it from
+        # its first frame: that cut goes ahead of the setup steps (the
+        # player frames a prop in the hand of someone not yet on stage).
+        # Any other opening cut follows the setup, since the legacy
+        # framing needs its subject on stage.
+        k = 0
+        while k < len(body) and "action" not in body[k]:
+            k += 1
+        early = [a for a in body[:k] if "_subscene_marker" in a
+                 and (a.get("_shot_meta") or {}).get("fit")]
+        rest = [a for a in body if not any(a is e for e in early)]
+        titles = [a for a in rest[:1]
+                  if str(a.get("_comment", "")).startswith("# SCENE:")]
+        rest = rest[len(titles):]
+        out.append([head] + titles + early + before + rest + after)
     return out
 
 

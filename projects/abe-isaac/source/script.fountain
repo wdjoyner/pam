@@ -1,11 +1,11 @@
 Title: Abraham and Isaac, Revisited
 Credit: Written by
 Author: David Joyner
-Draft date: 2026-11-19
+Draft date: 2026-11-20
 Notes: Draft 3 — animated short
 
-[[ CHARACTER: name=abraham type=human gender=male build=narrow scale=0.55 label=Abraham ]]
-[[ CHARACTER: name=isaac type=human gender=male build=broad scale=0.95 label=Isaac ]]
+[[ CHARACTER: name=abraham type=human gender=male build=narrow scale=0.48 label=Abraham ]]
+[[ CHARACTER: name=isaac type=human gender=male build=broad scale=0.80 label=Isaac ]]
 
 # 1. THE MANUSCRIPT
 
@@ -115,7 +115,11 @@ Abraham draws a battered knife from his satchel. Isaac takes it by the handle. [
 
 [[ CAMERA: FRAMING=insert | SUBJECT=knife | MOVE=static | TRANSITION=cut ]]
 
-The handle comes away in Isaac's fingers. The blade drops into a wooden bowl with a CLANG. [[beat: s02_knife_breaks]]
+The handle comes away in Isaac's fingers. [[beat: s02_knife_breaks]]
+
+[[ CAMERA: FRAMING=insert | SUBJECT=bowl | MOVE=static | TRANSITION=cut ]]
+
+The blade drops into a wooden bowl with a CLANG. [[beat: s02_blade_in_bowl]]
 
 [[ CAMERA: FRAMING=wide | SUBJECT=ensemble | MOVE=static | TRANSITION=cut ]]
 

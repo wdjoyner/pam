@@ -5698,8 +5698,12 @@ by the handle. [[beat: s02_draws_knife]]
 
 [[ CAMERA: FRAMING=insert | SUBJECT=knife | MOVE=static ]]
 
-The handle comes away in Isaac's fingers. The blade drops into a
-wooden bowl with a CLANG. [[beat: s02_knife_breaks]]
+The handle comes away in Isaac's fingers. [[beat: s02_knife_breaks]]
+
+[[ CAMERA: FRAMING=insert | SUBJECT=bowl | MOVE=static ]]
+
+The blade drops into a wooden bowl with a CLANG.
+[[beat: s02_blade_in_bowl]]
 \end{verbatim}
 
 \begin{verbatim}
@@ -5707,6 +5711,7 @@ wooden bowl with a CLANG. [[beat: s02_knife_breaks]]
  "scenes": {"scene2": {"before": [ ... ], "after": [ ... ]}},
  "cues": {"s02_draws_knife":  {"scene": "scene2", "steps": [ ... ]},
           "s02_knife_breaks": {"scene": "scene2", "steps": [ ... ]},
+          "s02_blade_in_bowl": {"scene": "scene2", "steps": []},
           "s02_short_ceremony": []}}
 \end{verbatim}
 
@@ -5744,17 +5749,26 @@ nothing and fails if a scene file is out of date or the report finds
 anything. \texttt{projects/abe-isaac} is laid out this way: its
 screenplay is a copy of the script in \texttt{writing-guides} (the
 authoritative literary version) with the commit it was taken from, its
-41 cues are the hand-authored Milestone 4 blocking, and its six scene
-files are compiler output.
+42 cues are the hand-authored Milestone 4 blocking, and its six scene
+files are compiler output. Two rules hold in project mode only: a
+\texttt{CAMERA} note after a beat whose cue makes a cut of the same
+framing on the same subjects stands for that cut (no second marker; a
+\texttt{\# CUT} comment marks the place), and a fitted cut that opens a
+scene goes before the scene's \texttt{before} steps.
 
 \textbf{Shots framed from their subject.} A \texttt{\_shot\_meta} with
 \texttt{"fit": "bounds"} is not framed from the \texttt{framing} table
 and the subject's horizontal position but from the subject's bounding
 box (\texttt{pam/shot\_targets.py}): what is visible of it (a composite
 prop's parts that are on stage, wherever they are); where the steps of
-the shot take it before the next cut (the blade that drops into the
-bowl); and, for a prop that has not reached its attachment yet, where
-the prop-state books keep it. \texttt{"margin"} (default 0.12) is the
+the shot take it before the next cut, at the attachment and turned to
+its angle (a move in a timed block counts only if it is over by the
+block's next cut, so the blade that is still falling when the camera
+cuts to the bowl is framed in the shot of the bowl); and, for a prop
+that has not reached its attachment yet, where the prop-state books keep
+it, in the hand of a character who has not faded in yet if need be (the
+character is built as its \texttt{fade\_in} will build it, and not added
+to the scene). \texttt{"margin"} (default 0.12) is the
 fraction of the frame clear on each side. When the subject bears text
 (a scroll's lines, a phone's screen) whose cap height would fill less
 than 3\% of the frame's height, the frame closes in on the text.
@@ -5772,7 +5786,7 @@ recompiles the project and finds every cue in its scene, verbatim (the
 Milestone 4 tests then run on the compiled scenes, and the six scenes
 write the Milestone 4 ledger byte for byte); renames and deletes beats
 and checks that the orphaned cues are reported; and traces the scenes
-and checks, on every frame of the scroll, broken-knife and phone
+and checks, on every frame of the scroll, knife, bowl and phone
 inserts, that the subject is in the frame and its text is readable.
 
 \chapter{Character Properties

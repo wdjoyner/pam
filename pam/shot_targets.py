@@ -16,8 +16,11 @@ from the subject's bounding box:
   such as the broken knife, or a snapped rope, the box around the parts
   that are on stage, wherever they are);
 * together with where the steps of the shot take it: a part that is on
-  its way somewhere, or will be sent somewhere before the next cut, is
-  framed where it is going too (the blade that drops into the bowl);
+  its way somewhere, or will be sent somewhere and get there before the
+  next cut, is framed where it is going (the blade that drops into the
+  bowl); a move still under way at the next cut belongs to the next
+  shot, so the subject may leave the frame (the blade that falls out of
+  the shot of the hands);
 * with a margin, the fraction of the frame left clear on each side
   (``"margin"``, default ``DEFAULT_MARGIN``);
 * and, for a prop that bears text (the scroll, the phone's screen), at
@@ -45,8 +48,8 @@ Functions
 ``frame_for_box``       the camera frame (width, center) for a box
 ``fit_frame``           the same, closing in on text that would be too small
 ``subject_names``       the names in a ``subject`` (``"knife+bowl"``)
-``shot_transitions``    the ``prop_transition`` steps of a shot, before
-                        the next cut
+``shot_transitions``    the ``prop_transition`` steps of a shot, over
+                        before the next cut
 ``moved_targets``       which props and parts a transition step sends
                         where
 """
@@ -273,29 +276,54 @@ def _is_cut(step) -> bool:
     return isinstance(step, dict) and "_subscene_marker" in step
 
 
+def step_frames(step: dict, fps: int = 15) -> int:
+    """How many frames a step lasts, as far as the screenplay says
+    (``frames``, else ``rt`` or ``t`` in seconds; 0 when it says
+    nothing).  Used only to tell whether a move is over before a cut."""
+    f = step.get("frames")
+    if isinstance(f, (int, float)) and not isinstance(f, bool):
+        return int(f)
+    for key in ("rt", "t", "run_time"):
+        v = step.get(key)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return int(math.floor(v * fps + 0.5))
+    return 0
+
+
+def _in_block_until(steps, start, stop):
+    """The steps of a block that start on or after frame *start* and
+    are over by frame *stop* (a move still under way when the next cut
+    comes is the next shot's business)."""
+    out = []
+    for s in steps:
+        if _is_cut(s):
+            continue
+        at = s.get("at", 0) or 0
+        if at < start or at + step_frames(s) > stop:
+            continue
+        out.extend(shot_transitions([s]))
+    return out
+
+
 def shot_transitions(steps: Iterable[dict], after_at: float | None = None
                      ) -> list[dict]:
     """The ``prop_transition`` steps of a shot: those in *steps* (the
-    steps that follow the cut) up to the next cut.
+    steps that follow the cut) that are over before the next cut.
 
     A timed ``parallel`` block that has a cut among its steps ends the
-    shot at that cut's ``at``: its steps that start before it count,
-    the rest do not, and nothing after the block does.  Steps inside a
+    shot at that cut's ``at``: its steps that are over by then count
+    (one still moving when the cut comes does not: what it does is seen
+    in the next shot), and nothing after the block does.  Steps inside a
     ``sequence`` count.  *after_at*: for a cut that is itself a step of
-    a block, only the block's steps from that frame on (the caller
-    passes the block's ``do`` list)."""
-    out = []
+    a block, only the block's steps from that frame on, over by the
+    block's next cut (the caller passes the block's ``do`` list)."""
     steps = [s for s in steps if isinstance(s, dict)]
     if after_at is not None:
-        # a cut inside a block: the block's steps from its frame up to
-        # the block's next cut
         later = [s.get("at", 0) or 0 for s in steps
                  if _is_cut(s) and (s.get("at", 0) or 0) > after_at]
-        stop = min(later) if later else math.inf
-        for s in steps:
-            if not _is_cut(s) and after_at <= (s.get("at", 0) or 0) < stop:
-                out.extend(shot_transitions([s]))
-        return out
+        return _in_block_until(steps, after_at,
+                               min(later) if later else math.inf)
+    out = []
     for step in steps:
         if _is_cut(step):
             break
@@ -306,10 +334,7 @@ def shot_transitions(steps: Iterable[dict], after_at: float | None = None
             do = step.get("do") or []
             cuts = [s.get("at", 0) or 0 for s in do if _is_cut(s)]
             if cuts:
-                stop = min(cuts)
-                for s in do:
-                    if not _is_cut(s) and (s.get("at", 0) or 0) < stop:
-                        out.extend(shot_transitions([s]))
+                out.extend(_in_block_until(do, 0, min(cuts)))
                 return out
             out.extend(shot_transitions(do))
     return out
