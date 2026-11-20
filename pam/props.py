@@ -23,7 +23,7 @@ props_carried.py      — hat, briefcase, folder, phone, audio_video_bug,
 props_flora.py        — flower, floral_arrangement / bouquet
 props_environment.py  — dodecahedron, building, sun, moon, solar_panel,
                          wire, backdrop, tv_monitor, avatar_pod, rock,
-                         altar, bowl
+                         altar, bowl, barbell, magazine
 props_accessories.py  — name_tag, delivery_cap, cheap_suit, silver_hair
 
 Stateful and composite props (Milestone 4, Stage 4a)
@@ -161,6 +161,8 @@ from pam.props_environment import (
     build_rock,
     build_altar,
     build_bowl,
+    build_barbell,
+    build_magazine,
 )
 
 # ── character accessories ─────────────────────────────────────────────────────
@@ -236,6 +238,8 @@ PROP_TYPES = {
     "rock":                build_rock,
     "altar":               build_altar,
     "bowl":                build_bowl,
+    "barbell":             build_barbell,         # Milestone 6
+    "magazine":            build_magazine,        # Milestone 6
     # ── character accessories ─────────────────────────────────────────────
     "name_tag":            build_name_tag,
     "delivery_cap":        build_delivery_cap,

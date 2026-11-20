@@ -229,7 +229,10 @@ def test_the_scene_files_are_what_the_project_compiles_to(tmp_path):
     proc = run_f2p("--project", str(PROJECT), "--check", cwd=tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "out of date" not in proc.stdout
-    assert "(42 compiled, 0 orphaned, 0 beat(s) without a cue)" \
+    # (42 cues in Milestone 5; 70 since Milestone 6, Stage 6a: one per
+    # beat note of the script)
+    n = len(cue_file()["cues"])
+    assert f"({n} compiled, 0 orphaned, 0 beat(s) without a cue)" \
         in proc.stdout
 
 
@@ -241,7 +244,8 @@ def compiled():
 
 def test_every_beat_has_its_cue_and_every_cue_its_beat(compiled):
     rep = compiled["report"]
-    assert {k: v for k, v in rep["counts"].items() if v} == {"cues_used": 42}
+    assert {k: v for k, v in rep["counts"].items() if v} == \
+        {"cues_used": len(cue_file()["cues"])}
     assert sorted(c["id"] for c in rep["cues_used"]) == \
         sorted(cue_file()["cues"])
     for c in rep["cues_used"]:
@@ -257,6 +261,8 @@ def test_a_project_scene_has_no_invented_props_or_cast(compiled):
         for a in f2p._walk_steps(scene):
             for k in ("prop", "on", "target"):
                 v = a.get(k)
+                if k == "target" and v in compiled["project"]["cast"]:
+                    continue        # (a routine's target: a character)
                 if isinstance(v, str):      # (a prop, or a part of one)
                     assert v.split(".")[0] in \
                         compiled["project"]["props"], (sid, a)
@@ -439,7 +445,7 @@ def traces(tmp_path_factory):
 
 
 # scene: the subject of each insert, in order
-INSERTS = {1: ["scroll"], 2: ["knife", "bowl"], 4: ["phone"],
+INSERTS = {1: ["scroll", "scroll"], 2: ["knife", "bowl"], 4: ["phone"],
            5: ["phone", "phone"], 6: ["scroll"]}
 # (scene, insert): the pieces that must stay in the frame on every frame,
 # where that is not all of the subject: the blade falls out of the shot
@@ -452,14 +458,20 @@ def test_each_critical_insert_is_a_fitted_shot(traces):
         trace, log = traces[n]
         shots = fitted_shots(trace)
         assert len(shots) == len(subjects), (n, shots)
-        assert log.count("CAM fit ") == len(subjects), n
+        assert len(_fit_lines(log)) == len(subjects), n
         assert "nothing of" not in log, n
 
 
+CHARACTERS = ("abraham", "isaac")
+
+
 def _fit_lines(log):
-    """What each fitted cut in a console log framed: "subject" or
-    "text"."""
-    return re.findall(r"CAM fit (subject|text) ", log)
+    """What each fitted insert in a console log framed: "subject" or
+    "text".  (A fitted shot on a character, such as Scene 1's medium
+    shots on Abraham since Milestone 6, is not an insert.)"""
+    return [m.group(1) for m in re.finditer(
+        r"CAM fit (subject|text) [^\n]*?subject=(\S+)", log)
+        if m.group(2).lower() not in CHARACTERS]
 
 
 def _scroll_text_box(trace, frame):

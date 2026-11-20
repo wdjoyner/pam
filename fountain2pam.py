@@ -1553,6 +1553,11 @@ def load_cue_file(path) -> dict:
                 for k in ("before", "after")):
             raise ValueError(f"{path}: scenes.{sname} must be an object "
                              f"with 'before' and 'after' step lists")
+        say = block.get("say", {})
+        if not isinstance(say, dict) or not all(
+                isinstance(v, dict) for v in say.values()):
+            raise ValueError(f"{path}: scenes.{sname}.say must be an object "
+                             f"of {{character: {{key: value}}}}")
     return {"cues": cues, "scenes": scenes, "path": str(path)}
 
 
@@ -4553,6 +4558,7 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
 
     # ── Tracking state ───────────────────────────────────────────────────
     faded_in = set()
+    _say_defaults: dict = {}     # (project mode) scenes.<id>.say of the cue file
     prop_char_keys = set(prop_char_map.values())
     # Lowercase character name → prop key, for dogs ("ramis" → "dog").
     dog_names = {cname.lower(): ptype
@@ -4974,6 +4980,11 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                 _names = _project["scenes"]
                 if _scene_idx[0] < len(_names):
                     _setup = cues["scenes"].get(_names[_scene_idx[0]], {})
+                    # Milestone 6: keys every uncued line of a character
+                    # gets in this scene ("say": {"abraham": {"side":
+                    # "left"}})
+                    _say_defaults.clear()
+                    _say_defaults.update(_setup.get("say") or {})
                     for _s in _walk_steps(_setup.get("before", [])):
                         if _s.get("action") == "fade_in" and _s.get("who"):
                             faded_in.add(_s["who"])
@@ -5069,6 +5080,9 @@ def convert_fountain(fountain_path: str, scale: float = 0.7,
                                  "side": side, "hold": hold}
                             if _phone_mode[0]:
                                 a["os_bubble"] = True
+                            if key in _say_defaults:
+                                a.update(json.loads(json.dumps(
+                                    _say_defaults[key])))
                             _emit(a)
 
         # ── Dual dialogue ────────────────────────────────────────────────

@@ -409,3 +409,12 @@ def state_at(rows, frame):
         if f <= frame:
             cur = v
     return cur
+
+
+def walk_steps(steps):
+    """Every step in *steps*, and in the ``do`` lists of the blocks,
+    sequences and performs inside them (as ``fountain2pam._walk_steps``)."""
+    for s in steps:
+        if isinstance(s, dict):
+            yield s
+            yield from walk_steps(s.get("do") or [])

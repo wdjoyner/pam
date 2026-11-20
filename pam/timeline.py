@@ -296,6 +296,21 @@ def is_timed_say(step) -> bool:
                                         "frames_out")))
 
 
+def is_timed_label(step) -> bool:
+    """True for a ``sound_cue`` (a word like THUD! flashed on screen)
+    whose length or start is given in frames (Milestone 6).  Such a
+    label is played by the block runner, on exact frames, wherever it
+    stands."""
+    return (isinstance(step, dict) and step.get("action") == "sound_cue"
+            and any(k in step for k in TIMED_KEYS)
+            and "_comment" not in step and "_hint" not in step)
+
+
+# sound_cue: the label's usual fades and hold (rt_in 0.15, hold 0.6,
+# rt_out 0.2)
+LABEL_SECONDS = {"rt_in": 0.15, "hold": 0.6, "rt_out": 0.2}
+
+
 def is_routine(step) -> bool:
     """True for a choreography routine (``pam/choreography.py``).  A
     routine is always played by the block runner, on exact frames."""
@@ -379,6 +394,219 @@ def routine_layout(step):
     return [(n, fixed.get(n, share.get(n))) for n, _ in phases], problems
 
 
+# ── acting in four phases: the perform action (Milestone 6) ──────────────
+
+ACTING_PHASES = ("anticipation", "action", "reaction", "recovery")
+
+
+def is_perform(step) -> bool:
+    """True for a ``perform`` step (see ``expand_perform``)."""
+    return (isinstance(step, dict) and step.get("action") == "perform"
+            and "_comment" not in step and "_hint" not in step)
+
+
+def perform_layout(step):
+    """The acting phases of a ``perform`` step: ``(layout, problems)``,
+    where *layout* is ``[(name, start, frames), ...]`` in the order of
+    ``ACTING_PHASES`` (a phase the step does not give has 0 frames)."""
+    problems = []
+    table = step.get("phases") if isinstance(step, dict) else None
+    if not isinstance(table, dict):
+        problems.append("'phases' must be an object giving the frames of "
+                        "anticipation, action, reaction and recovery")
+        table = {}
+    for key in table:
+        if key not in ACTING_PHASES:
+            problems.append(f"'{key}' is not an acting phase (they are "
+                            f"{', '.join(ACTING_PHASES)}); ignoring it")
+    layout, start = [], 0
+    for name in ACTING_PHASES:
+        n = table.get(name, 0)
+        n = _count(n)
+        if n is None:
+            problems.append(f"phase '{name}' must be a whole number of "
+                            f"frames, got {table.get(name)!r}; using 0")
+            n = 0
+        layout.append((name, start, n))
+        start += n
+    return layout, problems
+
+
+def _share(total, weights):
+    """Divide *total* frames over pieces in proportion to *weights*, at
+    least one frame each when there are enough (cumulative rounding, so
+    the parts add up to *total*)."""
+    k = len(weights)
+    if k == 0:
+        return []
+    if total < k:
+        return split_frames(total, k)
+    spare = total - k
+    weight = sum(weights) or 1
+    acc, done, out = 0, 0, []
+    for w in weights:
+        acc += w
+        cut = (acc * spare + weight // 2) // weight
+        out.append(1 + cut - done)
+        done = cut
+    return out
+
+
+def expand_perform(step):
+    """The timed ``parallel`` block that a ``perform`` step stands for.
+
+    Returns ``(block, problems)``.  A ``perform`` is a timed block whose
+    steps are placed by acting phase rather than by frame::
+
+        {"action": "perform", "id": "s02_cork",
+         "phases": {"anticipation": 9, "action": 3,
+                    "reaction": 9, "recovery": 6},
+         "do": [{"phase": "anticipation", "action": "morph", ...,
+                 "until": "anticipation"},
+                {"phase": "action", "action": "cork_pop_up", ...,
+                 "frames_pop": "action", "frames_land": "reaction"},
+                {"phase": "reaction", "at": 3, "action": "say", ...}]}
+
+    * ``phase``: the phase the step starts in; ``at`` counts frames from
+      the start of that phase (without ``phase``, from the start of the
+      block, as in any timed block);
+    * ``until``: the step lasts until the end of the named phase (its
+      own or a later one), in place of ``frames``;
+    * a routine's ``frames_<its phase>`` may name an acting phase: the
+      acting phase's frames (from where the routine starts, if it starts
+      inside it) are shared by every routine phase that names it, in
+      proportion to their default lengths.
+
+    The block lasts exactly the four phases, and each phase with frames
+    is a beat ``<id>.<phase>`` of that many frames (a ``wait`` added at
+    the end of the block's steps).  Changing a number in ``phases``
+    retimes every step placed by it, and nothing else need change.
+    """
+    problems = []
+    pid = step.get("id") or "perform"
+    layout, probs = perform_layout(step)
+    problems += probs
+    starts = {n: s for n, s, _ in layout}
+    ends = {n: s + f for n, s, f in layout}
+    total = sum(f for _, _, f in layout)
+    subs = step.get("do")
+    if not isinstance(subs, list):
+        problems.append("perform needs a 'do' list of steps")
+        subs = []
+    out = []
+    for i, sub in enumerate(subs):
+        if not isinstance(sub, dict):
+            out.append(sub)
+            continue
+        if "action" in sub and ("_comment" in sub or "_hint" in sub):
+            out.append(sub)
+            continue
+        new = {k: v for k, v in sub.items() if k not in ("phase", "until")}
+        what = sub.get("action") or sub.get("_subscene_marker") or "step"
+        base = 0
+        if "phase" in sub:
+            ph = sub["phase"]
+            if ph not in starts:
+                problems.append(f"do[{i}] ({what}): 'phase' {ph!r} is not "
+                                f"an acting phase; starting it on frame 0")
+            else:
+                base = starts[ph]
+        at = _count(sub.get("at", 0))
+        if at is None:
+            problems.append(f"do[{i}] ({what}): 'at' must be a whole "
+                            f"number of frames, got {sub.get('at')!r}")
+            at = 0
+        f0 = base + at
+        if "phase" in sub or "at" in sub:
+            new["at"] = f0
+        # a routine's phases given by acting phase
+        if sub.get("action") in _specs.TIMELINE_ROUTINES:
+            named = {}
+            for key, v in sub.items():
+                if key.startswith("frames_") and isinstance(v, str):
+                    named.setdefault(v, []).append(key[7:])
+            defaults = dict(_specs.ROUTINE_PHASES[sub["action"]])
+            for ph, rphases in named.items():
+                if ph not in starts:
+                    problems.append(f"do[{i}] ({what}): {rphases} name "
+                                    f"{ph!r}, which is not an acting "
+                                    f"phase; using their defaults")
+                    for r in rphases:
+                        new.pop(f"frames_{r}", None)
+                    continue
+                span = ends[ph] - max(starts[ph], f0)
+                if span < 0:
+                    problems.append(f"do[{i}] ({what}): the routine starts "
+                                    f"after phase '{ph}' ends; giving "
+                                    f"{rphases} 0 frames")
+                    span = 0
+                for r, n in zip(rphases, _share(
+                        span, [defaults.get(r, 1) for r in rphases])):
+                    new[f"frames_{r}"] = n
+        if "until" in sub:
+            ph = sub["until"]
+            if ph not in ends:
+                problems.append(f"do[{i}] ({what}): 'until' {ph!r} is not "
+                                f"an acting phase; ignoring it")
+            else:
+                n = ends[ph] - f0
+                if n < 0:
+                    problems.append(f"do[{i}] ({what}): it starts on frame "
+                                    f"{f0}, after phase '{ph}' ends (frame "
+                                    f"{ends[ph]}); giving it 0 frames")
+                    n = 0
+                if "frames" in sub:
+                    problems.append(f"do[{i}] ({what}): it has both "
+                                    f"'frames' and 'until'; 'until' wins")
+                new["frames"] = n
+        out.append(new)
+    # the beats go after the steps, so that do[i] of the block is do[i]
+    # of the perform (reports name the step by its place)
+    for name, s, f in layout:
+        if f > 0:
+            out.append({"action": "wait", "at": s, "frames": f,
+                        "beat": f"{pid}.{name}"})
+    block = {"action": "parallel", "id": pid, "frames": total, "do": out}
+    for key in ("sound", "beat"):
+        if key in step:
+            block[key] = step[key]
+    block["_perform"] = [[n, s, f] for n, s, f in layout]
+    return block, problems
+
+
+def is_timed_tic(step) -> bool:
+    """True for a ``react`` step that names its ``fragment``
+    (``pam/tics.py``): one mannerism, played on the frame clock."""
+    return (isinstance(step, dict) and step.get("action") == "react"
+            and "fragment" in step
+            and "_comment" not in step and "_hint" not in step)
+
+
+def tic_layout(step):
+    """The keyframes of a timed tic: ``(lengths, problems)``, one length
+    per keyframe of the fragment's cycle, repeated ``cycles`` times, and
+    one for the return to the pose the tic started from."""
+    from pam.tics import get_fragment
+    problems = []
+    frag = get_fragment(step.get("fragment"))
+    if frag is None:
+        return None, [f"unknown tic fragment {step.get('fragment')!r}"]
+    cycles = step.get("cycles", 1)
+    if _count(cycles) is None or cycles < 1:
+        problems.append(f"'cycles' must be a whole number from 1, got "
+                        f"{cycles!r}; using 1")
+        cycles = 1
+    k = len(frag.get("cycle", [])) * cycles + 1
+    if "frames" in step and _count(step["frames"]) is not None:
+        total = step["frames"]
+        if total < k:
+            problems.append(f"'frames' is {total}, fewer than the tic's "
+                            f"{k} keyframes; some keyframes are skipped")
+        return split_frames(total, k), problems
+    per = seconds_to_frames(frag.get("rt_per_kf", 0.12))
+    return [per] * k, problems
+
+
 def is_timed_parallel(step) -> bool:
     """True when a ``parallel`` block uses the frame clock (see the
     module docstring).  Every other parallel block is played by the
@@ -395,7 +623,7 @@ def is_timed_parallel(step) -> bool:
             continue
         if _is_marker(sub) or sub.get("action") == "sequence" \
                 or any(k in sub for k in TIMED_KEYS) or is_routine(sub) \
-                or is_prop_transition(sub):
+                or is_prop_transition(sub) or is_timed_tic(sub):
             return True
     return False
 
@@ -406,7 +634,8 @@ def uses_timeline(actions) -> bool:
         if not isinstance(s, dict):
             return False
         if s.get("action") in ("sequence", "constrain", "release") \
-                or any(k in s for k in TIMED_KEYS) or is_routine(s):
+                or any(k in s for k in TIMED_KEYS) or is_routine(s) \
+                or is_perform(s) or is_timed_tic(s):
             return True
         subs = s.get("do")
         if not isinstance(subs, list):
@@ -425,7 +654,8 @@ def _convert_frames(step: dict) -> dict:
     if act == "parallel" and not is_timed_parallel(step):
         return step             # an ordinary parallel block
     if act == "parallel" or is_timed_say(step) or is_routine(step) \
-            or is_prop_transition(step):
+            or is_prop_transition(step) or is_timed_tic(step) \
+            or is_timed_label(step):
         # played by the block runner, which reads the frame keys itself
         n = describe(step).get("frames")
         return step if n is None else {**step, "_frames": n}
@@ -477,6 +707,11 @@ def expand(actions):
                 _emit(sub, depth + 1)
             out.append({"action": END, "id": sid, "_depth": depth})
             return
+        if is_perform(step):
+            block, problems = expand_perform(step)
+            for msg in problems:
+                print(f"PAMPlayer: perform '{block['id']}' — {msg}.")
+            step = block
         out.append(_convert_frames(step))
 
     for step in actions:
@@ -665,6 +900,50 @@ def describe(step, block=None, meta=None) -> dict:
                 else seconds_to_frames(SAY_SECONDS["hold"])
         out["parts"] = {"in": fin, "hold": hold, "out": fout}
         out["frames"] = fin + hold + fout
+        return out
+
+    if act == "sound_cue":
+        out["kind"] = "label"
+        fin = _count(step.get("frames_in"))
+        if fin is None:
+            key, sec = _seconds(step, ("rt_in",))
+            fin = conv(key, sec) if key \
+                else seconds_to_frames(LABEL_SECONDS["rt_in"])
+        fout = _count(step.get("frames_out"))
+        if fout is None:
+            key, sec = _seconds(step, ("rt_out",))
+            fout = conv(key, sec) if key \
+                else seconds_to_frames(LABEL_SECONDS["rt_out"])
+        if frames is not None:
+            if frames < fin + fout:
+                out["problems"].append(
+                    f"'frames' is {frames}, shorter than the label's "
+                    f"fades ({fin} in, {fout} out); the fades are "
+                    f"shortened to fit")
+                fin = min(fin, frames // 2)
+                fout = min(fout, frames - fin)
+            hold = frames - fin - fout
+        else:
+            key, sec = _seconds(step, ("hold",))
+            hold = conv(key, sec) if key \
+                else seconds_to_frames(LABEL_SECONDS["hold"])
+        out["parts"] = {"in": fin, "hold": hold, "out": fout}
+        out["frames"] = fin + hold + fout
+        return out
+
+    if act == "react":
+        if "fragment" not in step:
+            out["problems"].append(
+                "in a timed block 'react' needs a 'fragment' (the "
+                "mannerism to play)")
+            return out
+        lengths, problems = tic_layout(step)
+        out["problems"].extend(problems)
+        if lengths is None:
+            return out
+        out["kind"] = "tic"
+        out["keyframes"] = lengths
+        out["frames"] = sum(lengths)
         return out
 
     if act in _specs.TIMELINE_ROUTINES:

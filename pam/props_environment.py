@@ -1570,3 +1570,134 @@ def build_bowl(name: str, x=0.0, y=-2.6, width=0.5, height=0.2,
                      "centre": np.array([x, y + height / 2, 0]),
                      "floor": np.array([x, y, 0])},
         parent=parent, attach=attach, attrs=attrs)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  BARBELL and MAGAZINE  (Milestone 6: Scene 2 of Abraham and Isaac)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_barbell(name: str, x=0.0, y=-2.6, width=2.4, height=0.7,
+                  color=None, label=None,
+                  parent=None, attach=None, attrs=None,
+                  prop_registry=None, **kwargs) -> VGroup:
+    """Build a barbell made of two boulders and a log, standing on *y*.
+
+    Parameters
+    ----------
+    name          : registry name.
+    x             : center x.
+    y             : what the boulders stand on.  Default ``-2.6`` (floor).
+    width         : from the outside of one boulder to the other.
+    height        : height of a boulder; the log runs through their
+                    middles.
+    color         : stone outline color.  Default ``"#8a8478"``.
+
+    Attachment points: ``"surface"`` (the top of the log, at the center),
+    ``"centre"`` (the middle of the log), ``"floor"``, ``"left"`` and
+    ``"right"`` (where a hand grips the log, inside each boulder).
+    """
+    c = color or "#8a8478"
+    bw = height * 1.05                     # a boulder is about round
+    mid_y = y + height / 2
+    log_h = height * 0.28
+    log = RoundedRectangle(
+        width=width - bw * 0.6, height=log_h, corner_radius=log_h / 2,
+        color="#6b4423", fill_color="#8b5a2b", fill_opacity=1.0,
+        stroke_width=PROP_DEFAULTS["stroke_width"],
+    ).move_to(np.array([x, mid_y, 0]))
+    grain = Line(np.array([x - width * 0.22, mid_y, 0]),
+                 np.array([x + width * 0.22, mid_y, 0]),
+                 color="#6b4423", stroke_width=1.2)
+    left = _stone(x - width / 2 + bw / 2, y, bw, height, c, "#5f5a52",
+                  seed=1)
+    right = _stone(x + width / 2 - bw / 2, y, bw, height, c, "#5f5a52",
+                   seed=4)
+    parts = [log, grain, left, right]
+    if label:
+        parts.append(_make_label(label, x, y + height + 0.12))
+    group = VGroup(*parts)
+    _apply_attrs(group, attrs or {})
+    grip = width / 2 - bw - 0.08
+    return _attach_pam_attrs(
+        group, name, "barbell", x, y, surface_y=mid_y + log_h / 2,
+        attachments={"surface": np.array([x, mid_y + log_h / 2, 0]),
+                     "centre": np.array([x, mid_y, 0]),
+                     "floor": np.array([x, y, 0]),
+                     "left": np.array([x - grip, mid_y, 0]),
+                     "right": np.array([x + grip, mid_y, 0])},
+        parent=parent, attach=attach, attrs=attrs)
+
+
+def build_magazine(name: str, x=0.0, y=-2.6, width=0.5, height=0.66,
+                   cover=None, stack=1, color=None, label=None,
+                   parent=None, attach=None, attrs=None,
+                   prop_registry=None, **kwargs) -> VGroup:
+    """Build a magazine, or a stack of them, standing on *y*.
+
+    With ``stack`` 1 (default) it is one magazine seen from the front,
+    upright: a cover *width* by *height* whose bottom edge is on *y*,
+    with the words of ``cover`` printed on it, one word to a line, as
+    large as fits.  With ``stack`` greater than 1 it is a pile of that
+    many magazines lying flat, seen edge-on, *width* wide; ``cover`` is
+    then ignored.
+
+    Parameters
+    ----------
+    name          : registry name.
+    x             : center x.
+    y             : what it stands on.  Default ``-2.6`` (floor).
+    width, height : size of the cover (one magazine).
+    cover         : the cover's text, for example ``"ISAAC THE
+                    INVINCIBLE"``.
+    stack         : how many magazines are piled up (default 1).
+    color         : the cover's color.  Default ``"#f2c14e"``.
+
+    Attachment points: ``"surface"`` (the top), ``"centre"``,
+    ``"floor"``.
+    """
+    c = color or "#f2c14e"
+    sw = PROP_DEFAULTS["stroke_width"]
+    try:
+        n = max(1, int(stack))
+    except (TypeError, ValueError):
+        n = 1
+    parts = []
+    if n > 1:
+        t = 0.07                        # one magazine, edge-on
+        tints = ("#e07a5f", "#81b29a", "#f2c14e", "#3d5a80")
+        for i in range(n):
+            slab = Rectangle(width=width * (1.0 - 0.04 * (i % 2)),
+                             height=t, color="#3b3b3b",
+                             fill_color=tints[i % len(tints)],
+                             fill_opacity=1.0, stroke_width=sw - 0.5)
+            slab.move_to(np.array([x + 0.02 * ((i % 3) - 1),
+                                   y + t / 2 + i * t, 0]))
+            parts.append(slab)
+        top = y + n * t
+    else:
+        body = Rectangle(width=width, height=height, color="#3b3b3b",
+                         fill_color=c, fill_opacity=1.0, stroke_width=sw)
+        body.move_to(np.array([x, y + height / 2, 0]))
+        parts.append(body)
+        top = y + height
+        if cover:
+            words = str(cover).split()
+            text = VGroup(*[Text(w, font=PROP_DEFAULTS["label_font"],
+                                 weight=BOLD, color="#7a1c14",
+                                 font_size=48) for w in words])
+            text.arrange(DOWN, buff=0.06)
+            text.scale_to_fit_width(width * 0.86)
+            if text.height > height * 0.86:
+                text.scale_to_fit_height(height * 0.86)
+            text.move_to(np.array([x, y + height / 2, 0]))
+            parts.append(text)
+    if label:
+        parts.append(_make_label(label, x, top + 0.12))
+    group = VGroup(*parts)
+    _apply_attrs(group, attrs or {})
+    return _attach_pam_attrs(
+        group, name, "magazine", x, y, surface_y=top,
+        attachments={"surface": np.array([x, top, 0]),
+                     "centre": np.array([x, (y + top) / 2, 0]),
+                     "floor": np.array([x, y, 0])},
+        parent=parent, attach=attach, attrs=attrs)

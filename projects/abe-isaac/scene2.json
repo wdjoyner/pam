@@ -17,13 +17,36 @@
     "type": "bowl",
     "x": -0.55,
     "y": -2.6
+   },
+   "barbell": {
+    "type": "barbell",
+    "x": 3.6,
+    "y": -2.6,
+    "width": 2.3,
+    "height": 0.75
+   },
+   "magazines": {
+    "type": "magazine",
+    "stack": 5,
+    "x": 2.25,
+    "y": -2.6,
+    "width": 0.7
+   },
+   "magazine": {
+    "type": "magazine",
+    "x": 2.25,
+    "y": -2.25,
+    "width": 0.62,
+    "height": 0.82,
+    "cover": "ISAAC THE INVINCIBLE"
    }
   }
  },
  {
   "action": "fade_in",
   "who": "isaac",
-  "rt": 0.2
+  "rt": 0.2,
+  "x": 3.6
  },
  {
   "_subscene_marker": "scene2_shot01",
@@ -37,7 +60,119 @@
   }
  },
  {
-  "_comment": "# CUE s02_checks_clips (2 steps): ISAAC (18), an enormous, cheerful wrestler, lifts a barbell made of two "
+  "_comment": "# CUE s02_checks_clips (5 steps): ISAAC (18), an enormous, cheerful wrestler, lifts a barbell made of two "
+ },
+ {
+  "action": "perform",
+  "id": "s02_lift",
+  "phases": {
+   "anticipation": 9,
+   "action": 9,
+   "reaction": 12
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "lift_squat",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "barbell",
+    "frames": 3,
+    "beat": "lifts",
+    "attached": {
+     "to": "isaac",
+     "joints": [
+      "lwrist",
+      "rwrist"
+     ]
+    }
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "lift_chest",
+    "frames": 4
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "lift_overhead",
+    "at": 4,
+    "until": "action"
+   },
+   {
+    "phase": "reaction",
+    "action": "wait",
+    "until": "reaction",
+    "beat": "overhead_hold"
+   }
+  ]
+ },
+ {
+  "action": "perform",
+  "id": "s02_set_down",
+  "phases": {
+   "anticipation": 4,
+   "action": 4,
+   "reaction": 9,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "lift_chest",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "lift_squat",
+    "until": "action"
+   },
+   {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "barbell",
+    "until": "action",
+    "rate": "rush_into",
+    "beat": "sets_down",
+    "attached": {
+     "to": null,
+     "x": 3.6,
+     "y": -2.6,
+     "by": "bottom"
+    }
+   },
+   {
+    "phase": "reaction",
+    "action": "sound_cue",
+    "label": "THUD!",
+    "font_size": 44,
+    "x": 3.6,
+    "y": -0.9,
+    "frames": 12,
+    "frames_in": 1,
+    "frames_out": 3,
+    "beat": "thud"
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "standing_front",
+    "until": "recovery"
+   }
+  ]
  },
  {
   "action": "prop_transition",
@@ -48,6 +183,26 @@
    "joint": "rwrist",
    "by": "bottom"
   }
+ },
+ {
+  "action": "parallel",
+  "id": "s02_to_his_spot",
+  "frames": 21,
+  "do": [
+   {
+    "action": "walk_to",
+    "who": "isaac",
+    "x": 1.0,
+    "frames": 15
+   },
+   {
+    "action": "morph",
+    "who": "isaac",
+    "pose": "phone_check",
+    "at": 15,
+    "frames": 6
+   }
+  ]
  },
  {
   "action": "wait",
@@ -67,170 +222,817 @@
   }
  },
  {
-  "_comment": "# CUE s02_abraham_enters (1 step): Abraham enters without knocking, a satchel over his shoulder and the scr"
+  "_comment": "# CUE s02_abraham_enters (2 steps): Abraham enters without knocking, a satchel over his shoulder and the scr"
  },
  {
   "action": "fade_in",
   "who": "abraham",
-  "rt": 0.2
+  "rt": 0.2,
+  "x": -7.6
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "Dad! What about knocking? What if I was changing?",
-  "side": "right",
-  "hold": 1.62
+  "action": "parallel",
+  "id": "s02_enters",
+  "frames": 27,
+  "do": [
+   {
+    "action": "walk_to",
+    "who": "abraham",
+    "x": -1.2,
+    "frames": 24
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "I've been working on the Torah.",
-  "side": "right",
-  "hold": 1.08
+  "_comment": "# CUE s02_knocking (1 step): Dad! What about knocking? What if I was changing?"
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "Isaac, we must talk.",
-  "side": "right",
-  "hold": 0.9
+  "action": "perform",
+  "id": "s02_knocking",
+  "phases": {
+   "anticipation": 3,
+   "action": 51,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "standing_front",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "Dad! What about knocking? What if I was changing?",
+    "side": "right",
+    "frames": 51,
+    "frames_in": 3,
+    "frames_out": 3
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "isaac",
+    "fragment": "shrug",
+    "at": 8,
+    "frames": 8
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "phone_check",
+    "until": "recovery"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "Can it wait? I have a match to study.",
-  "side": "right",
-  "hold": 1.62
+  "_comment": "# CUE s02_must_talk (1 step): I've been working on the Torah. Isaac, we must talk."
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "I just spoke with God.",
-  "side": "right",
-  "hold": 0.9
+  "action": "perform",
+  "id": "s02_must_talk",
+  "phases": {
+   "action": 49,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "I've been working on the Torah.",
+    "side": "left",
+    "frames": 28,
+    "frames_in": 3,
+    "frames_out": 3
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "chest_pat_r",
+    "at": 6,
+    "frames": 9
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "palms_up",
+    "at": 26,
+    "frames": 4
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "Isaac, we must talk.",
+    "side": "left",
+    "frames": 21,
+    "frames_in": 3,
+    "frames_out": 3,
+    "at": 28
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side",
+    "until": "recovery"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "Again with God?",
-  "side": "right",
-  "hold": 0.9
+  "_comment": "# CUE s02_match (1 step): Can it wait? I have a match to study."
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "Watch that attitude.",
-  "side": "right",
-  "hold": 0.9
+  "action": "perform",
+  "id": "s02_match",
+  "phases": {
+   "action": 40
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "Can it wait? I have a match to study.",
+    "side": "right",
+    "frames": 40,
+    "frames_in": 3,
+    "frames_out": 3
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "He says I have to sacrifice a son.",
-  "side": "right",
-  "hold": 1.44
+  "_comment": "# CUE s02_spoke_with_god (1 step): I just spoke with God."
  },
  {
-  "action": "turn",
-  "who": "isaac",
-  "pose": "look_up"
+  "action": "perform",
+  "id": "s02_spoke_with_god",
+  "phases": {
+   "anticipation": 5,
+   "action": 27,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "point_up",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "I just spoke with God.",
+    "side": "left",
+    "frames": 27,
+    "frames_in": 3,
+    "frames_out": 3
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side",
+    "until": "recovery"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "What about Ishmael?",
-  "side": "right",
-  "hold": 0.9
+  "_comment": "# CUE s02_again (1 step): Again with God?"
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "Hagar said if I sacrifice Ishmael, I have to sleep outside.",
-  "side": "right",
-  "hold": 1.98
+  "action": "perform",
+  "id": "s02_again",
+  "phases": {
+   "action": 21
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "Again with God?",
+    "side": "right",
+    "frames": 21,
+    "frames_in": 3,
+    "frames_out": 3
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "isaac",
+    "fragment": "head_shake",
+    "at": 4,
+    "frames": 9
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "Moooom!",
-  "side": "right",
-  "hold": 0.9
+  "_comment": "# CUE s02_attitude (1 step): Watch that attitude. He says I have to sacrifice a son."
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "Sarah's gathering rocks.",
-  "side": "right",
-  "hold": 0.9
+  "action": "perform",
+  "id": "s02_attitude",
+  "phases": {
+   "anticipation": 4,
+   "action": 54,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "wag_finger",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "Watch that attitude.",
+    "side": "left",
+    "frames": 21,
+    "frames_in": 3,
+    "frames_out": 3
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "finger_wag_r",
+    "at": 3,
+    "frames": 10,
+    "cycles": 2
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "palms_up",
+    "at": 20,
+    "frames": 5
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "He says I have to sacrifice a son.",
+    "side": "left",
+    "frames": 33,
+    "frames_in": 3,
+    "frames_out": 3,
+    "at": 21
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side",
+    "until": "recovery"
+   }
+  ]
  },
  {
-  "_comment": "# REVIEW: Isaac holds up his magazine cover."
+  "_comment": "# CUE s02_looks_up (1 step): Isaac finally looks up."
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "Dad, I'm Isaac the Invincible.",
-  "side": "right",
-  "hold": 0.9
+  "action": "perform",
+  "id": "s02_looks_up",
+  "phases": {
+   "anticipation": 6,
+   "action": 4,
+   "reaction": 9
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "wait",
+    "until": "anticipation",
+    "beat": "beat"
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "standing_front",
+    "until": "action"
+   },
+   {
+    "phase": "reaction",
+    "action": "wait",
+    "until": "reaction",
+    "beat": "stares"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "\"Sacrificial lamb\" doesn't fit my online persona.",
-  "side": "right",
-  "hold": 1.26
+  "_comment": "# CUE s02_ishmael (1 step): What about Ishmael?"
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "I know. But it's the word of God.",
-  "side": "right",
-  "hold": 1.44
+  "action": "perform",
+  "id": "s02_ishmael",
+  "phases": {
+   "action": 24
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "What about Ishmael?",
+    "side": "right",
+    "frames": 24,
+    "frames_in": 3,
+    "frames_out": 3
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "isaac",
+    "fragment": "shrug",
+    "at": 2,
+    "frames": 8
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "What were the exact words?",
-  "side": "right",
-  "hold": 0.9
+  "_comment": "# CUE s02_outside (1 step): Hagar said if I sacrifice Ishmael, I have to sleep outside."
  },
  {
-  "_comment": "# REVIEW: Abraham counts on his fingers."
+  "action": "perform",
+  "id": "s02_outside",
+  "phases": {
+   "anticipation": 5,
+   "action": 60,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "thumb_back",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "Hagar said if I sacrifice Ishmael, I have to sleep outside.",
+    "side": "left",
+    "frames": 60,
+    "frames_in": 3,
+    "frames_out": 3
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side",
+    "until": "recovery"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "Go to Mount Moriah. Build an altar.",
-  "side": "right",
-  "hold": 1.26
+  "_comment": "# CUE s02_mom (1 step): Moooom!"
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "Tie you down. Raise my knife.",
-  "side": "right",
-  "hold": 1.08
+  "action": "perform",
+  "id": "s02_mom",
+  "phases": {
+   "anticipation": 3,
+   "action": 18,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "hands_cheeks",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "Moooom!",
+    "side": "right",
+    "frames": 18,
+    "frames_in": 3,
+    "frames_out": 3
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "standing_front",
+    "until": "recovery"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "Say a few words to teach Israel a lesson.",
-  "side": "right",
-  "hold": 1.62
+  "_comment": "# CUE s02_rocks (1 step): Sarah's gathering rocks."
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "And then...",
-  "side": "right",
-  "hold": 0.9
+  "action": "perform",
+  "id": "s02_rocks",
+  "phases": {
+   "anticipation": 4,
+   "action": 29,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "palms_up",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "Sarah's gathering rocks.",
+    "side": "left",
+    "frames": 29,
+    "frames_in": 3,
+    "frames_out": 3
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side",
+    "until": "recovery"
+   }
+  ]
  },
  {
-  "_comment": "# REVIEW: He has run out of fingers"
+  "_comment": "# CUE s02_magazine (1 step): Isaac holds up his magazine cover."
  },
  {
-  "action": "wait",
-  "t": 0.8
+  "action": "perform",
+  "id": "s02_magazine",
+  "phases": {
+   "anticipation": 6,
+   "action": 6,
+   "reaction": 9
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "prop_transition",
+    "prop": "phone",
+    "frames": 4,
+    "beat": "phone_away",
+    "attached": {
+     "to": "isaac",
+     "joint": "rhip",
+     "hidden": true
+    }
+   },
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "standing_front",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "magazine",
+    "until": "action",
+    "beat": "holds_up_magazine",
+    "attached": {
+     "to": "isaac",
+     "joint": "rwrist",
+     "by": "bottom"
+    }
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "hold_up_r",
+    "until": "action"
+   },
+   {
+    "phase": "reaction",
+    "action": "wait",
+    "until": "reaction",
+    "beat": "cover_hold"
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s02_persona (1 step): Dad, I'm Isaac the Invincible. \"Sacrificial lamb\" doesn't fit my online "
+ },
+ {
+  "action": "perform",
+  "id": "s02_persona",
+  "phases": {
+   "action": 69,
+   "recovery": 9
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "Dad, I'm Isaac the Invincible.",
+    "side": "right",
+    "frames": 27,
+    "frames_in": 3,
+    "frames_out": 3
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "\"Sacrificial lamb\" doesn't fit my online persona.",
+    "side": "right",
+    "frames": 42,
+    "frames_in": 3,
+    "frames_out": 3,
+    "at": 27
+   },
+   {
+    "phase": "recovery",
+    "action": "prop_transition",
+    "prop": "magazine",
+    "until": "recovery",
+    "beat": "magazine_back",
+    "attached": {
+     "to": null,
+     "x": 2.25,
+     "y": -2.25,
+     "by": "bottom"
+    }
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "standing_front",
+    "until": "recovery"
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s02_word_of_god (1 step): I know. But it's the word of God."
+ },
+ {
+  "action": "perform",
+  "id": "s02_word_of_god",
+  "phases": {
+   "anticipation": 5,
+   "action": 37,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "point_up",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "I know. But it's the word of God.",
+    "side": "left",
+    "frames": 37,
+    "frames_in": 3,
+    "frames_out": 3
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side",
+    "until": "recovery"
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s02_exact_words (1 step): What were the exact words?"
+ },
+ {
+  "action": "perform",
+  "id": "s02_exact_words",
+  "phases": {
+   "anticipation": 5,
+   "action": 30
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "hands_hips",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "What were the exact words?",
+    "side": "right",
+    "frames": 30,
+    "frames_in": 3,
+    "frames_out": 3
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s02_counts (1 step): Abraham counts on his fingers."
+ },
+ {
+  "action": "perform",
+  "id": "s02_counts",
+  "phases": {
+   "anticipation": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "count_hand",
+    "until": "anticipation"
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s02_the_list (1 step): Go to Mount Moriah. Build an altar. Tie you down. Raise my knife. Say a "
+ },
+ {
+  "action": "perform",
+  "id": "s02_the_list",
+  "phases": {
+   "action": 132
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "Go to Mount Moriah.",
+    "side": "left",
+    "frames": 21,
+    "frames_in": 3,
+    "frames_out": 3,
+    "at": 0
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "count_tap_r",
+    "at": 2,
+    "frames": 5,
+    "beat": "finger_1"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "Build an altar.",
+    "side": "left",
+    "frames": 18,
+    "frames_in": 3,
+    "frames_out": 3,
+    "at": 21
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "count_tap_r",
+    "at": 23,
+    "frames": 5,
+    "beat": "finger_2"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "Tie you down.",
+    "side": "left",
+    "frames": 18,
+    "frames_in": 3,
+    "frames_out": 3,
+    "at": 39
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "count_tap_r",
+    "at": 41,
+    "frames": 5,
+    "beat": "finger_3"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "Raise my knife.",
+    "side": "left",
+    "frames": 18,
+    "frames_in": 3,
+    "frames_out": 3,
+    "at": 57
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "count_tap_r",
+    "at": 59,
+    "frames": 5,
+    "beat": "finger_4"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "Say a few words to teach Israel a lesson.",
+    "side": "left",
+    "frames": 36,
+    "frames_in": 3,
+    "frames_out": 3,
+    "at": 75
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "count_tap_r",
+    "at": 77,
+    "frames": 5,
+    "beat": "finger_5"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "And then...",
+    "side": "left",
+    "frames": 21,
+    "frames_in": 3,
+    "frames_out": 3,
+    "at": 111
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s02_out_of_fingers (1 step): He has run out of fingers. He stares at his hand."
+ },
+ {
+  "action": "perform",
+  "id": "s02_out_of_fingers",
+  "phases": {
+   "anticipation": 6,
+   "action": 6,
+   "reaction": 18
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "wait",
+    "until": "anticipation",
+    "beat": "no_fingers"
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "stare_hand",
+    "until": "action"
+   },
+   {
+    "phase": "reaction",
+    "action": "wait",
+    "until": "reaction",
+    "beat": "stares_at_hand"
+   }
+  ]
  },
  {
   "action": "say",
@@ -240,48 +1042,336 @@
   "hold": 0.9
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "That part escapes me.",
-  "side": "right",
-  "hold": 0.9
+  "_comment": "# CUE s02_escapes_me (1 step): That part escapes me."
  },
  {
-  "_comment": "# REVIEW: Isaac's phone BUZZES. He reads."
+  "action": "perform",
+  "id": "s02_escapes_me",
+  "phases": {
+   "anticipation": 5,
+   "action": 26,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "chin_hand",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "That part escapes me.",
+    "side": "left",
+    "frames": 26,
+    "frames_in": 3,
+    "frames_out": 3
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side",
+    "until": "recovery"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "My manager wants me to wrestle Friday.",
-  "side": "right",
-  "hold": 1.26
+  "_comment": "# CUE s02_buzz (1 step): Isaac's phone BUZZES. He reads."
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "Can you drive me to Ocean City?",
-  "side": "right",
-  "hold": 1.26
+  "action": "perform",
+  "id": "s02_buzz",
+  "phases": {
+   "anticipation": 9,
+   "action": 6,
+   "reaction": 9
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "sound_cue",
+    "label": "BZZZ",
+    "font_size": 40,
+    "x": 2.3,
+    "y": -0.7,
+    "until": "anticipation",
+    "frames_in": 1,
+    "frames_out": 2,
+    "beat": "buzz"
+   },
+   {
+    "phase": "anticipation",
+    "action": "react",
+    "who": "isaac",
+    "fragment": "startle",
+    "at": 1,
+    "frames": 4
+   },
+   {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "phone",
+    "until": "action",
+    "beat": "phone_out",
+    "attached": {
+     "to": "isaac",
+     "joint": "rwrist",
+     "by": "bottom"
+    }
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "phone_check",
+    "until": "action"
+   },
+   {
+    "phase": "reaction",
+    "action": "wait",
+    "until": "reaction",
+    "beat": "reads"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "Not if you're being sacrificed. Come on.",
-  "side": "right",
-  "hold": 1.26
+  "_comment": "# CUE s02_ocean_city (1 step): My manager wants me to wrestle Friday. Can you drive me to Ocean City?"
  },
  {
-  "_comment": "# REVIEW: Abraham grabs Isaac's wrist. Nothing moves. He braces both feet against the floor, pulls, slips, and lands on his back."
+  "action": "perform",
+  "id": "s02_ocean_city",
+  "phases": {
+   "anticipation": 4,
+   "action": 69
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "standing_front",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "My manager wants me to wrestle Friday. Can you drive me to Ocean City?",
+    "side": "right",
+    "frames": 69,
+    "frames_in": 3,
+    "frames_out": 3
+   }
+  ]
  },
  {
-  "_comment": "# REVIEW: Isaac offers him a hand. Abraham accepts it and shoots upright like a cork. He clutches Isaac around the middle to steady himself. His arms do not reach halfway."
+  "_comment": "# CUE s02_come_on (1 step): Not if you're being sacrificed. Come on."
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "Have you thought about a diet?",
-  "side": "right",
-  "hold": 1.08
+  "action": "perform",
+  "id": "s02_come_on",
+  "phases": {
+   "action": 42
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "Not if you're being sacrificed.",
+    "side": "left",
+    "frames": 27,
+    "frames_in": 3,
+    "frames_out": 3
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "thumb_back",
+    "at": 25,
+    "frames": 4
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "Come on.",
+    "side": "left",
+    "frames": 15,
+    "frames_in": 3,
+    "frames_out": 3,
+    "at": 27
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s02_pull (1 step): Abraham grabs Isaac's wrist. Nothing moves. He braces both feet against "
+ },
+ {
+  "action": "perform",
+  "id": "s02_pull",
+  "phases": {
+   "anticipation": 6,
+   "action": 30,
+   "reaction": 4,
+   "recovery": 15
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "pull_immovable",
+    "id": "pull",
+    "who": "abraham",
+    "target": "isaac",
+    "frames_reach": "action",
+    "frames_pull": "action",
+    "frames_strain": "action"
+   },
+   {
+    "phase": "reaction",
+    "action": "slip_on_back",
+    "who": "abraham",
+    "until": "reaction",
+    "beat": "slip"
+   },
+   {
+    "phase": "recovery",
+    "action": "wait",
+    "until": "recovery",
+    "beat": "comic_hold"
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "look_down_l",
+    "at": 4,
+    "until": "recovery"
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s02_cork_and_hug (2 steps): Isaac offers him a hand. Abraham accepts it and shoots upright like a co"
+ },
+ {
+  "action": "perform",
+  "id": "s02_cork",
+  "phases": {
+   "anticipation": 15,
+   "action": 3,
+   "reaction": 11
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "cork_pop_up",
+    "id": "cork",
+    "who": "isaac",
+    "target": "abraham",
+    "frames_offer": "anticipation",
+    "frames_accept": "anticipation",
+    "frames_pop": "action",
+    "frames_land": "reaction",
+    "frames_hold": "reaction"
+   }
+  ]
+ },
+ {
+  "action": "perform",
+  "id": "s02_hug",
+  "phases": {
+   "anticipation": 6,
+   "action": 6,
+   "reaction": 18,
+   "recovery": 9
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "mismatched_hug",
+    "id": "hug",
+    "who": "abraham",
+    "target": "isaac",
+    "frames_approach": "anticipation",
+    "frames_reach": "action",
+    "frames_squeeze": "reaction",
+    "release": false
+   },
+   {
+    "phase": "recovery",
+    "action": "wait",
+    "until": "recovery",
+    "beat": "arms_too_short"
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s02_diet (1 step): Have you thought about a diet?"
+ },
+ {
+  "action": "perform",
+  "id": "s02_diet",
+  "phases": {
+   "action": 30,
+   "reaction": 6,
+   "recovery": 21
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "Have you thought about a diet?",
+    "side": "left",
+    "frames": 30,
+    "frames_in": 3,
+    "frames_out": 3
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "look_down_l",
+    "until": "reaction"
+   },
+   {
+    "phase": "recovery",
+    "action": "release",
+    "id": "hug.upper"
+   },
+   {
+    "phase": "recovery",
+    "action": "release",
+    "id": "hug.lower"
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side",
+    "frames": 6
+   },
+   {
+    "phase": "recovery",
+    "at": 6,
+    "action": "walk_to",
+    "who": "abraham",
+    "x": -1.1,
+    "until": "recovery"
+   }
+  ]
  },
  {
   "_comment": "# CUE s02_sacrificing_with (1 step): What are you sacrificing me with?"
@@ -295,12 +1385,12 @@
   "frames_out": 3
  },
  {
-  "_comment": "# CUE s02_draws_knife (5 steps): Abraham draws a battered knife from his satchel. Isaac takes it by the h"
+  "_comment": "# CUE s02_draws_knife (6 steps): Abraham draws a battered knife from his satchel. Isaac takes it by the h"
  },
  {
   "action": "morph",
   "who": "abraham",
-  "pose": "look_up_point",
+  "pose": "reach_satchel",
   "frames": 6
  },
  {
@@ -315,8 +1405,14 @@
   }
  },
  {
+  "action": "morph",
+  "who": "abraham",
+  "pose": "offer_r",
+  "frames": 6
+ },
+ {
   "action": "wait",
-  "frames": 9
+  "frames": 3
  },
  {
   "action": "constrain",
@@ -445,116 +1541,306 @@
   "_comment": "# CUE s02_short_ceremony (0 steps): That'll be a short ceremony."
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "God's going to be furious.",
-  "side": "right",
-  "hold": 0.9
+  "_comment": "# CUE s02_furious (1 step): God's going to be furious."
  },
  {
-  "_comment": "# CUE s02_handle_down (2 steps): Isaac studies the blade, then the magazine, then his phone."
+  "action": "perform",
+  "id": "s02_furious",
+  "phases": {
+   "anticipation": 5,
+   "action": 30,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "point_up",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "God's going to be furious.",
+    "side": "left",
+    "frames": 30,
+    "frames_in": 3,
+    "frames_out": 3
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "head_shake",
+    "at": 8,
+    "frames": 9
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side",
+    "until": "recovery"
+   }
+  ]
  },
  {
-  "action": "prop_transition",
-  "prop": "knife.handle",
-  "frames": 6,
-  "beat": "handle_down",
-  "attached": {
-   "to": "bowl",
-   "point": "top",
-   "mode": "in",
-   "offset": [
-    0.08,
-    0.0
-   ]
-  }
+  "_comment": "# CUE s02_handle_down (1 step): Isaac studies the blade, then the magazine, then his phone."
  },
  {
-  "action": "wait",
-  "frames": 6
+  "action": "perform",
+  "id": "s02_studies",
+  "phases": {
+   "anticipation": 9,
+   "action": 9,
+   "reaction": 9,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "prop_transition",
+    "prop": "knife.handle",
+    "frames": 6,
+    "beat": "handle_down",
+    "attached": {
+     "to": "bowl",
+     "point": "top",
+     "mode": "in",
+     "offset": [
+      0.08,
+      0.0
+     ]
+    }
+   },
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "look_down_l",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "look_side_r",
+    "until": "action"
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "phone_check",
+    "until": "reaction"
+   },
+   {
+    "phase": "recovery",
+    "action": "wait",
+    "until": "recovery",
+    "beat": "thinks"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "Wait. I got it.",
-  "side": "right",
-  "hold": 0.9
+  "_comment": "# CUE s02_got_it (1 step): Wait. I got it."
+ },
+ {
+  "action": "perform",
+  "id": "s02_got_it",
+  "phases": {
+   "anticipation": 3,
+   "action": 21,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "finger_up_r",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "Wait. I got it.",
+    "side": "right",
+    "frames": 21,
+    "frames_in": 3,
+    "frames_out": 3
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "standing_front",
+    "until": "recovery"
+   }
+  ]
  },
  {
   "action": "say",
   "who": "abraham",
   "text": "Got what?",
-  "side": "right",
+  "side": "left",
   "hold": 0.9
  },
  {
-  "_comment": "# CUE s02_into_satchel (4 steps): Isaac tucks the barbell under one arm and strides out of the cave. Abrah"
+  "_comment": "# CUE s02_into_satchel (1 step): Isaac tucks the barbell under one arm and strides out of the cave. Abrah"
  },
  {
-  "action": "prop_transition",
-  "prop": "knife",
-  "frames": 9,
-  "beat": "gather",
-  "parts": {
-   "handle": {
+  "action": "parallel",
+  "id": "s02_isaac_leaves",
+  "frames": 42,
+  "do": [
+   {
+    "action": "sequence",
+    "id": "isaac_takes_barbell",
+    "do": [
+     {
+      "action": "walk_to",
+      "who": "isaac",
+      "x": 3.0,
+      "frames": 12
+     },
+     {
+      "action": "morph",
+      "who": "isaac",
+      "pose": "tuck_r",
+      "frames": 6
+     }
+    ]
+   },
+   {
+    "action": "prop_transition",
+    "prop": "barbell",
+    "at": 12,
+    "frames": 6,
+    "beat": "tucks_barbell",
     "attached": {
-     "to": "abraham",
+     "to": "isaac",
      "joint": "rwrist"
     }
    },
-   "blade": {
-    "attached": {
-     "to": "abraham",
-     "joint": "lwrist",
-     "angle": 180
-    }
-   }
-  }
- },
- {
-  "action": "wait",
-  "frames": 6
- },
- {
-  "action": "prop_transition",
-  "prop": "knife",
-  "frames": 6,
-  "beat": "into_satchel",
-  "parts": {
-   "handle": {
-    "attached": {
-     "to": "satchel",
-     "mode": "in",
-     "hidden": true
-    }
+   {
+    "action": "walk_to",
+    "who": "isaac",
+    "x": -9.6,
+    "at": 18,
+    "frames": 24
    },
-   "blade": {
-    "attached": {
-     "to": "satchel",
-     "mode": "in",
-     "hidden": true
-    }
+   {
+    "action": "sequence",
+    "id": "abraham_gathers",
+    "do": [
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "hands_low",
+      "frames": 6
+     },
+     {
+      "action": "prop_transition",
+      "prop": "knife",
+      "frames": 9,
+      "beat": "gather",
+      "parts": {
+       "handle": {
+        "attached": {
+         "to": "abraham",
+         "joint": "rwrist"
+        }
+       },
+       "blade": {
+        "attached": {
+         "to": "abraham",
+         "joint": "lwrist",
+         "angle": 180
+        }
+       }
+      }
+     },
+     {
+      "action": "wait",
+      "frames": 6
+     },
+     {
+      "action": "prop_transition",
+      "prop": "knife",
+      "frames": 6,
+      "beat": "into_satchel",
+      "parts": {
+       "handle": {
+        "attached": {
+         "to": "satchel",
+         "mode": "in",
+         "hidden": true
+        }
+       },
+       "blade": {
+        "attached": {
+         "to": "satchel",
+         "mode": "in",
+         "hidden": true
+        }
+       }
+      }
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "standing_side",
+      "frames": 6
+     }
+    ]
    }
-  }
- },
- {
-  "action": "wait",
-  "frames": 9,
-  "beat": "hold"
+  ]
  },
  {
   "_comment": "# CUE s02_slings_rope (1 step): Isaac tucks the barbell under one arm and strides out of the cave. Abrah"
  },
  {
-  "action": "prop_transition",
-  "prop": "rope",
-  "frames": 9,
-  "beat": "slings_rope",
-  "attached": {
-   "to": "abraham",
-   "joint": "rshoulder",
-   "mode": "on"
-  }
+  "action": "parallel",
+  "id": "s02_rope",
+  "frames": 27,
+  "do": [
+   {
+    "action": "walk_to",
+    "who": "abraham",
+    "x": -2.6,
+    "frames": 12
+   },
+   {
+    "action": "morph",
+    "who": "abraham",
+    "pose": "stoop_pick_left",
+    "at": 12,
+    "frames": 4
+   },
+   {
+    "action": "prop_transition",
+    "prop": "rope",
+    "at": 15,
+    "frames": 9,
+    "beat": "slings_rope",
+    "attached": {
+     "to": "abraham",
+     "joint": "rshoulder",
+     "mode": "on"
+    }
+   },
+   {
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side_left",
+    "at": 16,
+    "frames": 6
+   }
+  ]
  },
  {
   "_comment": "# CUE s02_pockets_phone (2 steps): Isaac tucks the barbell under one arm and strides out of the cave. Abrah"
@@ -571,7 +1857,21 @@
   }
  },
  {
+  "action": "parallel",
+  "id": "s02_hurries",
+  "frames": 18,
+  "do": [
+   {
+    "action": "run_to",
+    "who": "abraham",
+    "x": -8.0,
+    "frames": 15
+   }
+  ]
+ },
+ {
   "action": "wait",
-  "frames": 6
+  "frames": 6,
+  "beat": "s02_end_hold"
  }
 ]

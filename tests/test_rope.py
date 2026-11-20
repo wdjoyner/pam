@@ -440,7 +440,17 @@ def test_the_project_needs_the_script_edits(tmp_path):
     winding it round Isaac's wrists from there is reported."""
     root = tt.copy_project(tmp_path / "p")
     s2 = json.loads((root / "scene2.json").read_text())
-    s2 = [s for s in s2 if s.get("beat") != "slings_rope"]
+    # (since Milestone 6 the step is inside a timed block)
+    def drop(steps):
+        out = []
+        for s in steps:
+            if isinstance(s, dict) and s.get("beat") == "slings_rope":
+                continue
+            if isinstance(s, dict) and isinstance(s.get("do"), list):
+                s = {**s, "do": drop(s["do"])}
+            out.append(s)
+        return out
+    s2 = drop(s2)
     (root / "scene2.json").write_text(json.dumps(s2))
     reports = {r.ledger["scene"]: r for r in validate_project(root)}
     assert reports["scene2"].ok

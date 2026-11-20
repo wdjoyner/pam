@@ -6,15 +6,6 @@
   "_comment": "# SCENE: EXT. DESERT - OUTSIDE ABRAHAM'S CAVE - DAY"
  },
  {
-  "action": "set_background",
-  "color": "#a9c8e6"
- },
- {
-  "action": "fade_in",
-  "who": "abraham",
-  "rt": 0.2
- },
- {
   "_subscene_marker": "scene1_shot01",
   "_shot_meta": {
    "framing": "medium",
@@ -22,35 +13,142 @@
    "move": "static",
    "transition": "cut",
    "lighting": null,
-   "freeform": false
+   "freeform": false,
+   "fit": "bounds",
+   "margin": 0.2
   }
+ },
+ {
+  "action": "set_background",
+  "color": "#a9c8e6"
+ },
+ {
+  "action": "props",
+  "rt": 0.2,
+  "items": {
+   "rock": {
+    "type": "rock",
+    "x": -1.2,
+    "y": -2.6,
+    "width": 0.95,
+    "height": 0.86
+   }
+  }
+ },
+ {
+  "action": "fade_in",
+  "who": "abraham",
+  "rt": 0.2,
+  "pose": "sit_write"
  },
  {
   "_comment": "# CUE s01_takes_quill (1 step): ABRAHAM (50s), a small, serious man with a scholar's posture, sits on a "
  },
  {
-  "action": "prop_transition",
-  "prop": "quill",
-  "frames": 6,
-  "beat": "takes_quill",
-  "attached": {
-   "to": "abraham",
-   "joint": "rwrist",
-   "angle": 30
-  }
+  "action": "perform",
+  "id": "s01_takes_quill",
+  "phases": {
+   "anticipation": 9,
+   "action": 6,
+   "reaction": 6,
+   "recovery": 4
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "wait",
+    "until": "anticipation",
+    "beat": "opening_hold"
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "sit_reach_satchel",
+    "until": "action"
+   },
+   {
+    "phase": "reaction",
+    "action": "prop_transition",
+    "prop": "quill",
+    "frames": 6,
+    "beat": "takes_quill",
+    "attached": {
+     "to": "abraham",
+     "joint": "rwrist",
+     "angle": 30
+    }
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "sit_write",
+    "until": "reaction"
+   },
+   {
+    "phase": "recovery",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "flick_r",
+    "until": "recovery"
+   }
+  ]
  },
  {
   "_comment": "# CUE s01_writes (1 step): ABRAHAM (50s), a small, serious man with a scholar's posture, sits on a "
  },
  {
-  "action": "prop_transition",
-  "prop": "scroll",
-  "to": "edited",
-  "frames": 30,
-  "beat": "writes",
-  "text": {
-   "write": "AND ABRAHAM RAISED THE KNIFE."
-  }
+  "action": "perform",
+  "id": "s01_writes",
+  "phases": {
+   "anticipation": 3,
+   "action": 30,
+   "reaction": 6,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "flick_r",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "scroll",
+    "to": "edited",
+    "until": "action",
+    "beat": "writes",
+    "text": {
+     "write": "AND ABRAHAM RAISED THE KNIFE."
+    }
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "scribble_r",
+    "until": "action",
+    "cycles": 3
+   },
+   {
+    "phase": "reaction",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "nod",
+    "until": "reaction"
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "sit_admire",
+    "until": "recovery"
+   }
+  ]
  },
  {
   "_subscene_marker": "scene1_shot02",
@@ -69,7 +167,7 @@
  },
  {
   "action": "wait",
-  "frames": 12,
+  "frames": 27,
   "beat": "insert"
  },
  {
@@ -80,40 +178,174 @@
    "move": "static",
    "transition": "cut",
    "lighting": null,
-   "freeform": false
+   "freeform": false,
+   "fit": "bounds",
+   "margin": 0.2
   }
  },
  {
-  "_comment": "# CUE s01_question_mark (1 step): Abraham studies the line, frowns, and turns the period into a question m"
+  "_comment": "# CUE s01_studies (1 step): Abraham studies the line and frowns."
  },
  {
-  "action": "prop_transition",
-  "prop": "scroll",
-  "frames": 6,
-  "beat": "question_mark",
-  "text": {
-   "replace": ".",
-   "with": "?",
-   "line": 2
-  }
- },
- {
-  "_comment": "# CUE s01_thud (1 step): Abraham studies the line, frowns, and turns the period into a question m"
- },
- {
-  "action": "parallel",
-  "id": "s01_thud",
-  "frames": 24,
+  "action": "perform",
+  "id": "s01_studies",
+  "phases": {
+   "anticipation": 6,
+   "action": 12,
+   "reaction": 9
+  },
   "do": [
    {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "sit_study",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "head_shake",
+    "until": "action"
+   },
+   {
+    "phase": "reaction",
     "action": "wait",
-    "frames": 6,
+    "until": "reaction",
+    "beat": "doubt"
+   }
+  ]
+ },
+ {
+  "_subscene_marker": "scene1_shot04",
+  "_shot_meta": {
+   "framing": "insert",
+   "subject": "scroll",
+   "move": "static",
+   "transition": "cut",
+   "lighting": null,
+   "freeform": false,
+   "fit": "bounds"
+  }
+ },
+ {
+  "_comment": "# CUE s01_question_mark (1 step): INSERT - THE SCROLL: He turns the period into a question mark: \"AND ABRA"
+ },
+ {
+  "action": "perform",
+  "id": "s01_question_mark",
+  "phases": {
+   "anticipation": 6,
+   "action": 6,
+   "reaction": 18
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "sit_write",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "scroll",
+    "until": "action",
+    "beat": "question_mark",
+    "text": {
+     "replace": ".",
+     "with": "?",
+     "line": 2
+    }
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "flick_r",
+    "until": "action"
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "sit_admire",
+    "frames": 4
+   },
+   {
+    "phase": "reaction",
+    "action": "wait",
+    "at": 4,
+    "until": "reaction",
+    "beat": "reads_question"
+   }
+  ]
+ },
+ {
+  "_subscene_marker": "scene1_shot05",
+  "_shot_meta": {
+   "framing": "medium",
+   "subject": "Abraham",
+   "move": "static",
+   "transition": "cut",
+   "lighting": null,
+   "freeform": false,
+   "fit": "bounds",
+   "margin": 0.2
+  }
+ },
+ {
+  "_comment": "# CUE s01_thud (1 step): From inside the cave: a tremendous THUD. He rolls up the scroll and tuck"
+ },
+ {
+  "action": "perform",
+  "id": "s01_thud",
+  "phases": {
+   "anticipation": 6,
+   "action": 6,
+   "reaction": 9,
+   "recovery": 24
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "nod",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "sound_cue",
+    "label": "THUD!",
+    "font_size": 44,
+    "x": 0.4,
+    "y": -0.6,
+    "frames": 15,
+    "frames_in": 1,
+    "frames_out": 3,
     "beat": "thud"
    },
    {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "startle",
+    "until": "action"
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "sit_look_r",
+    "until": "reaction"
+   },
+   {
+    "phase": "recovery",
     "action": "prop_transition",
     "prop": "quill",
-    "at": 6,
     "frames": 6,
     "beat": "quill_away",
     "attached": {
@@ -123,10 +355,11 @@
     }
    },
    {
+    "phase": "recovery",
+    "at": 3,
     "action": "prop_transition",
     "prop": "scroll",
     "to": "rolled",
-    "at": 9,
     "frames": 9,
     "beat": "into_belt",
     "attached": {
@@ -135,8 +368,29 @@
      "mode": "in",
      "angle": 25
     }
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "sitting_down",
+    "at": 3,
+    "frames": 9
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "sit_look_r",
+    "at": 12,
+    "until": "recovery"
    }
   ]
+ },
+ {
+  "action": "wait",
+  "frames": 6,
+  "beat": "s01_end_hold"
  },
  {
   "action": "fade_out",

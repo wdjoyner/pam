@@ -938,8 +938,12 @@ control points and rebuilt in Blender as curves; attachments
 choreography cues (\texttt{[[beat: id]]} notes and a cue file; the
 compiler reports orphaned cues and beats without cues), projects
 (\texttt{fountain2pam.py -{}-project}), and shots framed from their
-subject's bounding box (\texttt{pam/shot\_targets.py}). All opt-in. See
-\S14. \\
+subject's bounding box (\texttt{pam/shot\_targets.py}).
+\textbf{Milestone 6, Stage 6a}: acting in four phases
+(\texttt{perform}), tics on the frame clock (\texttt{react} with
+\texttt{fragment}), acting poses built on each build, \texttt{sound\_cue}
+on exact frames, the \texttt{barbell} and \texttt{magazine}, and Scenes
+1 and 2 of the short performed. All opt-in. See \S14. \\
 0.9.23 & Backburner items 10--11, 18, and item-6 Option C.
 \textbf{2.5D depth system} (items 10--11): optional
 \texttt{"depth"}/\texttt{"rescale"} on cast and props entries;
@@ -4518,7 +4522,8 @@ active at once.
 timeline, constraints, choreography and stateful props}\label{runtime-additions-timeline}\index{timeline}\index{frame clock}
 
 Milestones 1 to 5 of \emph{PAM: The Road to Blender} (Milestone 4 in
-three stages, 4a, 4b and 4c) and its vertical slice. Everything in this section
+three stages, 4a, 4b and 4c), its vertical slice, and Stage 6a of
+Milestone 6. Everything in this section
 is opt-in: a screenplay that uses none
 of the keys and actions below is loaded, played and traced exactly as
 before. The modules are \texttt{pam/timeline.py},
@@ -5749,7 +5754,8 @@ nothing and fails if a scene file is out of date or the report finds
 anything. \texttt{projects/abe-isaac} is laid out this way: its
 screenplay is a copy of the script in \texttt{writing-guides} (the
 authoritative literary version) with the commit it was taken from, its
-42 cues are the hand-authored Milestone 4 blocking, and its six scene
+cues are the hand-authored Milestone 4 blocking (and, since Stage 6a,
+the performance of Scenes 1 and 2, \S14.16), and its six scene
 files are compiler output. Two rules hold in project mode only: a
 \texttt{CAMERA} note after a beat whose cue makes a cut of the same
 framing on the same subjects stands for that cut (no second marker; a
@@ -5788,6 +5794,110 @@ write the Milestone 4 ledger byte for byte); renames and deletes beats
 and checks that the orphaned cues are reported; and traces the scenes
 and checks, on every frame of the scroll, knife, bowl and phone
 inserts, that the subject is in the frame and its text is readable.
+
+\subsection{14.16 Acting in four phases: the Manim performance}\label{perform}\index{perform@\texttt{perform}}\index{acting phases}\index{react@\texttt{react}!fragment}\index{tics}\index{acting poses}\index{sound\_cue@\texttt{sound\_cue}!frame clock}\index{barbell@\texttt{barbell}}\index{magazine@\texttt{magazine}}
+
+Milestone 6, Stage 6a: Scenes 1 and 2 of \emph{Abraham and Isaac,
+Revisited} as a performance a viewer can follow without the script.
+Everything here is opt-in: a screenplay that uses none of it is played
+and traced exactly as before, and the golden traces are unchanged.
+
+\textbf{\texttt{perform}.} An action that matters is acted in four
+phases: \emph{anticipation} (the wind-up), \emph{action}, \emph{reaction}
+(the result lands; the image is held) and \emph{recovery}. A
+\texttt{perform} holds the length of each phase in frames in one table,
+\texttt{phases}, and places its steps by phase, so that a phase is
+retimed by changing one number and not the steps:
+
+\begin{verbatim}
+{"action": "perform", "id": "s02_pull",
+ "phases": {"anticipation": 6, "action": 30,
+            "reaction": 4, "recovery": 15},
+ "do": [
+  {"phase": "anticipation", "action": "morph", "who": "abraham",
+   "pose": "standing_side", "until": "anticipation"},
+  {"phase": "action", "action": "pull_immovable", "id": "pull",
+   "who": "abraham", "target": "isaac", "frames_reach": "action",
+   "frames_pull": "action", "frames_strain": "action"},
+  {"phase": "reaction", "action": "slip_on_back", "who": "abraham",
+   "until": "reaction", "beat": "slip"},
+  {"phase": "recovery", "action": "wait", "until": "recovery",
+   "beat": "comic_hold"}]}
+\end{verbatim}
+
+On a step, \texttt{phase} is the phase it starts in and \texttt{at}
+counts frames from the start of that phase; \texttt{until} makes the
+step last to the end of the named phase, in place of \texttt{frames}. A
+routine's \texttt{"frames\_<its phase>"} may name an acting phase, whose
+frames are then shared by every routine phase that names it, in
+proportion to their defaults. The phases follow one another in their
+fixed order, and each phase with frames is a beat
+\texttt{<id>.<phase>}. A \texttt{perform} is expanded into a timed
+\texttt{parallel} block when the screenplay is loaded
+(\texttt{expand\_perform} in \texttt{pam/timeline.py}), so the block's
+rules all apply. Changing \texttt{"action": 30} to 36 makes the pull six
+frames longer, shared by its reach, pull and strain, and the fall and
+the comic hold start six frames later.
+
+\textbf{Mannerisms.} A \texttt{react} step with \texttt{fragment} plays
+that one tic of \texttt{pam/tics.py} on the frame clock, also as a step
+of a timed block: each keyframe is a change from the pose the figure has
+when the tic starts, and the last piece returns it there.
+\texttt{frames} is the whole tic and \texttt{cycles} repeats its cycle.
+Without \texttt{fragment}, \texttt{react} plays the character's
+\texttt{tic\_profile} as before. New fragments: \texttt{count\_tap\_r},
+\texttt{nod}, \texttt{head\_shake}, \texttt{scribble\_r},
+\texttt{flick\_r}, \texttt{finger\_wag\_r}, \texttt{shrug},
+\texttt{startle}, \texttt{chest\_pat\_r}. A tic sets the whole pose, so
+it may not overlap another move of the same figure.
+
+\begin{verbatim}
+{"action": "react", "who": "abraham", "fragment": "count_tap_r",
+ "frames": 5, "at": 2}
+\end{verbatim}
+
+\textbf{Acting poses.} \texttt{pam/acting\_poses.py} writes poses as
+changes to a base pose of the figure's own build (\texttt{standing\_side},
+\texttt{standing\_front} or \texttt{sitting\_down}): a moved wrist or
+ankle gets its elbow or knee solved with the bones at their length, so
+Isaac (broad) and Abraham (narrow) keep their proportions. Each has a
+mirror facing stage left, \texttt{<name>\_left} (and
+\texttt{standing\_side\_left}). Among them: \texttt{count\_hand},
+\texttt{stare\_hand}, \texttt{point\_up}, \texttt{wag\_finger},
+\texttt{palms\_up}, \texttt{chin\_hand}, \texttt{thumb\_back},
+\texttt{offer\_r}, \texttt{phone\_check}, \texttt{hold\_up\_r},
+\texttt{hands\_cheeks}, \texttt{finger\_up\_r}, \texttt{lift\_squat},
+\texttt{lift\_overhead}, \texttt{sit\_write} and \texttt{sit\_study}
+(section 9 of \texttt{pam-player\_manual.md} has them all).
+
+\textbf{A word on exact frames.} A \texttt{sound\_cue} with
+\texttt{frames}, \texttt{frames\_in} or \texttt{frames\_out}, or as a
+step of a timed block, fades in, holds and fades out on exact frames
+while other steps play (defaults 2, 9 and 3 frames). New keys:
+\texttt{font\_size} (default 22) and \texttt{color}.
+
+\textbf{Props.} \texttt{barbell} (two boulders and a log; grips
+\texttt{left} and \texttt{right}) and \texttt{magazine} (\texttt{cover}
+words, or a pile of \texttt{stack} magazines). A barbell held by
+\texttt{"joints": ["lwrist", "rwrist"]} stays between the hands.
+
+\textbf{Cue files.} \texttt{scenes.<scene>.say} gives keys that every
+uncued line of a character gets in that scene, for example
+\texttt{\{"abraham": \{"side": "left"\}\}}.
+
+\textbf{Fitted shots on a character.} A shot with \texttt{fit} may be
+framed on a character: the figure as drawn or, before it has faded in,
+as its next \texttt{fade\_in} will draw it.
+
+\textbf{The checks.} \texttt{tests/test\_performance.py} retimes phases
+and checks that the timing changes exactly as it should and nothing
+else, and traces Scenes 1 and 2 and finds the key pose of every gag:
+the line written letter by letter and readable in its insert, the
+period turned into a question mark with nothing over the line, the jump
+at the THUD, the two sizes side by side, the lift, five finger taps,
+the pull that moves nothing, the fall, the cork-pop, the hug that does
+not reach, and the broken knife. Whether a gag is funny is for someone
+watching.
 
 \chapter{Character Properties
 Reference}\label{character-properties-reference}

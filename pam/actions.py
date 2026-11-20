@@ -293,6 +293,13 @@ def _resolve_pose(name_or_none, default=None, fig=None):
         return default or STANDING_FRONT
     key = name_or_none.lower().replace("-", "_").replace(" ", "_")
     if fig is not None and hasattr(fig, "_bp"):
+        # an acting pose (Milestone 6) is built on the figure's own base
+        # pose, so that it keeps the figure's build
+        from pam import acting_poses as _ap
+        if key in _ap.names() and key not in fig._bp.get("poses", {}):
+            return _ap.resolve(
+                key, lambda base: _resolve_pose(base, fig=fig))
+    if fig is not None and hasattr(fig, "_bp"):
         bp_poses = fig._bp.get("poses", {})
         if key in bp_poses:
             return bp_poses[key]
@@ -2943,6 +2950,15 @@ def act_react(fig, step, scene, name="I.G. NoreMe", *,
     """
     if fig is None:
         print(f"PAMPlayer: react — '{name}' has no live figure, skipping.")
+        return None
+
+    if "fragment" in step:
+        # One named mannerism (Milestone 6).  The player plays such a
+        # step on the frame clock (pam/timeline.py, "tic"); this is for
+        # code that calls the registry directly.
+        frag_name = step["fragment"]
+        if fragment_applies(frag_name, _figure_type_of(fig)):
+            _play_tic_cycle(fig, get_fragment(frag_name), scene)
         return None
 
     profile = getattr(fig, "tic_profile", [])
