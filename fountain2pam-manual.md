@@ -639,6 +639,16 @@ shot holds:
 Without MARGIN, and outside project mode, a CAMERA note compiles exactly as
 before.
 
+Two rules hold in project mode only. A cue may make its own cuts (a
+`_subscene_marker` inside a timed block, on a frame of the block). A
+CAMERA note after the cue's beat, before the next action, whose `FRAMING`
+is that of a cut the cue makes and whose subjects are among that cut's,
+stands for that cut: no second marker is placed, and the scene file has
+the comment `# CUT <framing> on <subject>: made by cue <id> on frame <n>
+of a block` where the note is. And a fitted cut that opens a scene (one
+before the scene's first action) is placed before the scene's `before`
+steps, so the scene opens on it.
+
 ---
 
 ## 6. LIGHTING vocabulary

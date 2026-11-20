@@ -6,12 +6,19 @@
   "copy_of": {
    "repository": "wdjoyner/writing-guides",
    "path": "shorts/abe-and-isaac/script.fountain",
-   "commit": "214644795daba284b2d8234d42f37480b83f37af",
-   "sha256": "1558adf69847622c18d78657c34123b1cd52cdc03fe0e117cdbd4e2f5587727e"
+   "commit": "2a7aadfc0854e0a9564ff0cbccc3ad0a44cb7c9b",
+   "sha256": "f88296d65744cdba6528d9f731e30b22499a3ab7a60514275b4d05b9e3633de9"
   },
   "_comment": "The script in writing-guides is the authoritative literary version; this is a copy of it with the commit it was taken from.  To update it, copy the file again and record the new commit and sha256."
  },
  "cues": "cues/animation_cues.json",
  "sidecar": "pam_sidecar.json",
- "scenes": ["scene1.json", "scene2.json", "scene3.json", "scene4.json", "scene5.json", "scene6.json"]
+ "scenes": [
+  "scene1.json",
+  "scene2.json",
+  "scene3.json",
+  "scene4.json",
+  "scene5.json",
+  "scene6.json"
+ ]
 }

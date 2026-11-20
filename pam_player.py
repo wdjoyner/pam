@@ -3272,6 +3272,48 @@ class PAMPlayer(MovingCameraScene):
             return [group if group is not None
                     and not hasattr(mob, "get_family") else mob]
 
+        _fit_upcoming: list = []    # the steps after the cut being fitted
+        _fit_ghosts: dict = {}      # character -> figure not yet on stage
+
+        def _fit_ghost(name: str):
+            """A stand-in figure for character *name*, who has not faded
+            in yet: built from the cast entry and the character's next
+            ``fade_in`` step, posed, and never added to the scene.  It
+            says where the character's joints will be when they come on,
+            so that a shot opening on a prop in their hand can be framed
+            before they appear.  Humans and aliens only."""
+            if name in _fit_ghosts:
+                return _fit_ghosts[name]
+            fig = None
+            spec = cast.get(name) or {}
+            step = next((s for s in _fit_upcoming
+                         if isinstance(s, dict) and s.get("action") == "fade_in"
+                         and s.get("who") == name), {})
+            kind = step.get("figure_type", spec.get("figure_type", "human"))
+            if kind in ("human", "alien"):
+                try:
+                    offset = step.get("offset") or (
+                        [step["x"], 0, 0] if "x" in step
+                        else spec.get("offset", [0, 0, 0]))
+                    sc = step.get("scale", spec.get("scale")) or {}
+                    cls = AlienGraph if kind == "alien" else HumanGraph
+                    fig = cls(offset=offset,
+                              build=step.get("build", spec.get("build",
+                                                               "default")),
+                              style=spec.get("style", {}),
+                              scale_sx=sc.get("sx", 1.0),
+                              scale_sy=sc.get("sy", 1.0),
+                              scale_anchor=sc.get("anchor", "lankle"),
+                              gender=step.get("gender", spec.get("gender"))
+                              or None)
+                    pose_name = step.get("pose", spec.get("pose"))
+                    if pose_name:
+                        fig.set_pose(_resolve_pose(pose_name, fig=fig))
+                except Exception:
+                    fig = None
+            _fit_ghosts[name] = fig
+            return fig
+
         def _fit_dest_xy(att: dict):
             """Where an attachment puts what it holds, as things are now
             (None when what it names is not on stage)."""
@@ -3283,6 +3325,8 @@ class PAMPlayer(MovingCameraScene):
                                      float(att.get("y", 0.0))]) + off
                 return None
             fig = _get_fig(to) if to in cast else None
+            if fig is None and to in cast:
+                fig = _fit_ghost(to)    # (not on stage yet)
             if fig is not None:
                 names = att.get("joints") or [att.get("joint", "rwrist")]
                 dots = getattr(fig, "dots", {}) or {}
@@ -3324,6 +3368,13 @@ class PAMPlayer(MovingCameraScene):
         def _fit_box_at(mob, att: dict):
             """The box *mob* has where attachment *att* puts it, as
             things are now (None when that is not known)."""
+            angle = att.get("angle")
+            turn = (float(angle) - float(getattr(mob, "pam_angle", 0.0) or 0.0)
+                    if isinstance(angle, (int, float)) else 0.0)
+            if abs(turn) > 1e-6:
+                # (turned as the attachment will turn it: a blade that
+                # lands upright in a bowl is taller than it falls)
+                mob = mob.copy().rotate(np.radians(turn))
             size = _pam_shot_targets.mobject_box(mob)
             dest = _fit_dest_xy(att)
             if size is None or dest is None:
@@ -3364,12 +3415,24 @@ class PAMPlayer(MovingCameraScene):
             if not isinstance(meta, dict) or not meta.get("fit"):
                 return meta
             st = _pam_shot_targets
+            _fit_upcoming[:] = list(upcoming or [])
+            _fit_ghosts.clear()
             names = st.subject_names(meta.get("subject"))
             on_stage = {id(m) for m in self.mobjects}
+            mgr = _pam_prop_states.get(self)
+            # a piece on its way somewhere is framed where it is going
+            # (from the books, below), not in mid-flight
+            moving = set()
+            if mgr is not None:
+                for tname, link in mgr.links.items():
+                    if not getattr(link, "arrived", True) \
+                            and st.concerns(tname, names):
+                        moving.add(id(link.mob))
             boxes, caps, texts = [], [], []
             for n in names:
                 for mob in _fit_subject_mobs(n):
-                    here = st.mobject_box(mob, on_stage)
+                    seen = on_stage - moving
+                    here = st.mobject_box(mob, seen)
                     boxes.append(here)
                     cap = st.text_height(mob)
                     if cap is not None:

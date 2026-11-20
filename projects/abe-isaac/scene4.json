@@ -3,6 +3,9 @@
   "_comment": "# Compiled by fountain2pam.py --project from source/script.fountain (scene 4) and cues/animation_cues.json.  Edit those, not this file."
  },
  {
+  "_comment": "# SCENE: EXT. MOUNT MORIAH - DAY"
+ },
+ {
   "action": "set_background",
   "color": "#a9c8e6"
  },
@@ -33,9 +36,6 @@
   "action": "fade_in",
   "who": "abraham",
   "rt": 0.2
- },
- {
-  "_comment": "# SCENE: EXT. MOUNT MORIAH - DAY"
  },
  {
   "_subscene_marker": "scene4_shot01",

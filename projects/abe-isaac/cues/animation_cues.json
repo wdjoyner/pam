@@ -111,6 +111,11 @@
      "color": "#a9c8e6"
     },
     {
+     "action": "fade_in",
+     "who": "abraham",
+     "rt": 0.2
+    },
+    {
      "action": "props",
      "rt": 0.2,
      "items": {
@@ -133,11 +138,6 @@
      "who": "isaac",
      "rt": 0.2,
      "pose": "reach_forward"
-    },
-    {
-     "action": "fade_in",
-     "who": "abraham",
-     "rt": 0.2
     }
    ]
   },
@@ -444,6 +444,17 @@
        "frames_out": 3
       },
       {
+       "_subscene_marker": "s02_bowl_insert",
+       "at": 6,
+       "_shot_meta": {
+        "framing": "insert",
+        "subject": "bowl+knife.blade",
+        "move": "static",
+        "transition": "cut",
+        "fit": "bounds"
+       }
+      },
+      {
        "_subscene_marker": "s02_wide_after_break",
        "at": 18,
        "_shot_meta": {
@@ -456,7 +467,12 @@
      ]
     }
    ],
-   "note": "The timed block s02_break of the sequence s02_knife, with one step added in Milestone 5: a cut to the wide shot on frame 18, where Isaac speaks."
+   "note": "The timed block s02_break of the Stage 4a sequence s02_knife, with two cuts added in Milestone 5: to the bowl on frame 6, as the blade falls (it lands on frame 9), and to the wide shot on frame 18, where Isaac speaks.  They stand for the CAMERA notes before the next two elements."
+  },
+  "s02_blade_in_bowl": {
+   "scene": "scene2",
+   "steps": [],
+   "note": "The blade falls into the bowl inside s02_break (cue s02_knife_breaks), so nothing is compiled here."
   },
   "s02_short_ceremony": {
    "scene": "scene2",

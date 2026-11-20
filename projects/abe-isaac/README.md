@@ -39,9 +39,9 @@ of dialogue become `say` steps; prose it cannot animate is left as a
 `# REVIEW` comment). The cast and props come from the sidecar and the
 cues, never from the compiler. There is a camera cut wherever the
 screenplay has a `CAMERA` note, and every insert (the scroll, the knife,
-the phone) is framed from its subject's bounding box.
+the bowl, the phone) is framed from its subject's bounding box.
 
-The 41 cues are the steps of the Milestone 4 scene files, moved into the
+The 42 cues are the steps of the Milestone 4 scene files, moved into the
 cue file unchanged. They now play in the screenplay's order, with its
 dialogue between them, so a few run in a different order than they did
 (in Scene 2, Abraham enters after the phone and the rope are in place,
@@ -52,8 +52,15 @@ as the script has it). There are three other differences:
   `s02_into_satchel`); its steps are played at the top level, in the
   same order, and the contact it starts is released inside the break
   block as before;
-- the break block `s02_break` has one more step, a cut to the wide shot
-  on frame 18, where Isaac says his line;
+- the break block `s02_break` has two more steps: a cut to an insert on
+  the bowl (`bowl+knife.blade`) on frame 6, as the blade falls, and a cut
+  to the wide shot on frame 18, where Isaac says his line. The
+  screenplay's CAMERA notes for those two shots stand for these cuts. The
+  blade's line has its own beat, `s02_blade_in_bowl`, with an empty cue
+  (the block already drops the blade);
+- Scene 5 opens on the insert of the phone, and its `before` steps fade
+  Abraham in first (6 frames, drawn in at the insert's size), then the
+  props and Isaac, out of the shot, while the phone is on screen;
 - in `s04_picks_up_phone` Abraham then holds the phone out (pose
   `reach_side_l`), so that the knife handle in his other hand does not
   cover the LIVE button in the insert.
