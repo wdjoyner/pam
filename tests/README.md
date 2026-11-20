@@ -418,9 +418,13 @@ and `elevator_close`. The examples are corrected.
   point made the rope shrink to a small knot halfway across.
   `_blend_shapes` moves its middle in a straight line and its points
   toward their new places, while its size goes evenly from one shape's
-  to the other's. In the fixture and in Scene 4 the rope now leaves
-  Abraham's shoulder on the frame Isaac starts to turn and hold out his
-  wrists (both in one timed block), rather than after the turn.
+  to the other's. In the fixture and in Scene 4, Isaac's turn to hold
+  out his wrists and the rope's move from Abraham's shoulder now share
+  their frames (one timed block, both 18 frames), so the rope arrives as
+  his hands do. Aiming at a loop round his wrists while they were still
+  far apart stretched the rope across his body on the way, so a rope
+  going round joints it was not round before aims at a loop drawn in
+  toward their middle that opens out as it arrives.
 - *A rope is not held.* A prop on a character emits `prop_attach` and
   the tracer turns that into a hold, which Blender follows with a
   constraint on the hand. A rope's pieces have no holds: their control

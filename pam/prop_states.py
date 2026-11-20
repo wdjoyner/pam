@@ -235,7 +235,11 @@ attachments (which is what the ledger carries), and the
 ``rope_hanging``).  With ``frames``, a step that moves the rope or
 changes its state turns the shape it had into the new one over those
 frames, at its own size (``_blend_shapes``: a point-by-point blend of a
-coil and a loop would shrink to a knot halfway); a snap also throws each broken end back along its piece
+coil and a loop would shrink to a knot halfway).  On its way round
+joints it was not round before, it aims at a loop drawn in toward
+their middle that opens out to the joints as it arrives, so that it
+flies into two hands coming together rather than stretching between
+them.  A snap also throws each broken end back along its piece
 (``rope_recoil``) before the pieces fall.  A piece at rest lies with
 its lowest point on ``y`` and its middle on ``x``; at rest with no
 ``x`` or ``y`` it stays where it is.  Every piece whose control points
@@ -2167,6 +2171,7 @@ class _Link:
         # linear progress of the travel, the way a lying piece runs, and
         # the broken end of a piece that has just snapped
         self.shape0 = None
+        self.gather = False
         self.u = 1.0
         self.flip = False
         self.recoil = None
@@ -2412,6 +2417,16 @@ class StateManager:
             if P is None:
                 return None
             P = P + off
+            if mode == "around" and link.gather and link.start is not None:
+                # on its way round them, it aims at a loop drawn in
+                # toward the joints' middle, which opens out to the
+                # joints themselves as it arrives: a rope tied round
+                # two hands that are coming together flies into the
+                # hands, not into a loop stretched between them
+                # (by the cube of how far it has come: halfway, the
+                # hands are usually still well apart)
+                c = P.mean(axis=0)
+                P = c + float(link.alpha) ** 3 * (P - c)
             if mode == "around":
                 # round the joints as they are drawn (Isaac's wrists are
                 # big), and as many of them as it is tied to
@@ -2526,6 +2541,9 @@ class StateManager:
         if mob is None:
             return None
         prior = None
+        old = self.links.get(target)
+        was_around = old is not None and old.attach is not None \
+            and old.attach.get("mode") == "around"
         if travel and self._deformable(mob) and target in self.links \
                 and self.links[target].arrived:
             # a rope that is where it belongs travels from the shape it
@@ -2552,6 +2570,11 @@ class StateManager:
             if tgt is not None:
                 link.keep = self._by_xy(link) - tgt
         link.shape0, link.recoil, link.u = None, None, 1.0
+        # a rope that goes round something it was not round before is
+        # gathered in on the way (see _deform_target)
+        link.gather = bool(travel and self._deformable(mob)
+                           and att.get("mode") == "around"
+                           and not was_around)
         if travel:
             c = self._by_xy(link)
             link.start = (float(c[0]), float(c[1]), self._angle(mob))

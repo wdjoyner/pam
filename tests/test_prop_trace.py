@@ -884,6 +884,22 @@ def test_the_knot_follows_the_wrists_it_is_tied_to(rope):
     assert max(spread) > 0.1, "the wrists moved while it was tied"
 
 
+def test_on_its_way_to_the_wrists_the_rope_is_not_stretched(rope):
+    """While Isaac brings his hands together the rope flies into them:
+    it is never a loop stretched between his wrists while they are
+    still apart."""
+    trace, _ = rope
+    tie = _when(trace, "rope", to="tied")
+    joints = tt.figure_frames(trace, "isaac")
+    apart = abs(joints[tie]["lwrist"][0] - joints[tie]["rwrist"][0])
+    assert apart > 2.0          # his hands start far apart
+    for f in range(tie, tie + 19):
+        whole = np.concatenate(rope_whole(trace, f))
+        # a coil or a small loop (at most about twice its final width),
+        # never a loop as wide as his hands are apart
+        assert np.ptp(whole[:, 0]) < 0.8, f
+
+
 def test_pulled_tight_the_loop_is_smaller(rope):
     trace, _ = rope
     f = _when(trace, "rope", to="tightened")
@@ -923,10 +939,11 @@ def test_rope_steps_run_in_timed_blocks(rope):
     trace, _ = rope
     tie = _block(trace, "s_tie")
     item = _item(tie)
-    # the rope leaves Abraham on the frame Isaac starts to turn
+    # the rope leaves Abraham on the frame Isaac starts to turn, and
+    # reaches his wrists on the frame he has them held out
     turn = _item(tie, action="morph", who="isaac")
     assert item["f0"] == turn["f0"] == tie["f0"]
-    assert item["f1"] - item["f0"] == 18
+    assert item["f1"] == turn["f1"] == tie["f0"] + 18
     assert _when(trace, "rope", to="tied") == item["f0"]
     snap = _block(trace, "s_snap")
     item = _item(snap)

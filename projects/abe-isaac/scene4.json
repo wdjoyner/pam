@@ -100,7 +100,7 @@
     "action": "morph",
     "who": "isaac",
     "pose": "reach_forward",
-    "frames": 6,
+    "frames": 18,
     "beat": "holds_out_wrists"
    },
    {

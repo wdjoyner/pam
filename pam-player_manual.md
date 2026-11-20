@@ -1231,7 +1231,7 @@ A deformable prop: a curve whose shape is worked out on every frame from what it
 
 - tied, the rope follows the joints it is tied to on every frame: when the wrists move, the loop moves and stretches with them
 - the rope breaks in the middle of its length, which is under the loop, between the wrists
-- with `frames`, a step that moves the rope or changes its state turns the shape it had into the new one over those frames: the coil leaves the shoulder and winds round the wrists, the knot is pulled tight. The rope keeps its size on the way (it does not shrink to a knot halfway). To have it leave Abraham as Isaac turns to hold out his wrists, start both on the same frame of a timed block
+- with `frames`, a step that moves the rope or changes its state turns the shape it had into the new one over those frames: the coil leaves the shoulder and winds round the wrists, the knot is pulled tight. The rope keeps its size on the way (it does not shrink to a knot halfway). On its way round joints it was not round before, it aims at a loop drawn in toward their middle, which opens out to the joints as it arrives, so a rope tied round two hands coming together flies into the hands rather than stretching between them. To have Abraham seem to tie it on as Isaac holds out his wrists, give Isaac's `morph` and the rope's step the same `at` and `frames` in a timed block
 - a snap with `frames` throws each broken end back along its piece, away from the break, for the first half of the step; the pieces then fall (use `"rate": "rush_into"`) and lie where their attachments put them
 - a piece the snap does not mention stays where the rope was
 - at rest with no `x` or `y`, a piece or a coil stays where it is (in the air, if that is where it was): give both
