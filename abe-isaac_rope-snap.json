@@ -128,7 +128,7 @@
     "action": "prop_transition",
     "prop": "rope",
     "to": "tied",
-    "at": 6,
+    "at": 0,
     "frames": 18,
     "beat": "winds_rope",
     "attached": {

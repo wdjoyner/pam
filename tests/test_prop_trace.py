@@ -923,7 +923,10 @@ def test_rope_steps_run_in_timed_blocks(rope):
     trace, _ = rope
     tie = _block(trace, "s_tie")
     item = _item(tie)
-    assert (item["f0"] - tie["f0"], item["f1"] - tie["f0"]) == (6, 24)
+    # the rope leaves Abraham on the frame Isaac starts to turn
+    turn = _item(tie, action="morph", who="isaac")
+    assert item["f0"] == turn["f0"] == tie["f0"]
+    assert item["f1"] - item["f0"] == 18
     assert _when(trace, "rope", to="tied") == item["f0"]
     snap = _block(trace, "s_snap")
     item = _item(snap)

@@ -92,26 +92,34 @@
   "frames": 9
  },
  {
-  "action": "morph",
-  "who": "isaac",
-  "pose": "reach_forward",
-  "frames": 6,
-  "beat": "holds_out_wrists"
- },
- {
-  "action": "prop_transition",
-  "prop": "rope",
-  "to": "tied",
+  "action": "parallel",
+  "id": "s04_tie",
   "frames": 18,
-  "beat": "winds_rope",
-  "attached": {
-   "to": "isaac",
-   "joints": [
-    "lwrist",
-    "rwrist"
-   ],
-   "mode": "around"
-  }
+  "do": [
+   {
+    "action": "morph",
+    "who": "isaac",
+    "pose": "reach_forward",
+    "frames": 6,
+    "beat": "holds_out_wrists"
+   },
+   {
+    "action": "prop_transition",
+    "prop": "rope",
+    "to": "tied",
+    "frames": 18,
+    "beat": "winds_rope",
+    "attached": {
+     "to": "isaac",
+     "joints": [
+      "lwrist",
+      "rwrist"
+     ],
+     "mode": "around"
+    },
+    "at": 0
+   }
+  ]
  },
  {
   "action": "wait",

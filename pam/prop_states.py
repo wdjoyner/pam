@@ -234,7 +234,8 @@ attachments (which is what the ledger carries), and the
 (``pam.props_carried``: ``rope_coil``, ``rope_loop``, ``rope_lying``,
 ``rope_hanging``).  With ``frames``, a step that moves the rope or
 changes its state turns the shape it had into the new one over those
-frames; a snap also throws each broken end back along its piece
+frames, at its own size (``_blend_shapes``: a point-by-point blend of a
+coil and a loop would shrink to a knot halfway); a snap also throws each broken end back along its piece
 (``rope_recoil``) before the pieces fall.  A piece at rest lies with
 its lowest point on ``y`` and its middle on ``x``; at rest with no
 ``x`` or ``y`` it stays where it is.  Every piece whose control points
@@ -2126,6 +2127,27 @@ def point_of(mob, point="center"):
     return prop_point(mob, point if point is not None else "center")
 
 
+def _blend_shapes(a, b, alpha):
+    """A deformable prop part of the way (*alpha*) from shape *a* to
+    shape *b* (arrays of control points).  Its middle travels in a
+    straight line and its points move toward their new places, but its
+    size (the spread of its points about its middle) goes evenly from
+    the one to the other: a point-by-point blend of two shapes that do
+    not line up (a coil and a loop) would shrink to a knot of rope
+    halfway."""
+    import numpy as np
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    ca, cb = a.mean(axis=0), b.mean(axis=0)
+    ra, rb = a - ca, b - cb
+    rel = ra + alpha * (rb - ra)
+    want = (1 - alpha) * np.sqrt((ra ** 2).sum(axis=1).mean()) \
+        + alpha * np.sqrt((rb ** 2).sum(axis=1).mean())
+    have = np.sqrt((rel ** 2).sum(axis=1).mean())
+    if have > 1e-9:
+        rel = rel * (want / have)
+    return ca + alpha * (cb - ca) + rel
+
+
 class _Link:
     """One prop, or one part, kept on its attachment."""
 
@@ -2435,7 +2457,7 @@ class StateManager:
             return
         if link.start is not None and link.shape0 is not None \
                 and len(link.shape0) == len(shape):
-            pts = link.shape0 + link.alpha * (shape - link.shape0)
+            pts = _blend_shapes(link.shape0, shape, link.alpha)
             if link.recoil is not None:
                 pts = pts + pc.rope_recoil(
                     link.shape0, link.recoil, link.u,
