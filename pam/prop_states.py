@@ -7,7 +7,8 @@ module provides:
 * a generic state machine for props, with one action that drives it,
   ``prop_transition``;
 * composite props, whose parts keep their own identity (the ``knife``:
-  a handle and a blade);
+  a handle and a blade; the ``barbell``: two boulders and a log, which
+  Isaac takes apart to make the altar, state ``altar``);
 * props with a display (the ``phone``: what its screen shows changes
   independently of where the phone is);
 * props that bear text (the ``scroll``, Stage 4b): what it says, with
@@ -396,6 +397,27 @@ MACHINES = {
         },
         "deformable": True,
     },
+    # Composite prop (Milestone 6, after Stage 6a).  A barbell of two
+    # boulders and a log, three props from the start; in Abraham and
+    # Isaac, Isaac takes it apart on Mount Moriah and builds the altar
+    # from it: the boulders set apart and the log laid across them.
+    "barbell": {
+        "parts": {
+            "log":   {"type": "barbell_log", "offset": [0.0, 0.35]},
+            "left":  {"type": "barbell_boulder", "offset": [-0.83, 0.0]},
+            "right": {"type": "barbell_boulder", "offset": [0.83, 0.0]},
+        },
+        "initial": "assembled",
+        "states": {
+            "assembled": {"connected": True},
+            "altar":     {"connected": False},
+        },
+        # an altar it stays: nobody puts the barbell back together
+        "transitions": {
+            "assembled": ["altar"],
+            "altar":     [],
+        },
+    },
     # The three patterns PAM already had.
     "doors": {
         "initial": "closed",
@@ -428,10 +450,11 @@ TYPE_MACHINE = {
     "dodecahedron": "governor",
     "scroll": "scroll",
     "rope": "rope",
+    "barbell": "barbell",
 }
 
 # Prop types that are composite whether or not the item says so.
-COMPOSITE_TYPES = frozenset({"knife", "composite_prop", "rope"})
+COMPOSITE_TYPES = frozenset({"knife", "composite_prop", "rope", "barbell"})
 
 # Prop types that bear text (Stage 4b); stateful whether or not the
 # item says so.

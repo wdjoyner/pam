@@ -5879,7 +5879,14 @@ while other steps play (defaults 2, 9 and 3 frames). New keys:
 \textbf{Props.} \texttt{barbell} (two boulders and a log; grips
 \texttt{left} and \texttt{right}) and \texttt{magazine} (\texttt{cover}
 words, or a pile of \texttt{stack} magazines). A barbell held by
-\texttt{"joints": ["lwrist", "rwrist"]} stays between the hands.
+\texttt{"joints": ["lwrist", "rwrist"]} stays between the hands. The
+barbell is a composite prop, like the knife: two boulders,
+\texttt{<name>.left} and \texttt{<name>.right}, and a log,
+\texttt{<name>.log}. They move as one while it is \texttt{assembled};
+in state \texttt{altar} each part is attached on its own, and nothing
+leads back. In Scene 4 Isaac drops the barbell and builds the altar from
+it, the boulders set apart and the log laid across them, and in Scene 5
+the blade sticks in its log.
 
 \textbf{Cue files.} \texttt{scenes.<scene>.say} gives keys that every
 uncued line of a character gets in that scene, for example

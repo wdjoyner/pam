@@ -162,6 +162,8 @@ from pam.props_environment import (
     build_altar,
     build_bowl,
     build_barbell,
+    build_barbell_boulder,
+    build_barbell_log,
     build_magazine,
 )
 
@@ -238,7 +240,9 @@ PROP_TYPES = {
     "rock":                build_rock,
     "altar":               build_altar,
     "bowl":                build_bowl,
-    "barbell":             build_barbell,         # Milestone 6
+    "barbell":             build_barbell,         # Milestone 6: composite
+    "barbell_boulder":     build_barbell_boulder,  # (its parts)
+    "barbell_log":         build_barbell_log,
     "magazine":            build_magazine,        # Milestone 6
     # ── character accessories ─────────────────────────────────────────────
     "name_tag":            build_name_tag,

@@ -1265,6 +1265,17 @@ New plain props that the Abraham and Isaac scenes use, for other props to go int
 
 Milestone 6 adds two more, both standing on `y`: `barbell` (two boulders and a log; `width`, `height`; attachment points `left` and `right` where the hands grip the log) and `magazine` (`width`, `height`; `cover`, the words on its cover, one to a line and as large as fits; `stack`, a pile of that many lying flat). Held between two hands (`"joints": ["lwrist", "rwrist"]`), a barbell stays on their middle.
 
+The barbell is a composite prop, like the knife: three parts, `<name>.left` and `<name>.right` (the boulders, type `barbell_boulder`) and `<name>.log` (type `barbell_log`), with two states. While it is `assembled` (the first state) the parts move as one. In `altar` they are apart, each attached on its own; nothing leads back. In Scene 4 of Abraham and Isaac, Isaac builds the altar from it:
+
+```json
+{"action": "prop_transition", "prop": "barbell", "to": "altar", "frames": 15,
+ "parts": {"left":  {"attached": {"to": null, "x": 0.98, "y": -2.6, "by": "bottom", "angle": 9}},
+           "right": {"attached": {"to": null, "x": 2.22, "y": -2.6, "by": "bottom"}},
+           "log":   {"attached": {"to": null, "x": 1.6, "y": -1.85, "by": "bottom"}}}}
+```
+
+After that a part moves by itself (`"prop": "barbell.left"`), and other props can attach to it: the blade sticks in `barbell.log` in Scene 5.
+
 ## The `scroll`
 
 A text-bearing prop. Two dimensions of its state change independently: its **state**, how it is open (`rolled`, `unrolled`, `edited`: open and being written on, `trailing`: unrolled further and streaming out from its grip like a banner), and its **text**, every line with every revision. Rolling, unrolling and trailing never change the text, and writing never changes the state or where the scroll is. One step may do several of these at once.

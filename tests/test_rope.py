@@ -329,7 +329,9 @@ ROPE = {
     "scene6": ("snapped", {"piece_a": (None, None, "free", False),
                            "piece_b": (None, None, "free", False)}),
 }
-ALTAR = (0.7, 2.5)          # the altar's stones run from x 0.7 to 2.5
+ALTAR = (0.6, 2.6)          # the altar (the barbell's boulders and its
+                            # log, since Scene 4 has Isaac build it from
+                            # the barbell) runs from x 0.6 to 2.6
 
 
 def _where(att):

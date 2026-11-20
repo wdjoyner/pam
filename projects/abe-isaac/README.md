@@ -63,11 +63,21 @@ log). To retime a gag, change a number in its `phases` and recompile.
 | `s02_got_it` | a finger up: an idea |
 | `s02_into_satchel`, `s02_slings_rope`, `s02_pockets_phone` | Isaac takes the barbell under his arm and strides out past his father, who gathers the knife into the satchel, picks up the rope by the entrance and hurries after him |
 
-Scene 1 has a rock for Abraham to sit on, and Scene 2 a `barbell` and
-two `magazine` props (a stack, and the top one with ISAAC THE
-INVINCIBLE on its cover); all three are local to their scenes (`before`
-steps), not in the ledger. Uncued lines get their bubble side from the
-cue file (`scenes.scene2.say`). The ledger is unchanged.
+Scene 1 has a rock for Abraham to sit on, and Scene 2 two `magazine`
+props (a stack, and the top one with ISAAC THE INVINCIBLE on its
+cover), all local to their scenes (`before` steps). Uncued lines get
+their bubble side from the cue file (`scenes.scene2.say`).
+
+The barbell is a continuity prop (in the sidecar's continuity block and
+the ledger, at the author's request): hidden in the cave in Scene 1 (the
+THUD comes from it); lifted, set down and carried off by Isaac in Scene
+2; on his shoulders in Scene 3; and in Scene 4 dropped (THUD) and taken
+apart into the altar, the two boulders set apart and the log laid
+across them (`s04_builds_altar`, state `altar`; the left boulder is
+left crooked). It is the altar in Scenes 4 to 6, which no longer
+declare an `altar` prop, and the blade sticks in its log in Scene 5.
+The script was changed to match (writing-guides revision log, "the
+barbell becomes the altar").
 
 The Milestone 3 fixture `abe-isaac_scene2-gags.json` has two lines that
 are not in the script ("Up you get." and "My boy."); the scene does not

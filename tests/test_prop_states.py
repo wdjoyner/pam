@@ -627,13 +627,14 @@ KNIFE = {
     #    the blade back in, and keeps the wooden handle"
     "scene4": ("blade_carried", ("abraham", "held", False),
                ("satchel", "in", True)),
-    # 5  "sticks point-first in a gap between two stones"; he still
-    #    holds the handle he raised
+    # 5  "sticks point-first in the log" (the altar is the barbell's
+    #    boulders and log since Draft 3's barbell edit; it was "in a gap
+    #    between two stones"); he still holds the handle he raised
     "scene5": ("blade_embedded", ("abraham", "held", False),
-               ("altar", "embedded", False)),
+               ("barbell.log", "embedded", False)),
     # 6  "sets the handle on the ground, far from the blade"
     "scene6": ("blade_embedded", (None, "free", False),
-               ("altar", "embedded", False)),
+               ("barbell.log", "embedded", False)),
 }
 # The phone: (state, held by or resting on, hidden, viewers)
 PHONE = {
@@ -750,8 +751,8 @@ def test_knife_goes_through_the_script_inside_each_scene(project):
         ("blade_carried", {"blade": ("satchel", "in")}),
     ]
     assert trail("scene5") == [
-        # "The blade slides out ... and sticks point-first in a gap"
-        ("blade_embedded", {"blade": ("altar", "embedded")}),
+        # "The blade slides out ... and sticks point-first in the log"
+        ("blade_embedded", {"blade": ("barbell.log", "embedded")}),
     ]
     assert trail("scene6") == [
         # "Abraham sets the handle on the ground, far from the blade."

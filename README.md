@@ -179,7 +179,7 @@ Examples include:
 - `knife` (a handle and a blade that come apart), `satchel`, `bowl`, `rock`, `altar`
 - `scroll` (rolled, unrolled, written on, or trailing like a banner, with text that is written, crossed out and replaced), `quill`
 - `rope` (a coil, wound round two wrists and pulled tight, or snapped into two pieces that recoil and lie where they fall)
-- `barbell` (two boulders and a log), `magazine` (one, with words on its cover, or a stack)
+- `barbell` (a composite of two boulders and a log, `assembled` or taken apart into an `altar`), `magazine` (one, with words on its cover, or a stack)
 
 Several props are **stateful**: doors and avatar pods open and close, the Governor changes color, a knife breaks, a phone goes live, a scroll is unrolled and revised, a rope is tied and snaps. `pam/prop_states.py` keeps the state of all of them, and the `prop_transition` action changes it.
 
@@ -1898,7 +1898,7 @@ Recurring mannerisms are tics (`pam/tics.py`), played on the frame clock with `r
 | `sound_cue` in a timed block | A word such as THUD! on exact frames: `frames` (the whole), `frames_in`, `frames_out`; with `at` in a block. New keys everywhere: `font_size` (default 22), `color`. |
 | Acting poses (`pam/acting_poses.py`) | Pose names; see section 9 of `pam-player_manual.md`. |
 | Tic fragments | `count_tap_r`, `nod`, `head_shake`, `scribble_r`, `flick_r`, `finger_wag_r`, `shrug`, `startle`, `chest_pat_r`. |
-| Prop types `barbell`, `magazine` | Two boulders and a log (`left` and `right` grips); a magazine with `cover` words, or a pile of them (`stack`). |
+| Prop types `barbell`, `magazine` | Two boulders and a log (`left` and `right` grips), a composite prop with states `assembled` and `altar` (the parts apart: Isaac builds the altar from it); a magazine with `cover` words, or a pile of them (`stack`). |
 | `scenes.<scene>.say` (cue file) | Keys that every uncued line of a character gets in that scene, such as `{"abraham": {"side": "left"}}`. |
 
 A fitted shot (`fit`, Milestone 5) may now be framed on a character: on the figure as it is drawn, or, before it has faded in, as its next `fade_in` will draw it.

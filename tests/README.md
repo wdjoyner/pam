@@ -691,6 +691,7 @@ on a trace of each scene:
 | 1 | the THUD | his head rises during the startle and he ends looking toward the cave |
 | 2 | scale contrast | Isaac's height over Abraham's is 0.80/0.48, on one floor, in one shot |
 | 2 | the lift | the barbell above Isaac's head, then on the floor as THUD! comes |
+| 2 to 6 | the barbell becomes the altar | hidden in the cave (1), carried off (2), on his shoulders (3), then in Scene 4 on the ground at the THUD and taken apart: boulders apart, the log across their tops, the left boulder straightened by Abraham and put back crooked by Isaac; an altar in the ledger through Scene 6, and never a barbell again |
 | 2 | counting | five finger taps (a beat each), none on "And then...", then the hand held up to his face |
 | 2 | the wrist pull | his hand on Isaac's wrist for the whole pull, and Isaac's feet do not move |
 | 2 | the fall | flat on his back, then a comic hold of 9 frames or more |

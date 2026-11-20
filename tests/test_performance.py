@@ -336,6 +336,11 @@ def test_barbell_and_magazine_props():
     from pam.props import build_prop
     bar = build_prop("barbell", type="barbell", x=1.0, y=-2.6)
     assert bar.pam_type == "barbell"
+    # a composite prop of two boulders and a log (it becomes the altar)
+    assert bar.pam_composite
+    assert set(bar.pam_parts) == {"log", "left", "right"}
+    assert bar.pam_parts["left"].pam_name == "barbell.left"
+    assert ps.machine_name("barbell") == "barbell"
     left, right = bar.pam_attachments["left"], bar.pam_attachments["right"]
     assert left[0] < 1.0 < right[0] and left[1] == pytest.approx(right[1])
     assert bar.get_bottom()[1] == pytest.approx(-2.6, abs=0.02)
@@ -632,13 +637,15 @@ def test_scene_2_the_lift_and_the_thud(scenes):
     beats = _beats(trace)
     f, n = beats["overhead_hold"]
     isaac = tt.figure_frames(trace, "isaac")
-    bar = tt.prop_object(trace, "barbell")
-    box = tt.prop_box(trace, bar, f + n - 1)
+    log = tt.prop_object(trace, "barbell.log")
+    box = tt.prop_box(trace, log, f + n - 1)
     assert box[1] > isaac[f + n - 1]["head"][1], "the barbell overhead"
     ft, _ = beats["thud"]
-    box = tt.prop_box(trace, bar, ft)
-    assert box[1] - box[3] / 2 == pytest.approx(-2.6, abs=0.02), \
-        "set down on the floor as the THUD comes"
+    for part in ("left", "right"):
+        box = tt.prop_box(trace, tt.prop_object(trace, f"barbell.{part}"),
+                          ft)
+        assert box[1] - box[3] / 2 == pytest.approx(-2.6, abs=0.02), \
+            "set down on the floor as the THUD comes"
 
 
 def test_scene_2_five_fingers(scenes):
@@ -743,3 +750,115 @@ def test_scenes_1_and_2_end_where_the_ledger_says(scenes):
         assert dist((x, y), abe[end]["rhip"]) < 2e-3
         assert [s for _, s in tt.prop_state(trace, "knife")["states"]][-1] \
             == led["knife"]["state"]
+
+
+# ── the barbell becomes the altar ────────────────────────────────────────
+#
+# Draft 3, at the author's request after Stage 6a: Isaac takes the
+# barbell from the cave (#2), carries it on his shoulders (#3), and on
+# Mount Moriah drops it, pulls the two boulders off the log, sets them
+# apart and lays the log across them: the altar (#4-6).
+
+def _ledger():
+    return json.loads((tt.PROJECT / "pam_sidecar.json").read_text()
+                      )[-1]["ledger"]
+
+
+def test_the_script_says_the_barbell_becomes_the_altar():
+    script = " ".join((tt.PROJECT / "source" / "script.fountain")
+                      .read_text().split())
+    assert "Isaac tucks the barbell under one arm and strides out" in script
+    assert "Isaac carries the log barbell on his shoulders." in script
+    assert "without putting down the barbell" in script
+    assert ("Isaac drops the barbell. THUD. He pulls the two boulders off "
+            "the log, sets them apart, and lays the log across them: a "
+            "low altar.") in script
+    assert "sticks point-first in the log" in script
+    assert "altar stones" not in script
+
+
+def test_the_barbell_goes_through_the_ledger():
+    ledger = _ledger()
+    bar = {sid: e["props"]["barbell"] for sid, e in ledger.items()}
+    # 1: in the cave, out of sight (the THUD comes from it)
+    assert bar["scene1"]["state"] == "assembled"
+    assert bar["scene1"]["attached"]["hidden"] is True
+    # 2: "tucks the barbell under one arm and strides out of the cave"
+    assert bar["scene2"]["attached"]["to"] == "isaac"
+    assert bar["scene2"]["attached"]["joint"] == "rwrist"
+    # 3: "carries the log barbell on his shoulders"
+    assert bar["scene3"]["state"] == "assembled"
+    assert bar["scene3"]["attached"]["joints"] == ["lshoulder", "rshoulder"]
+    # 4-6: the altar, and it stays one
+    for sid in ("scene4", "scene5", "scene6"):
+        b = bar[sid]
+        assert b["state"] == "altar", sid
+        assert b.get("attached") is None, sid
+        parts = {p: v["attached"] for p, v in b["parts"].items()}
+        assert all(a["to"] is None and a["y"] < -1 for a in parts.values())
+        left, right, log = parts["left"], parts["right"], parts["log"]
+        assert left["y"] == right["y"] == -2.6, "the boulders on the ground"
+        assert right["x"] - left["x"] > 1.0, "set apart"
+        assert left["x"] < log["x"] < right["x"]
+        assert log["y"] == pytest.approx(-2.6 + 0.75), "across their tops"
+        assert left.get("angle") == 9.0, "left crooked"
+    # one barbell, no altar prop beside it
+    for sid, e in ledger.items():
+        assert "altar" not in e["props"], sid
+
+
+def test_an_altar_does_not_turn_back_into_a_barbell():
+    m = ps.MACHINES["barbell"]
+    assert m["transitions"]["assembled"] == ["altar"]
+    assert m["transitions"]["altar"] == []
+    assert m["states"]["assembled"]["connected"] is True
+    assert m["states"]["altar"]["connected"] is False
+
+
+@pytest.fixture(scope="module")
+def scene4(tmp_path_factory):
+    root = tt.copy_project(tmp_path_factory.mktemp("s4") / "abe-isaac")
+    path = root / "scene4.trace.json"
+    tt.trace_script(root / "scene4.json", path, root)
+    return json.loads(path.read_text())
+
+
+def test_scene_4_isaac_builds_the_altar_from_the_barbell(scene4):
+    trace = scene4
+    beats = _beats(trace)
+    isaac = tt.figure_frames(trace, "isaac")
+    parts = {p: tt.prop_object(trace, f"barbell.{p}")
+             for p in ("left", "right", "log")}
+    # he comes in with it on his shoulders
+    f0 = beats["s04_drops_barbell.anticipation"][0]
+    log0 = tt.prop_box(trace, parts["log"], f0)
+    assert log0[1] > isaac[f0]["lhip"][1], "carried high"
+    # THUD: on the ground
+    ft, _ = beats["thud"]
+    for p in ("left", "right"):
+        box = tt.prop_box(trace, parts[p], ft)
+        assert box[1] - box[3] / 2 == pytest.approx(-2.6, abs=0.03), p
+    # the altar: the boulders apart, the log across their tops
+    fb, nb = beats["builds_altar"]
+    end = fb + nb
+    lb = tt.prop_box(trace, parts["left"], end)
+    rb = tt.prop_box(trace, parts["right"], end)
+    gb = tt.prop_box(trace, parts["log"], end)
+    assert rb[0] - lb[0] > 1.0
+    assert gb[1] - gb[3] / 2 == pytest.approx(-1.85, abs=0.03)
+    assert gb[0] - gb[2] / 2 < lb[0] and gb[0] + gb[2] / 2 > rb[0], \
+        "the log spans both boulders"
+    st = tt.prop_state(trace, "barbell")
+    assert [s for _, s in st["states"]] == ["assembled", "altar"]
+    # Abraham straightens a boulder; Isaac moves it back
+    def angle(f):
+        out = 0.0
+        for a in parts["left"]["angles"]:
+            if a["t1"] * 15 <= f + 0.01:
+                out = a["to"]
+        return out
+    assert angle(end) == 9.0, "built crooked"
+    fa, na = beats["abraham_straightens"]
+    assert angle(fa + na) == 0.0, "straightened"
+    fi, ni = beats["isaac_moves_it_back"]
+    assert angle(fi + ni) == 9.0, "and put back"

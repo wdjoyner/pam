@@ -13,11 +13,6 @@
   "action": "props",
   "rt": 0.2,
   "items": {
-   "altar": {
-    "type": "altar",
-    "x": 1.6,
-    "y": -2.6
-   },
    "rock": {
     "type": "rock",
     "x": -3.2,
