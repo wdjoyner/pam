@@ -110,3 +110,29 @@ def test_a_bigger_rope():
     assert m["wraps"] == pc.ROPE["wraps"]
     lie = pc.rope_lying((0.0, 0.0), m=m)
     assert np.ptp(lie[:, 0]) == pytest.approx(m["rest_len"])
+
+
+def test_a_rope_travels_at_its_own_size():
+    """Between two shapes that do not line up (a coil on a shoulder and
+    a loop round the wrists) the rope keeps its size: it does not
+    shrink to a knot halfway, as a point-by-point blend does."""
+    from pam.prop_states import _blend_shapes
+    coil = pc.rope_coil(top=(-1.2, -0.5), m=pc.rope_model(1.4))
+    loop = pc.rope_loop([(1.6, -0.1), (1.6, -0.1)], radius=0.1,
+                        m=pc.rope_model(1.4))
+
+    def size(p):
+        p = np.asarray(p)
+        return np.sqrt(((p - p.mean(axis=0)) ** 2).sum(axis=1).mean())
+
+    assert np.allclose(_blend_shapes(coil, loop, 0.0), coil)
+    assert np.allclose(_blend_shapes(coil, loop, 1.0), loop)
+    sizes = [size(_blend_shapes(coil, loop, a))
+             for a in np.linspace(0, 1, 11)]
+    lo, hi = sorted((size(coil), size(loop)))
+    assert all(lo - 1e-9 <= s <= hi + 1e-9 for s in sizes)
+    plain = size(coil + 0.5 * (loop - coil))
+    assert plain < 0.8 * lo, "the plain blend would have shrunk"
+    # the middle travels in a straight line
+    mid = _blend_shapes(coil, loop, 0.5).mean(axis=0)
+    assert np.allclose(mid, (coil.mean(axis=0) + loop.mean(axis=0)) / 2)

@@ -401,7 +401,7 @@ The README's "Stateful props" examples named `open_doors` and `close_doors`
 as actions. Those are methods of the prop; the actions are `elevator_open`
 and `elevator_close`. The examples are corrected.
 
-**The rope (Milestone 4, Stage 4c).** Six things turned up.
+**The rope (Milestone 4, Stage 4c).** Seven things turned up.
 
 - *A rope's shape is not in the books.* The `World` (and so the
   validator and the ledger) keeps the rope's state and attachments; its
@@ -414,6 +414,17 @@ and `elevator_close`. The examples are corrected.
   its attachment again at the start of the step, so a step with
   `frames` keeps the shape the rope had and turns it into the new one
   over its frames, as a move does.
+- *A blend of two shapes shrinks.* Blending a coil into a loop point by
+  point made the rope shrink to a small knot halfway across.
+  `_blend_shapes` moves its middle in a straight line and its points
+  toward their new places, while its size goes evenly from one shape's
+  to the other's. In the fixture and in Scene 4, Isaac's turn to hold
+  out his wrists and the rope's move from Abraham's shoulder now share
+  their frames (one timed block, both 18 frames), so the rope arrives as
+  his hands do. Aiming at a loop round his wrists while they were still
+  far apart stretched the rope across his body on the way, so a rope
+  going round joints it was not round before aims at a loop drawn in
+  toward their middle that opens out as it arrives.
 - *A rope is not held.* A prop on a character emits `prop_attach` and
   the tracer turns that into a hold, which Blender follows with a
   constraint on the hand. A rope's pieces have no holds: their control
