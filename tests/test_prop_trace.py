@@ -314,17 +314,20 @@ def test_pieces_are_on_stage_exactly_when_the_ledger_says(played):
 
 
 def test_blade_sticks_in_the_altar_point_first(played):
+    # (since the barbell became the altar, "sticks point-first in the
+    # log": the altar is the barbell's two boulders with its log laid
+    # across them; it was "in a gap between two stones")
     _, traces, _ = played
     trace = traces["scene5"]
     blade = tt.prop_object(trace, "knife.blade")
-    altar = tt.prop_object(trace, "altar")["initial"]
     end = round(trace["duration"] * 15)
+    log = tt.prop_box(trace, tt.prop_object(trace, "barbell.log"), end)
     x, y, w, h = tt.prop_box(trace, blade, end)
     assert h > w, "it stands on its point"
     assert blade["angles"][-1]["to"] == 270.0
-    assert abs(x - (altar[0] - 0.2998)) < 0.01, "in the gap"
-    assert y - h / 2 < altar[1] + altar[3] / 2 < y + h / 2, \
-        "its point is below the top of the stones, the rest above"
+    assert abs(x - (log[0] - 0.3)) < 0.01, "in the log"
+    assert y - h / 2 < log[1] + log[3] / 2 < y + h / 2, \
+        "its point is below the top of the log, the rest above"
     assert blade["attachments"][-1][1]["mode"] == "embedded"
     ks = tt.prop_state(trace, "knife")
     assert [s for _, s in ks["states"]] == ["blade_carried",

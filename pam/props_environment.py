@@ -26,7 +26,7 @@ import numpy as np
 from manim import *
 from pam.props_core import (
     PROP_DEFAULTS, _attach_pam_attrs, _apply_attrs,
-    resolve_position, _make_label,
+    resolve_position, _make_label, compose_parts,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1576,11 +1576,81 @@ def build_bowl(name: str, x=0.0, y=-2.6, width=0.5, height=0.2,
 #  BARBELL and MAGAZINE  (Milestone 6: Scene 2 of Abraham and Isaac)
 # ─────────────────────────────────────────────────────────────────────────────
 
+# The barbell is a composite prop (pam/prop_states.py, machine
+# "barbell"): two boulders and a log, three props from the start,
+# registered as "<name>.left", "<name>.right" and "<name>.log".  While
+# it is "assembled" they move as one; in Scene 4 of Abraham and Isaac
+# Isaac takes it apart and builds the altar from it ("altar": the
+# boulders set apart, the log laid across them).
+
+BARBELL_STONE = "#8a8478"
+BARBELL_STONE_FILL = "#5f5a52"
+
+
+def _barbell_sizes(width, height):
+    bw = height * 1.05                     # a boulder is about round
+    return bw, height * 0.28, width - bw * 0.6     # boulder, log h, log w
+
+
+def build_barbell_boulder(name: str, x=0.0, y=-2.6, width=0.735,
+                          height=0.7, color=None, seed=1,
+                          parent=None, attach=None, attrs=None,
+                          prop_registry=None, **kwargs) -> VGroup:
+    """One boulder of a barbell, standing on *y*, centered on *x*.
+
+    Attachment points: ``"surface"`` (its top), ``"centre"``,
+    ``"floor"``.
+    """
+    c = color or BARBELL_STONE
+    stone = _stone(x, y, width, height, c, BARBELL_STONE_FILL, seed=seed)
+    group = VGroup(stone)
+    _apply_attrs(group, attrs or {})
+    top = float(stone.get_top()[1])
+    return _attach_pam_attrs(
+        group, name, "barbell_boulder", x, y, surface_y=top,
+        attachments={"surface": np.array([x, top, 0]),
+                     "centre": np.array([x, (y + top) / 2, 0]),
+                     "floor": np.array([x, y, 0])},
+        parent=parent, attach=attach, attrs=attrs)
+
+
+def build_barbell_log(name: str, x=0.0, y=0.0, length=1.96, thickness=0.196,
+                      parent=None, attach=None, attrs=None,
+                      prop_registry=None, **kwargs) -> VGroup:
+    """The log of a barbell, lying along x, centered on (*x*, *y*).
+
+    Attachment points: ``"surface"`` (its top, at the middle),
+    ``"centre"``, ``"left"`` and ``"right"`` (its ends).
+    """
+    log = RoundedRectangle(
+        width=length, height=thickness, corner_radius=thickness / 2,
+        color="#6b4423", fill_color="#8b5a2b", fill_opacity=1.0,
+        stroke_width=PROP_DEFAULTS["stroke_width"],
+    ).move_to(np.array([x, y, 0]))
+    grain = Line(np.array([x - length * 0.27, y, 0]),
+                 np.array([x + length * 0.27, y, 0]),
+                 color="#6b4423", stroke_width=1.2)
+    group = VGroup(log, grain)
+    _apply_attrs(group, attrs or {})
+    return _attach_pam_attrs(
+        group, name, "barbell_log", x, y, surface_y=y + thickness / 2,
+        attachments={"surface": np.array([x, y + thickness / 2, 0]),
+                     "centre": np.array([x, y, 0]),
+                     "left": np.array([x - length / 2, y, 0]),
+                     "right": np.array([x + length / 2, y, 0])},
+        parent=parent, attach=attach, attrs=attrs)
+
+
 def build_barbell(name: str, x=0.0, y=-2.6, width=2.4, height=0.7,
                   color=None, label=None,
                   parent=None, attach=None, attrs=None,
                   prop_registry=None, **kwargs) -> VGroup:
     """Build a barbell made of two boulders and a log, standing on *y*.
+
+    A composite prop of three parts, ``"<name>.left"`` and
+    ``"<name>.right"`` (the boulders) and ``"<name>.log"``; see
+    ``props_core.compose_parts``.  Its states (``assembled``, ``altar``)
+    are in ``pam/prop_states.py``.
 
     Parameters
     ----------
@@ -1596,30 +1666,25 @@ def build_barbell(name: str, x=0.0, y=-2.6, width=2.4, height=0.7,
     ``"centre"`` (the middle of the log), ``"floor"``, ``"left"`` and
     ``"right"`` (where a hand grips the log, inside each boulder).
     """
-    c = color or "#8a8478"
-    bw = height * 1.05                     # a boulder is about round
+    bw, log_h, log_w = _barbell_sizes(width, height)
     mid_y = y + height / 2
-    log_h = height * 0.28
-    log = RoundedRectangle(
-        width=width - bw * 0.6, height=log_h, corner_radius=log_h / 2,
-        color="#6b4423", fill_color="#8b5a2b", fill_opacity=1.0,
-        stroke_width=PROP_DEFAULTS["stroke_width"],
-    ).move_to(np.array([x, mid_y, 0]))
-    grain = Line(np.array([x - width * 0.22, mid_y, 0]),
-                 np.array([x + width * 0.22, mid_y, 0]),
-                 color="#6b4423", stroke_width=1.2)
-    left = _stone(x - width / 2 + bw / 2, y, bw, height, c, "#5f5a52",
-                  seed=1)
-    right = _stone(x + width / 2 - bw / 2, y, bw, height, c, "#5f5a52",
-                   seed=4)
-    parts = [log, grain, left, right]
+    log = build_barbell_log(f"{name}.log", x, mid_y, length=log_w,
+                            thickness=log_h)
+    left = build_barbell_boulder(f"{name}.left", x - width / 2 + bw / 2, y,
+                                 width=bw, height=height, color=color,
+                                 seed=1)
+    right = build_barbell_boulder(f"{name}.right", x + width / 2 - bw / 2,
+                                  y, width=bw, height=height, color=color,
+                                  seed=4)
+    members = [log, left, right]
     if label:
-        parts.append(_make_label(label, x, y + height + 0.12))
-    group = VGroup(*parts)
+        members.append(_make_label(label, x, y + height + 0.12))
+    group = VGroup(*members)
     _apply_attrs(group, attrs or {})
     grip = width / 2 - bw - 0.08
-    return _attach_pam_attrs(
-        group, name, "barbell", x, y, surface_y=mid_y + log_h / 2,
+    return compose_parts(
+        group, name, "barbell", x, y,
+        {"log": log, "left": left, "right": right},
         attachments={"surface": np.array([x, mid_y + log_h / 2, 0]),
                      "centre": np.array([x, mid_y, 0]),
                      "floor": np.array([x, y, 0]),

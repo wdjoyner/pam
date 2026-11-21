@@ -30,11 +30,6 @@
   "action": "props",
   "rt": 0.2,
   "items": {
-   "altar": {
-    "type": "altar",
-    "x": 1.6,
-    "y": -2.6
-   },
    "rock": {
     "type": "rock",
     "x": -3.2,
@@ -184,10 +179,10 @@
     "parts": {
      "blade": {
       "attached": {
-       "to": "altar",
+       "to": "barbell.log",
        "point": [
-        -0.2998,
-        0.176
+        -0.3,
+        0.098
        ],
        "by": "bottom",
        "mode": "embedded",

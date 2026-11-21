@@ -129,6 +129,18 @@
           "y": -2.6,
           "hidden": true
         }
+      },
+      "barbell": {
+        "type": "barbell",
+        "width": 2.3,
+        "height": 0.75,
+        "attached": {
+          "to": null,
+          "x": 3.6,
+          "y": -2.6,
+          "by": "bottom",
+          "hidden": true
+        }
       }
     },
     "ledger": {
@@ -282,6 +294,45 @@
                 }
               }
             }
+          },
+          "barbell": {
+            "type": "barbell",
+            "state": "assembled",
+            "attached": {
+              "to": null,
+              "kind": "world",
+              "x": 3.6,
+              "y": -2.6,
+              "mode": "free",
+              "by": "bottom",
+              "hidden": true
+            },
+            "parts": {
+              "log": {
+                "type": "barbell_log",
+                "attached": {
+                  "to": "barbell",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              },
+              "left": {
+                "type": "barbell_boulder",
+                "attached": {
+                  "to": "barbell",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              },
+              "right": {
+                "type": "barbell_boulder",
+                "attached": {
+                  "to": "barbell",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              }
+            }
           }
         }
       },
@@ -430,6 +481,42 @@
                 }
               }
             }
+          },
+          "barbell": {
+            "type": "barbell",
+            "state": "assembled",
+            "attached": {
+              "to": "isaac",
+              "kind": "character",
+              "joint": "rwrist",
+              "mode": "held"
+            },
+            "parts": {
+              "log": {
+                "type": "barbell_log",
+                "attached": {
+                  "to": "barbell",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              },
+              "left": {
+                "type": "barbell_boulder",
+                "attached": {
+                  "to": "barbell",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              },
+              "right": {
+                "type": "barbell_boulder",
+                "attached": {
+                  "to": "barbell",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              }
+            }
           }
         }
       },
@@ -573,6 +660,45 @@
                 "type": "rope_piece",
                 "attached": {
                   "to": "rope",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              }
+            }
+          },
+          "barbell": {
+            "type": "barbell",
+            "state": "assembled",
+            "attached": {
+              "to": "isaac",
+              "kind": "character",
+              "joints": [
+                "lshoulder",
+                "rshoulder"
+              ],
+              "mode": "held"
+            },
+            "parts": {
+              "log": {
+                "type": "barbell_log",
+                "attached": {
+                  "to": "barbell",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              },
+              "left": {
+                "type": "barbell_boulder",
+                "attached": {
+                  "to": "barbell",
+                  "kind": "prop",
+                  "mode": "joined"
+                }
+              },
+              "right": {
+                "type": "barbell_boulder",
+                "attached": {
+                  "to": "barbell",
                   "kind": "prop",
                   "mode": "joined"
                 }
@@ -729,6 +855,46 @@
                 }
               }
             }
+          },
+          "barbell": {
+            "type": "barbell",
+            "state": "altar",
+            "parts": {
+              "log": {
+                "type": "barbell_log",
+                "attached": {
+                  "to": null,
+                  "kind": "world",
+                  "x": 1.6,
+                  "y": -1.85,
+                  "mode": "free",
+                  "by": "bottom"
+                }
+              },
+              "left": {
+                "type": "barbell_boulder",
+                "attached": {
+                  "to": null,
+                  "kind": "world",
+                  "x": 0.98,
+                  "y": -2.6,
+                  "mode": "free",
+                  "by": "bottom",
+                  "angle": 9.0
+                }
+              },
+              "right": {
+                "type": "barbell_boulder",
+                "attached": {
+                  "to": null,
+                  "kind": "world",
+                  "x": 2.22,
+                  "y": -2.6,
+                  "mode": "free",
+                  "by": "bottom"
+                }
+              }
+            }
           }
         }
       },
@@ -762,11 +928,11 @@
               "blade": {
                 "type": "knife_blade",
                 "attached": {
-                  "to": "altar",
+                  "to": "barbell.log",
                   "kind": "prop",
                   "point": [
-                    -0.2998,
-                    0.176
+                    -0.3,
+                    0.098
                   ],
                   "mode": "embedded",
                   "by": "bottom",
@@ -885,6 +1051,46 @@
                 }
               }
             }
+          },
+          "barbell": {
+            "type": "barbell",
+            "state": "altar",
+            "parts": {
+              "log": {
+                "type": "barbell_log",
+                "attached": {
+                  "to": null,
+                  "kind": "world",
+                  "x": 1.6,
+                  "y": -1.85,
+                  "mode": "free",
+                  "by": "bottom"
+                }
+              },
+              "left": {
+                "type": "barbell_boulder",
+                "attached": {
+                  "to": null,
+                  "kind": "world",
+                  "x": 0.98,
+                  "y": -2.6,
+                  "mode": "free",
+                  "by": "bottom",
+                  "angle": 9.0
+                }
+              },
+              "right": {
+                "type": "barbell_boulder",
+                "attached": {
+                  "to": null,
+                  "kind": "world",
+                  "x": 2.22,
+                  "y": -2.6,
+                  "mode": "free",
+                  "by": "bottom"
+                }
+              }
+            }
           }
         }
       },
@@ -919,11 +1125,11 @@
               "blade": {
                 "type": "knife_blade",
                 "attached": {
-                  "to": "altar",
+                  "to": "barbell.log",
                   "kind": "prop",
                   "point": [
-                    -0.2998,
-                    0.176
+                    -0.3,
+                    0.098
                   ],
                   "mode": "embedded",
                   "by": "bottom",
@@ -1051,6 +1257,46 @@
                   "x": 2.95,
                   "y": -2.6,
                   "mode": "free"
+                }
+              }
+            }
+          },
+          "barbell": {
+            "type": "barbell",
+            "state": "altar",
+            "parts": {
+              "log": {
+                "type": "barbell_log",
+                "attached": {
+                  "to": null,
+                  "kind": "world",
+                  "x": 1.6,
+                  "y": -1.85,
+                  "mode": "free",
+                  "by": "bottom"
+                }
+              },
+              "left": {
+                "type": "barbell_boulder",
+                "attached": {
+                  "to": null,
+                  "kind": "world",
+                  "x": 0.98,
+                  "y": -2.6,
+                  "mode": "free",
+                  "by": "bottom",
+                  "angle": 9.0
+                }
+              },
+              "right": {
+                "type": "barbell_boulder",
+                "attached": {
+                  "to": null,
+                  "kind": "world",
+                  "x": 2.22,
+                  "y": -2.6,
+                  "mode": "free",
+                  "by": "bottom"
                 }
               }
             }

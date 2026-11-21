@@ -10,6 +10,18 @@
   "color": "#a9c8e6"
  },
  {
+  "action": "prop_transition",
+  "prop": "barbell",
+  "beat": "barbell_on_shoulders",
+  "attached": {
+   "to": "isaac",
+   "joints": [
+    "lshoulder",
+    "rshoulder"
+   ]
+  }
+ },
+ {
   "action": "fade_in",
   "who": "isaac",
   "rt": 0.2
@@ -31,7 +43,7 @@
   }
  },
  {
-  "_comment": "# CUE s03_climb (2 steps): Isaac carries three altar stones and the log barbell. Abraham staggers a"
+  "_comment": "# CUE s03_climb (2 steps): Isaac carries the log barbell on his shoulders. Abraham staggers after h"
  },
  {
   "action": "parallel",
@@ -158,7 +170,7 @@
   "hold": 1.08
  },
  {
-  "_comment": "# REVIEW: He reaches the top. His sandal slips. Isaac catches him by the collar without putting down the stones. Abraham dangles."
+  "_comment": "# REVIEW: He reaches the top. His sandal slips. Isaac catches him by the collar without putting down the barbell. Abraham dangles."
  },
  {
   "action": "say",
