@@ -39,6 +39,8 @@ Every key at the top of a trace, and the version that added it:
   fps, sequences, constraints, blocks?, routines?, prop_states?,
   prop_events?                                     (5; "?": when any)
   opacity, events                                  (5, Milestone 7)
+and inside a bubble (version 5, Milestone 8): "opacity", when its line
+fades in or out.
 
 How it works
 ------------
@@ -271,6 +273,7 @@ by frame, is in "opacity" lists, written only into version 5 traces:
 
   "opacity": {figure: [move, ...]}        at the top, for figures
   "opacity": [move, ...]                  on a prop object or an overlay
+  "opacity": [move, ...]                  on a bubble (Milestone 8)
 
   move = {"t0", "t1", "f0", "f1", "rate", "from", "to"}
 
@@ -290,7 +293,10 @@ one is fully opaque whenever it is shown.  Examples: a prop of a
 "props" step with "rt" fading in; the screen_fade at the end of Scene 6
 (a card the size of the frame, from 0 to 1 over 28 frames); a sound
 cue's word fading in and out.  A ``fade_in`` of a figure draws it at
-full opacity from its first frame, so it has no list.
+full opacity from its first frame, so it has no list.  A bubble's list
+(Milestone 8) is its line's fades: ``frames_in`` frames fading in and
+``frames_out`` frames fading out, measured by the bubble's brightest
+part; a line that neither fades in nor out has none.
 
 Events (version 5, Milestone 7)
 -------------------------------
@@ -1666,6 +1672,11 @@ class Tracer:
             op = _opacity(mob) if on else 0.0
             self._sample_op(("overlay", rec["id"]), f,
                             op if op > 0.01 else 0.0, on)
+        for rec in self.bubbles:
+            on = id(rec["_mob"]) in on_stage
+            op = _opacity(rec.get("_grp") or rec["_mob"]) if on else 0.0
+            self._sample_op(("bubble", rec["id"]), f,
+                            op if op > 0.01 else 0.0, on)
 
     def _sample_op(self, key, f, op, on):
         rows = self._op.setdefault(key, [])
@@ -1903,7 +1914,7 @@ class Tracer:
             "initial": _xy(c),
             "moves": [],
             "visibility": [],
-            "_mob": box, "_pos": _xy(c), "_vis": False,
+            "_mob": box, "_grp": mob, "_pos": _xy(c), "_vis": False,
         }
         self.bubbles.append(rec)
         self._live_bubbles[id(box)] = rec
@@ -2127,6 +2138,12 @@ class Tracer:
                 mv = self.opacity_moves(("overlay", o["id"]))
                 if opacity_worth_writing(mv):
                     o["opacity"] = with_frames(mv)
+            # Milestone 8: a line's bubble fading in and out (frames_in,
+            # frames_out)
+            for b in out["bubbles"]:
+                mv = self.opacity_moves(("bubble", b["id"]))
+                if opacity_worth_writing(mv):
+                    b["opacity"] = with_frames(mv)
             out["opacity"] = {}
             for n in tracks:
                 mv = self.opacity_moves(("fig", n))
@@ -2388,6 +2405,7 @@ class FrameProbe:
                                   "points"?: [[x, y], ...]}},  # on stage
        "prop_states": {name: {"state", "display"?, "text"?}},
        "bubbles": [bubble id, ...],            # on stage
+       "bubble_opacity": {bubble id: opacity}, # on stage (Milestone 8)
        "overlays": {overlay id: opacity},      # on stage
        "background": "#rrggbb"}
     Figure opacity is measured as the tracer measures it (the stroke of
@@ -2444,6 +2462,9 @@ class FrameProbe:
                     states[name] = st
             bubbles = [b["id"] for b in tr.bubbles
                        if id(b["_mob"]) in on_stage]
+            bubble_ops = {str(b["id"]): _r4(_opacity(b.get("_grp")
+                                                     or b["_mob"]))
+                          for b in tr.bubbles if id(b["_mob"]) in on_stage}
             overlays = {}
             cam_frame = getattr(scene.camera, "frame", None)
             for o in tr.ot.overlays:
@@ -2466,6 +2487,7 @@ class FrameProbe:
         self.rows.append({"f": int(round(el)), "n": int(num_frames),
                           "figures": figs, "camera": cam, "props": props,
                           "prop_states": states, "bubbles": bubbles,
+                          "bubble_opacity": bubble_ops,
                           "overlays": overlays, "background": bg})
 
     def write(self, path):

@@ -1426,17 +1426,19 @@ On a Mac, `blender` is usually not on the `PATH`; use `/Applications/Blender.app
 echo 'alias blender=/Applications/Blender.app/Contents/MacOS/Blender' >> ~/.bash_profile
 ```
 
-Tested with Blender 4.2, 4.4, and 5.2; written to also work with 3.x.
+Tested with Blender 4.2, 4.4, 4.5.1, 5.0.1, and 5.2; written to also work with 3.x.
+
+Blender renders at 30 fps from the 15 fps trace: trace frame f is keyed on Blender frame 1 + 2f, the frames between are interpolated, and the film ends on frame 2N for a trace of N frames, so it is exactly as long as the Manim animation.
 
 ### What the Blender version adds
 
 - **Smooth motion.** Each move keeps the rate function PAM used (`smooth`, `rush_from_start`, …), mapped to Blender's own easing curves where they match and baked frame by frame where they don't. Walks, runs, and carries follow a smooth spline through the keyframe poses with a steady root.
 - **Planted feet.** Feet stay put while they carry weight (no sliding), with knees solved to match, a slight hip dip so the legs can reach, and a subtle hip bob. Foot contacts come from `POSE_CONTACTS` in `pam/hooks.py`.
-- **A 3D look.** Rounded limbs that taper from shoulder and hip to wrist and ankle, with knee and elbow joints; a solid four-cornered torso that follows the shoulders and hips and continues below the hips like a shirt (a short flared dress for female figures; `--hem`), so the legs come out from under it; lights, a floor and back wall with cast shadows, and a camera tilted slightly toward the floor.
+- **A 3D look.** Rounded limbs that taper from shoulder and hip to wrist and ankle, with knee and elbow joints; a solid four-cornered torso that follows the shoulders and hips and continues below the hips like a shirt (a short flared dress for female figures; `--hem`), so the legs come out from under it; lights, a floor and back wall with cast shadows, and a camera tilted slightly toward the floor in wide shots. The tilt follows the framing: all of it in shots 6 units wide or more, none in shots 2 units wide or less (inserts and close-ups are framed straight on, as in Manim, so a prop in front of the figures is where Manim shows it), and in proportion between.
 - **Gendered chests.** Male chests are wide at the shoulders and narrow at the hips (male hips are pulled in to 0.65 of PAM's spread; `--hips` changes that); female chests the reverse. The cast's `"gender"` field is used automatically (a `"narrow"` build counts as female when no gender is given); `--female` / `--male` override it.
 - **Skin and clothing.** Give a cast entry a `"skin"` color (or `"skin_color"` in its `"style"`) and the head, neck, arms, and legs take that color while the chest, shoulders, and hips keep the figure's color as clothing. PAM ignores the key, so the Manim render is unchanged. `--skin nona=#7cc45a,sidel=#3f8f4a` does the same from the command line.
 - **Shoes:** a simple ellipsoid under each foot, pointing at the camera in front views and along the facing direction in side views (`--shoes HEX` for the color, `--no-shoes` to leave them off).
-- **Speech bubbles,** with PAM's colors, tails, phone/off-screen style, and timing, following walk-and-talk speakers. In close-ups, PAM's bubbles grow on screen with the zoom and can run past the edge of the frame (in the Manim video too); in Blender each bubble keeps the screen size it has in the opening wide shot (down to half size, shrinking toward its tail so it still points at the speaker) and is kept inside the camera frame while it is shown. `--bubbles-world` keeps PAM's world-space size instead.
+- **Speech bubbles,** with PAM's colors, tails, phone/off-screen style, and timing, following walk-and-talk speakers. In close-ups, PAM's bubbles grow on screen with the zoom and can run past the edge of the frame (in the Manim video too); in Blender each bubble keeps the screen size it has in the opening wide shot (down to half size, shrinking toward its tail so it still points at the speaker) and is kept inside the camera frame while it is shown. `--bubbles-world` keeps PAM's world-space size instead. A bubble stands in front of the cast, so where the camera is tilted its height is corrected to show it on the screen where Manim draws it (never closer to the edge of the frame than the margin that keeps it inside). A line that fades in or out (`frames_in`, `frames_out`) fades in Blender over the same frames.
 - **Props and scene objects.** Desks, tables, consoles (with their monitor), doors, chairs, cellphones, the knife's handle and blade, the scroll (with its text), the pieces of a rope (curves that change shape on every frame), and the Governor dodecahedron become simple 3D models; every other prop type is extruded from its 2D Manim outline, so nothing disappears. Floor-standing props are set on the floor, doors sit in the back wall, and props appear, move, and disappear when they do in Manim (`props`, `spawn_prop`, `remove_prop`, `place_on`, `reparent_prop`, ...).
 - **Held props follow the hands.** Between a figure's attach and release (`carry`, `pick_up`, `grab`, `hand_to`, ...) the prop rides on the holding wrist(s), so it moves with the Blender figure's smoothed walk. A prop placed on a table slides from the hand to the tabletop and rests there, tilted toward the camera if it is a phone. Hats and other `pam_follows` accessories ride on the head or torso.
 - **Faces, wardrobe, labels, and on-screen text.** Each face (`attach_face`) becomes a 3D head: an ellipsoid in the face's skin color, sized to its head shape, with the eyes, brows, mouth, and hair wrapped onto its front and the ears at its sides; the neck and bib lie flat on the chest (`--flat-faces` keeps the whole face flat). Torso icons and name tags (`attach_torso_icon`, `attach_name_tag`), dog harnesses, and head labels are flat decals traced from their Manim outlines, riding on the torso, head, or spine; the head ball hides while a face replaces it. Gloves become small 3D mitts on the wrists, `attach_shoes` sets the 3D shoes' color and length, and clothed limbs (`clothed_limbs` in a cast style) become tapered sleeves and trouser legs in the band colors, with `torso_color` on the chest. On-screen text, captions, and title text appear where they sit in the Manim frame, even with `--camera wide`, without their dark backing panel (`--card-bg` brings it back, fully or partly see-through).
@@ -1454,7 +1456,8 @@ Options go after the `.blend` name.
 | `--look flat` | The original thin, unlit look. |
 | `--female A,B` / `--male A,B` | Override a character's chest shape. |
 | `--bust` | Add a bust to female chests (off by default). |
-| `--tilt DEG` | Camera tilt toward the floor (default 8; 0 for a straight-on view). |
+| `--tilt DEG` | Camera tilt toward the floor in wide shots (default 8; 0 for a straight-on view). The tilt follows the framing: all of it in shots at least 6 units wide, none in shots 2 units wide or less, in proportion between; with `--camera wide` all of it. |
+| `--parity` | Blender parity (Milestone 8): turn off everything that moves something away from the Manim animation. The same as `--exact --locomotion exact --no-footlock --bob 0 --hips 1 --tilt 0 --bubbles-world`, with bubbles not kept inside the frame and no props or ropes lifted onto the floor. Appearance (the look, solid chests, joint balls, shoes, mouths, fades) does not change. Options after `--parity` override it. |
 | `--no-bubbles` | Leave out speech bubbles. |
 | `--no-mouths` | Leave out the talking mouths. By default each character gets a small dark mouth on the lower half of the head that opens and shuts while that character's speech bubble is showing. The mouths stay when `--no-bubbles` is given, so a film with a voice track still shows who is speaking. Dogs, and heads replaced by an attached face, get none. |
 | `--camera wide` | Hold the widest framing the scene uses for the whole film, instead of following PAM's camera moves and cuts. |
@@ -1962,6 +1965,26 @@ PAM_TRACE_FRAMES=scene6.frames.json PAM_SCRIPT=scene6.json \
 The probe writes, beside the trace, what Manim drew on every frame; the trace itself is the same with or without it. `tests/test_replay.py` does this for all six scenes of `projects/abe-isaac` and holds the replay to `trace_replay.TOLERANCES`: every joint within 0.002 units on every frame, the camera within 0.002 (cuts included), props within 0.005 (sizes within 2 %, a rope's points within 0.002), opacity within 0.002, and exactly what is on screen, every prop state, display and text, the number of frames, and the frame of every event that shows. The one exception is a known open item: a prop placed while its holder fades in is recorded where it was built for the frames of that play.
 
 Two hooks were added for the event stream, both no-ops without a listener: `step` (a top-level step is about to run) and `shot` (a camera marker is applied, with the shot it describes).
+
+### Blender parity (Milestone 8)
+
+Milestone 8 of the Blender roadmap checks that the Blender build reproduces the Manim animation (movement, staging, prop identity and timing) before any embellishment. Nothing in a screenplay changes.
+
+`tests/test_blender_parity.py` traces the six scenes of `projects/abe-isaac`, builds each twice with `trace2blender.py` (with `--parity`, and as built by default), evaluates the built scenes with bpy on the keyed frames, and compares them with `trace_replay.py` (which Milestone 7 holds to what Manim drew), within `trace2blender.PARITY_TOLERANCES`:
+
+| What | Tolerance |
+|---|---|
+| every joint of every figure on screen | 0.002 units |
+| the camera's center and width, cuts included | 0.002 units |
+| joints, props and bubbles on the screen (through the Blender camera, against Manim's frame) | 0.5 % of the frame |
+| a prop's position; its turn; a scaled prop's size; a rope's points | 0.005 units; 0.1°; 2 %; 0.002 units |
+| a speech bubble's position (`--parity`) | 0.005 units |
+| the opacity of figures, props, cards and bubbles | 0.002 |
+| what is on screen, prop states, phone displays, the scroll's text and strike lines, the background, the number of keyed frames and the film's length, one Blender object per figure and per prop object | exact |
+
+The `--parity` build is held to all of it. The default build keeps the departures that make it look better, as stated exceptions: Blender's own easing curves may put a joint or a held prop off by 1.5 % of its move (`--tol`), the narrower male hips are compared by their midpoint (props carried on a hip are not compared), bubbles kept inside the frame are compared for timing and opacity only, and the screen is compared only in level (close) shots. Cards without their backing panel are an appearance choice and are compared for place, timing and fades. The six scenes have no spline locomotion and no props lifted onto the floor (their moves are steps of timed blocks, and their props stand on the floor), and a test checks that.
+
+Building the scenes for the test fixed two things in the builder: a prop held until the end of a scene no longer drifts from the hand over the whole hold (the phone and the scroll in Scene 6), and a camera cut on the first frame of a constrained limb shows the limb's pose after the cut. Speech bubbles' fades (`frames_in`, `frames_out`) are now recorded in version 5 traces (each bubble's `"opacity"`) and played in Blender.
 
 ### Timed parallel blocks: overlapping action on the frame clock
 

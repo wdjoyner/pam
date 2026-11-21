@@ -61,7 +61,8 @@ TOLERANCES = {
     "prop_size": 0.02,
     # a deformable prop's control points (the rope's pieces)
     "prop_points": 0.002,
-    # the opacity of a figure, a prop or an on-screen card
+    # the opacity of a figure, a prop, an on-screen card or (Milestone 8)
+    # a speech bubble
     "opacity": 0.002,
     # discrete things must match on every frame, exactly: which figures,
     # props, bubbles and cards are on screen, every prop state, display
@@ -300,6 +301,23 @@ class Replay:
             if row and row[1]:
                 out.append(b["id"])
         return out
+
+    def bubble_opacity(self, bid, frame):
+        """How opaque bubble *bid* is on *frame* (0 when not shown): its
+        "opacity" moves when its line fades (Milestone 8), else 1 while
+        its visibility rows show it."""
+        rec = next(b for b in self.T.get("bubbles") or [] if b["id"] == bid)
+        if rec.get("opacity"):
+            return self._opacity(rec["opacity"], None, frame)
+        row = self._rows(rec.get("visibility") or [], frame, self.fps)
+        return 1.0 if row and row[1] else 0.0
+
+    def bubble_position(self, bid, frame):
+        """(x, y) of the center of bubble *bid*'s box on *frame*."""
+        rec = next(b for b in self.T.get("bubbles") or [] if b["id"] == bid)
+        p = self._moves(rec["initial"], rec.get("moves") or [], frame,
+                        lambda a, b, u: [_lerp(x, y, u) for x, y in zip(a, b)])
+        return (float(p[0]), float(p[1]))
 
     def overlay_opacity(self, oid, frame):
         """How opaque overlay *oid* (a face, a card, ...) is on *frame*."""

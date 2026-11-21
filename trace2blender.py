@@ -16,6 +16,14 @@ Options:
                        frame (default 0.015)
     --exact            bake every non-linear move per frame (no native
                        easing approximations at all)
+    --parity           Blender parity (Milestone 8): turn off everything
+                       that moves something away from the Manim
+                       animation: --exact, --locomotion exact
+                       --no-footlock --bob 0, --hips 1, --tilt 0,
+                       --bubbles-world with bubbles not kept inside the
+                       frame, and no props or ropes lifted onto the
+                       floor.  Appearance is not changed.  Options after
+                       --parity override it.
     --locomotion MODE  "spline" (default): walk/run/carry cycles use a
                        C1 cubic spline through the keyframe poses, a
                        steady root, foot locking and hip bob.
@@ -28,7 +36,11 @@ Options:
                        "studio": the same figures with fast Workbench
                        shading; "flat": the original thin, unlit look
     --tilt DEG         camera tilt down toward the floor (default 8;
-                       ignored by the flat look)
+                       ignored by the flat look).  The tilt follows the
+                       framing: all of it in shots 6 units wide or more,
+                       none (level, as in Manim) in shots 2 units wide
+                       or less, in proportion between; --camera wide
+                       keeps all of it
     --no-bubbles       leave out the speech bubbles
     --no-mouths        leave out the talking mouths (a small dark mouth
                        on the lower half of the head that opens and shuts
@@ -50,7 +62,10 @@ Options:
                        (HSV value, default 0.5; 0 keeps PAM's colors)
     --bubbles-world    keep PAM's world-space bubble size in close-ups
                        (by default a bubble keeps its wide-shot screen size,
-                       down to half, and always stays inside the frame)
+                       down to half, and stays inside the frame; in tilted
+                       shots it is raised to show where Manim draws it; a
+                       line's fades, frames_in and frames_out, play over
+                       the same frames)
     --no-props         leave out props and scene objects (trace version 3)
     --hips F           male hip spread, as a fraction of PAM's (default
                        0.65; 1 keeps PAM's spread).  The tops of the legs
@@ -68,6 +83,12 @@ Options:
 
 Coordinate mapping: PAM/Manim (x right, y up) -> Blender (x right, z up),
 characters live on the y = 0 plane, the camera looks along +y.
+
+Frames: Blender renders at 30 fps from the 15 fps trace.  Trace frame f
+is keyed on Blender frame 1 + 2f, and the frames between are
+interpolated; the film ends on frame 2N for a trace of N frames, so it
+lasts as long as the Manim animation.  How closely a build matches the
+trace on the keyed frames is PARITY_TOLERANCES (tests/test_blender_parity.py).
 
 Works with Blender 3.x, 4.x and 5.x.  Trace version 1 (the original
 probe) is still accepted; version 2 adds the hook data used for easing,
@@ -128,6 +149,32 @@ SOFT_IK = 0.96       # swinging legs ease into full extension from here
 BOB = {"walk": 0.030, "carry_walk": 0.025, "side_carry_r_walk": 0.025,
        "squeeze_walk": 0.015, "run": 0.050}
 
+# How closely a build matches its trace on the keyed frames (Blender
+# frame 1 + 2f for trace frame f), as tests/test_blender_parity.py
+# checks it against trace_replay.py (Milestone 8).  Distances are in
+# Manim units (Blender x and z are PAM's x and y; a wide shot is 14.2
+# units across); "screen" is a fraction of the frame's width or height,
+# where the Blender camera puts a point against where Manim's frame
+# does; turns are in degrees, opacity from 0 to 1.
+PARITY_TOLERANCES = {
+    "joint": 0.002,         # every joint of every figure on screen
+    "camera": 0.002,        # the camera's center (on the figures' plane)
+                            # and width, cuts included
+    "screen": 0.005,        # joints, props and bubbles on the screen
+    "prop": 0.005,          # a prop's position (its box center or anchor)
+    "prop_turn": 0.1,       # a prop's turn in the picture plane
+    "prop_size": 0.02,      # a scaled prop's size, relative
+    "prop_points": 0.002,   # a rope's control points
+    "bubble": 0.005,        # a speech bubble's position (--parity)
+    "opacity": 0.002,       # figures, props, cards, speech bubbles
+    # and exactly, on every keyed frame: what is on screen (figures,
+    # props, bubbles, cards), prop states (the scroll's shape), phone
+    # displays, the scroll's text and the lines through it, the
+    # background, the number of keyed frames and the film's length,
+    # and one Blender object for every figure and every prop object
+    "frames": 0,
+}
+
 
 # ═════════════════════════════════════════════════════════════════════════
 #  Options
@@ -160,6 +207,32 @@ class Options:
     card_bg = 0.0           # opacity of on-screen card / caption backings
     hem = 1.0               # torso hem length (times HEM_MALE / HEM_FEMALE)
     faces_3d = True
+    parity = False          # --parity (see set_parity)
+    floor_lift = True       # set props (and rope) on the floor
+    bubble_nudge = True     # keep bubbles inside the camera frame
+
+
+def set_parity(opt):
+    """--parity: turn off every departure from the Manim animation that
+    moves something (Milestone 8).  Moves keep Manim's own rate
+    functions (--exact), walks follow the trace (--locomotion exact,
+    no foot locking, no hip bob), the hips keep PAM's spread (--hips 1),
+    the camera looks straight on (--tilt 0), speech bubbles keep PAM's
+    size and place (--bubbles-world, and not kept inside the frame), and
+    props and ropes are not lifted onto the floor.  Appearance (solid
+    figures, joint balls, shoes, the look, mouths, fades, cards without
+    their backing panel) is not changed.  Options given after --parity
+    override it."""
+    opt.parity = True
+    opt.exact = True
+    opt.locomotion = "exact"
+    opt.footlock = False
+    opt.bob = 0.0
+    opt.hips = 1.0
+    opt.tilt = 0.0
+    opt.bubble_size = "world"
+    opt.bubble_nudge = False
+    opt.floor_lift = False
 
 
 def parse_args(argv):
@@ -177,6 +250,8 @@ def parse_args(argv):
             opt.tol = float(a[i + 1]); i += 1
         elif k == "--exact":
             opt.exact = True
+        elif k == "--parity":
+            set_parity(opt)
         elif k == "--locomotion":
             opt.locomotion = a[i + 1]; i += 1
         elif k == "--no-footlock":
@@ -362,7 +437,10 @@ def best_native(rate, tol):
 # ═════════════════════════════════════════════════════════════════════════
 
 def load_trace(path):
-    T = json.load(open(path))
+    """The trace at *path* (or a trace dict, which is copied), with the
+    sampled pieces kept apart (version 5) and version 1 converted."""
+    T = json.loads(json.dumps(path)) if isinstance(path, dict) \
+        else json.load(open(path))
     if T.get("trace_version", 1) >= 2:
         T.setdefault("prop_objects", [])       # added in trace version 3
         # Trace version 5: sampled pieces (constrained limbs) are kept
@@ -1044,7 +1122,17 @@ def assemble_character(name, T, rates, opt, native):
         a0 = _arr(p["from"], joints)
         a1 = _arr(p["to"], joints)
         if p["kind"] == "cut" or p["t1"] <= p["t0"]:
-            keys.add(p["t0"], a0)
+            # a constrained limb is its samples on the cut's own frame
+            # too (and just before it, while a sampled piece ends there)
+            if sampled_overlaps(T, name, p["t0"], p["t0"]):
+                a0, a1 = (apply_sampled(T, name, joints, np.array([t]),
+                                        a.reshape(1, -1, 2).copy())[0]
+                          for a, t in ((a0, p["t0"] - 1e-6), (a1, p["t0"])))
+            # a key already on the cut's frame (the end of the move
+            # before it) is the pose held until the cut, so the cut's
+            # frame shows the pose after it, as Manim draws it
+            if not (keys.f and abs(keys.frame(p["t0"]) - keys.f[-1]) < 1e-6):
+                keys.add(p["t0"], a0)
             keys.add(p["t0"], a1)
             continue
         r = rates[p["rate"]]
@@ -1084,19 +1172,52 @@ def _inner_times(t0, t1, fps):
     return (fr - 1) / fps
 
 
+# The camera's tilt follows the framing (Milestone 8): the full --tilt
+# in shots at least TILT_FULL_W wide, level (straight on, as in Manim) in
+# shots TILT_LEVEL_W wide or less, and in between in proportion.  In a
+# close shot the floor is out of the frame, so the tilt adds nothing,
+# and it would move anything in front of or behind the figures up or
+# down on the screen by depth * sin(tilt) -- a large part of an insert.
+TILT_FULL_W = 6.0
+TILT_LEVEL_W = 2.0
+
+
+def tilt_for_width(w, opt):
+    """The camera's tilt (radians) for a frame *w* units wide."""
+    if opt.look == "flat":
+        return 0.0
+    base = math.radians(opt.tilt)
+    if opt.camera == "wide":
+        return base             # one held shot: as before
+    u = (float(w) - TILT_LEVEL_W) / (TILT_FULL_W - TILT_LEVEL_W)
+    return base * min(1.0, max(0.0, u))
+
+
 def assemble_camera(T, rates, opt, native):
+    """Camera keys, one row per key: [center x, center y, width, rotation
+    about x, location y, location z] (the last three from the tilt for
+    the width; see tilt_for_width)."""
     keys = KeyList(opt.fps)
     c0 = T.get("camera_initial") or (T["camera"][0]["from"] if T["camera"]
                                      else {"center": [0, 0],
                                            "width": T["frame"]["width"]})
-    v = lambda c: [c["center"][0], c["center"][1], c["width"]]
+
+    def v(c):
+        if isinstance(c, dict):
+            c = [c["center"][0], c["center"][1], c["width"]]
+        tl = tilt_for_width(c[2], opt)
+        return np.array([c[0], c[1], c[2], math.pi / 2 - tl,
+                         -CAM_DIST * math.cos(tl),
+                         c[1] + CAM_DIST * math.sin(tl)])
     keys.add(0.0, v(c0))
     for p in T["camera"]:
-        a0, a1 = np.array(v(p["from"])), np.array(v(p["to"]))
+        a0, a1 = v(p["from"]), v(p["to"])
         if p["t1"] <= p["t0"]:
             keys.add(p["t0"], a0); keys.add(p["t0"], a1)
             continue
         nat = None if (opt.exact and p["rate"] != "linear") else native.get(p["rate"])
+        if abs(a0[3] - a1[3]) > 1e-9:
+            nat = None          # the tilt changes over the move: bake it
         if nat is not None:
             keys.add(p["t0"], a0, (nat[0], nat[1])); keys.add(p["t1"], a1)
         else:
@@ -1108,7 +1229,7 @@ def assemble_camera(T, rates, opt, native):
             if abs(r.end - 1) > 1e-6 and abs(r.end) > 1e-6:
                 rr = rr / r.end
             for t, x in zip(tt, rr):
-                keys.add(t, a0 + x * (a1 - a0))
+                keys.add(t, v(a0[:3] + x * (a1[:3] - a0[:3])))
     return keys
 
 
@@ -2103,29 +2224,35 @@ def camera_at(T, rates, t):
                                               c["width"]], float))
 
 
-def bubble_track(b, T, rates, opt, tilt):
-    """Keys (t, [x, z, scale]) for a bubble while it is shown, and
-    whether they differ from the plain Manim position.
+def bubble_track(b, T, rates, opt):
+    """Keys (t, [x, z, scale, rotation about x]) for a bubble while it is
+    shown, whether they differ from the plain Manim placement, and
+    whether the bubble was resized or moved to stay inside the frame.
+
+    A bubble panel stands in front of the cast (BUBBLE_Y) and faces the
+    camera.  Where the camera is tilted (tilt_for_width) its height is
+    corrected so that it shows on the screen where Manim draws it
+    (otherwise it would show depth * sin(tilt) too low).
 
     PAM sizes and places bubbles in world space by the speaker, so in a
     close-up a bubble grows on screen and part of it can fall outside the
     frame (in the Manim video too).  Here, unless --bubbles-world is
     given, a bubble keeps the screen size it would have in the opening
     wide shot (scaling toward its tail tip, so the tail still points at
-    the speaker), and it is then nudged to stay inside the frame."""
+    the speaker), and unless --parity is given it is then nudged to stay
+    inside the frame, BUBBLE_MARGIN from its edges."""
     rows = b.get("visibility") or []
     spans = []
     for k, (t, on) in enumerate(rows):
         if on:
             spans.append((t, rows[k + 1][0] if k + 1 < len(rows) else T["duration"]))
-    ct, st = math.cos(tilt), math.sin(tilt)
     aspect = opt.res[1] / opt.res[0]
     w_ref = float((T.get("camera_initial") or {}).get("width")
                   or T["frame"]["width"])
     border = 0.035
     tail = b.get("tail") or []
     tip = min(tail, key=lambda p: p[1]) if tail else [0.0, -b["h"] / 2]
-    out, changed = [], False
+    out, changed, nudged = [], False, False
     for ta, tb in spans:
         ts = np.concatenate([[ta], _inner_times(ta, tb, opt.fps), [tb]])
         for t in ts:
@@ -2133,27 +2260,40 @@ def bubble_track(b, T, rates, opt, tilt):
             # a cut that coincides with the bubble's entrance has already
             # happened on the entrance frame
             cx, cy, W = camera_at(T, rates, t + 1e-4)
+            tl = tilt_for_width(W, opt)
+            ct, st = math.cos(tl), math.sin(tl)
             sc_ = 1.0 if opt.bubble_size == "world" else \
                 float(np.clip(W / w_ref, BUBBLE_MIN_SCALE, 1.0))
             # scale about the tail tip: the tail keeps pointing at the
             # speaker
+            x0, z0 = x, z
             x += (1 - sc_) * tip[0]
             z += (1 - sc_) * tip[1]
-            hw = (b["w"] / 2 + border) * sc_
-            top = (b["h"] / 2 + border) * sc_
-            bot = max(b["h"] / 2 + border, -tip[1]) * sc_
-            H = W * aspect
-            m = BUBBLE_MARGIN * W / w_ref
-            lo, hi = cx - W / 2 + m + hw, cx + W / 2 - m - hw
-            nx = cx if lo > hi else min(max(x, lo), hi)
-            # screen height of a point at depth y: y*sin(tilt) + (z-cy)*cos
-            zhi = cy + (H / 2 - m - BUBBLE_Y * st) / ct - top
-            zlo = cy + (-H / 2 + m - BUBBLE_Y * st) / ct + bot
-            nz = min(max(z, zlo), zhi) if zlo <= zhi else zhi
-            changed |= abs(sc_ - 1) > 1e-4 or abs(nx - x) > 1e-4 \
-                or abs(nz - z) > 1e-4
-            out.append((float(t), [nx, nz, sc_]))
-    return out, changed
+            # the screen height of a point at depth y is
+            # y*sin(tilt) + (z - cy)*cos(tilt); put the panel's center
+            # at Manim's screen height
+            z = cy + (z - cy - BUBBLE_Y * st) / ct
+            zc = z
+            if opt.bubble_nudge:
+                hw = (b["w"] / 2 + border) * sc_
+                top = (b["h"] / 2 + border) * sc_
+                bot = max(b["h"] / 2 + border, -tip[1]) * sc_
+                H = W * aspect
+                m = BUBBLE_MARGIN * W / w_ref
+                lo, hi = cx - W / 2 + m + hw, cx + W / 2 - m - hw
+                nx = cx if lo > hi else min(max(x, lo), hi)
+                # the panel faces the camera: its top and bottom are
+                # top and bot above and below its center on the screen
+                zhi = cy + (H / 2 - m - top - BUBBLE_Y * st) / ct
+                zlo = cy + (-H / 2 + m + bot - BUBBLE_Y * st) / ct
+                nz = min(max(z, zlo), zhi) if zlo <= zhi else zhi
+                nudged |= abs(nx - x) > 1e-4 or abs(nz - z) > 1e-4
+                x, z = nx, nz
+            nudged |= abs(sc_ - 1) > 1e-4
+            changed |= abs(sc_ - 1) > 1e-4 or abs(x - x0) > 1e-4 \
+                or abs(z - z0) > 1e-4 or abs(zc - z0) > 1e-4
+            out.append((float(t), [x, z, sc_, -tl]))
+    return out, changed, nudged
 
 
 def build_bubbles(bpy, sc, T, rates, opt, native, tilt):
@@ -2168,6 +2308,8 @@ def build_bubbles(bpy, sc, T, rates, opt, native, tilt):
     mats = {}
     adv, line_h = _font_metrics(bpy, font)
     nbubble_nudged = [0]
+    nbubble_placed = [0]
+    nbubble_faded = [0]
 
     def mat(hx):
         if hx not in mats:
@@ -2180,7 +2322,8 @@ def build_bubbles(bpy, sc, T, rates, opt, native, tilt):
         root = bpy.data.objects.new(f"bubble.{b['id']}", None)
         root.empty_display_size = 0.2
         col.objects.link(root)
-        root.rotation_euler = (-tilt, 0, 0)       # face the tilted camera
+        root.rotation_euler = (-tilt, 0, 0)       # face the camera (keyed
+                                                  # below with its tilt)
         parts = []
         w, h = b["w"], b["h"]
         os_style = b.get("style") in ("os", "phone", "aside")
@@ -2231,14 +2374,19 @@ def build_bubbles(bpy, sc, T, rates, opt, native, tilt):
             cu.size = min(b["text_w"] / dw, 0.9 * b["h"] / dh)
         # position (front of the characters) and moves
         keys = KeyList(opt.fps)
-        track, nudged = bubble_track(b, T, rates, opt, tilt)
-        if nudged:
+        track, changed, nudged = bubble_track(b, T, rates, opt)
+        if track:
+            root.rotation_euler = (track[0][1][3], 0, 0)
+        if changed:
             sk = KeyList(opt.fps)
-            # kept inside the camera frame: baked over its time on screen
+            rk = KeyList(opt.fps)
+            # placed for the camera: baked over its time on screen
             for t, v in track:
                 keys.add(t, v[:2])
-                sk.add(t, v[2:])
-            for kl, first in ((keys, track[0][1][:2]), (sk, track[0][1][2:])):
+                sk.add(t, v[2:3])
+                rk.add(t, v[3:4])
+            for kl, first in ((keys, track[0][1][:2]), (sk, track[0][1][2:3]),
+                              (rk, track[0][1][3:4])):
                 if track and track[0][0] > 0:
                     kl.f.insert(0, 1.0)
                     kl.v.insert(0, np.asarray(first, float))
@@ -2246,7 +2394,11 @@ def build_bubbles(bpy, sc, T, rates, opt, native, tilt):
             if any(abs(v[0] - 1) > 1e-4 for v in sk.v):
                 apply_keys(bpy, root, "scale",
                            [(i, 0, lambda v: v) for i in range(3)], sk)
-            nbubble_nudged[0] += 1
+            if len({round(float(v[0]), 9) for v in rk.v}) > 1:
+                apply_keys(bpy, root, "rotation_euler",
+                           [(0, 0, lambda v: v)], rk)
+            nbubble_placed[0] += 1
+            nbubble_nudged[0] += bool(nudged)
         else:
             keys.add(0.0, b["initial"])
             for mv in b.get("moves", []):
@@ -2264,8 +2416,16 @@ def build_bubbles(bpy, sc, T, rates, opt, native, tilt):
         # visibility, keyed only at changes
         seq = [(0.0, False)] + [(t, bool(on)) for t, on in b["visibility"]]
         key_visibility(parts, seq, opt.fps)
-    print(f"bubbles resized or kept inside the camera frame: "
-          f"{nbubble_nudged[0]} of {len(bubbles)}")
+        # a bubble that fades in or out (its "opacity", trace version 5:
+        # a line's frames_in and frames_out)
+        if b.get("opacity"):
+            fade_objects(bpy, parts, b["opacity"], opt.fps,
+                         f"bubble.{b['id']}", rates)
+            nbubble_faded[0] += 1
+    print(f"bubbles placed for the tilted camera: {nbubble_placed[0]}, "
+          f"resized or kept inside the camera frame: "
+          f"{nbubble_nudged[0]}, fading: {nbubble_faded[0]}, "
+          f"of {len(bubbles)}")
     return len(bubbles)
 
 
@@ -2454,7 +2614,7 @@ def _floor_at(sched, t):
 class PropPlan:
     """Layout decisions for one prop record (pure Python; no bpy)."""
 
-    def __init__(self, rec, sched):
+    def __init__(self, rec, sched, lift=True):
         self.rec = rec
         self.kind = prop_kind(rec)
         self.type = prop_type(rec)
@@ -2486,8 +2646,9 @@ class PropPlan:
             bottom = rec["initial"][1] - rec["initial"][3] / 2
         self.bottom = bottom
         fz = _floor_at(sched, self.t_vis if self.t_vis is not None else 0.0)
-        if k == "scroll":
+        if k == "scroll" or not lift:
             fz = None       # placed by its grip, which is not its bottom
+                            # (or --parity: nothing is lifted)
         if fz is not None:
             gap = fz - bottom
             if self.type in FLOOR_TYPES or k in ("desk", "table", "door",
@@ -2550,7 +2711,8 @@ def make_prop_plans(T):
         sched = [(0.0, g)] if g is not None else []
     recs = [r for r in T.get("prop_objects", []) if _visible_from(r)
             is not None]
-    plans = [PropPlan(r, sched) for r in recs]
+    lift = T.get("_floor_lift", True)
+    plans = [PropPlan(r, sched, lift) for r in recs]
     # unparented props resting on a snapped table/desk share its lift
     for p in plans:
         if p.kind in ("desk", "table", "door", "chair") or p.rec.get("parents"):
@@ -2851,9 +3013,13 @@ def prop_keys(plan, plans, T, rates, opt, native, joints_of):
         spans.append((h, vec_h, ramp))
 
     def in_span(t):
+        # the end of a span counts as inside it: the span's own end keys
+        # (below) say where the prop goes from there, and a key of the
+        # free path on that same time, sorted before them, would blend
+        # the prop from the hand to its free path over the whole hold
         for h, _, ramp in spans:
             end = ramp["t1"] if ramp else h["t1"]
-            if h["t0"] - 1e-6 <= t < end - 1e-6:
+            if h["t0"] - 1e-6 <= t <= end + 1e-6:
                 return True
         return False
 
@@ -3174,7 +3340,7 @@ class PropBuilder:
         def xyz(p, f):
             fz = _floor_at(sched, f / fps_t) if sched else None
             z = float(p[1])
-            if fz is not None:
+            if fz is not None and self.opt.floor_lift:
                 z = max(z, fz + width / 2)
             return (float(p[0]), ROPE_Y, z)
 
@@ -4533,8 +4699,6 @@ class OverlayBuilder:
         """Place a card where it sits in the Manim frame: Manim camera ->
         screen position -> Blender camera, frame by frame while shown."""
         T, opt, rates = self.T, self.opt, self.rates
-        ct, st = math.cos(self.tilt), math.sin(self.tilt)
-        lift = CAM_DIST * st
         manim = {"camera_initial": T.get("camera_manim_initial")
                  or T.get("camera_initial"),
                  "camera": T.get("camera_manim", T.get("camera", [])),
@@ -4550,6 +4714,9 @@ class OverlayBuilder:
                                key=lambda b: np.array(b[:2], float))
                 mx, my, mw = camera_at(manim, rates, t + 1e-4)
                 bx, by, bw = camera_at(T, rates, t + 1e-4)
+                tl = tilt_for_width(bw, opt)
+                ct, st = math.cos(tl), math.sin(tl)
+                lift = CAM_DIST * st
                 k = bw / mw
                 u, v = (p[0] - mx) * k, (p[1] - my) * k
                 # camera at (bx, -CAM_DIST cos, by + lift), looking along
@@ -4558,7 +4725,7 @@ class OverlayBuilder:
                 x = bx + u
                 y = -CAM_DIST * ct + d * ct + v * st
                 z = by + lift - d * st + v * ct
-                keys.add(float(t), [x, y, z, k])
+                keys.add(float(t), [x, y, z, k, -tl])
         if not keys.f:
             return
         if keys.f[0] > 1.0:
@@ -4570,6 +4737,11 @@ class OverlayBuilder:
                     (2, 2, lambda v: v)], keys)
         apply_keys(self.bpy, root, "scale",
                    [(i, 3, lambda v: v) for i in range(3)], keys)
+        if len({round(float(v[4]), 9) for v in keys.v}) > 1:
+            apply_keys(self.bpy, root, "rotation_euler",
+                       [(0, 4, lambda v: v)], keys)
+        else:
+            root.rotation_euler = (float(keys.v[0][4]), 0, 0)
 
 
 def hold_wide_camera(T):
@@ -4593,6 +4765,7 @@ def build(trace_path, out_path, opt=None):
     import bpy
     opt = opt or Options()
     T = load_trace(trace_path)
+    T["_floor_lift"] = opt.floor_lift
     if opt.camera == "wide":
         hold_wide_camera(T)
     rates = load_rates(T)
@@ -4600,7 +4773,10 @@ def build(trace_path, out_path, opt=None):
     sc = bpy.context.scene
     sc.render.fps = opt.fps
     sc.frame_start = 1
-    sc.frame_end = int(math.ceil(1 + T["duration"] * opt.fps))
+    # trace frame f is keyed on frame 1 + f * fps / 15 (1 + 2f at 30
+    # fps); the film is as long as Manim's: its last frame is the one
+    # after the last keyed frame (at 30 fps, frame 2N for N trace frames)
+    sc.frame_end = max(1, int(round(T["duration"] * opt.fps)))
     sc.render.resolution_x, sc.render.resolution_y = opt.res
     native = verify_native(bpy, rates, opt)
 
@@ -4644,7 +4820,8 @@ def build(trace_path, out_path, opt=None):
     sc.render.filepath = "//" + stem + "_"     # "//" = folder of the .blend
 
     # orthographic camera tracking the Manim frame; tilted down a little
-    # (except in the flat look) so the floor and the shadows read as 3D
+    # in wide shots (except in the flat look) so the floor and the
+    # shadows read as 3D, and level in close shots (tilt_for_width)
     tilt = 0.0 if opt.look == "flat" else math.radians(opt.tilt)
     cd = bpy.data.cameras.new("Cam")
     cd.type = "ORTHO"
@@ -4657,7 +4834,9 @@ def build(trace_path, out_path, opt=None):
     sc.camera = cam
     ck = assemble_camera(T, rates, opt, native)
     apply_keys(bpy, cam, "location",
-               [(0, 0, lambda v: v), (2, 1, lambda v: v + ylift)], ck)
+               [(0, 0, lambda v: v), (1, 4, lambda v: v),
+                (2, 5, lambda v: v)], ck)
+    apply_keys(bpy, cam, "rotation_euler", [(0, 3, lambda v: v)], ck)
     apply_keys(bpy, cd, "ortho_scale", [(0, 2, lambda v: v)], ck)
 
     # hands held on props go where the props are built (see the module
