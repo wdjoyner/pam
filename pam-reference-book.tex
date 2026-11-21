@@ -4160,7 +4160,11 @@ leaves its anchor joint's position exactly unchanged by construction
 ($a + s(v-a)$, and $v = a$ at the anchor itself), composing the two
 scales this way needs \emph{no} separate offset compensation on
 \texttt{fig.offset} --- simpler than an alternative formula based on
-adjusting the offset directly. \texttt{DogGraph} gained its first-ever
+adjusting the offset directly. (Since PAM 1.0.1 the heights of both
+scales are taken about the anchor joint's height in the build's standing
+pose rather than in the pose being drawn, so that a walk keyframe that
+lifts the anchor foot does not lift a scaled figure: the anchor joint
+keeps its $x$, and its $y$ is scaled like any other joint's.) \texttt{DogGraph} gained its first-ever
 \texttt{\_apply\_scale} in this pass (depth-scale only; it has no
 body-scale feature); \texttt{GovernorGraph} has no pose/ground system
 at all (it floats), so its rescale (\texttt{apply\_depth\_rescale()})
@@ -6537,7 +6541,11 @@ walked-to position. Authors who want continuity across fade cycles must
 
 Initial size, expressed as separate y and x scale factors around an
 anchor joint. Different from the \texttt{scale} \emph{action} (which
-animates a scale change live).
+animates a scale change live). Across the body the anchor joint keeps
+its place; heights are scaled about the anchor's height in the build's
+standing pose (the floor, for an ankle), so a pose that lifts the anchor
+foot (a walk or run keyframe) does not lift the whole figure. A pose
+with the anchor on the floor is scaled as it always was.
 
 \textbf{Sub-keys:}
 

@@ -387,7 +387,7 @@ Declares cast members before they are faded in.
 - `offset` — `[x, y, z]`
 - `style` — style dict
 - `build` — body build, usually `default`, `narrow`, `broad`, `alien`
-- `scale` — dict with `sx`, `sy`, `anchor`
+- `scale` — dict with `sx`, `sy`, `anchor`. The anchor joint keeps its place across the body; heights are scaled about the anchor's height in the build's standing pose (the floor, for an ankle), so a walk keyframe that lifts the anchor foot does not lift the whole figure
 - `color` — color hex
 - `torso_color` — second color for torso zone
 - `gender` — figure-dependent preset

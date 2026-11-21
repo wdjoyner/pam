@@ -11,7 +11,13 @@
         "bob"
       ],
       "plays": 118,
-      "pieces": 80
+      "pieces": 80,
+      "recorded_at": {
+        "commit": "0d478769c49bd26fad6dac89bf4cc6e50abcddd7",
+        "tracked_files_modified": true,
+        "pam_version": "1.0.1",
+        "recorded": "2026-11-21"
+      }
     },
     "lucy-meets-lenny2_pam.json": {
       "golden": "lucy-meets-lenny2_pam.trace.json",
@@ -27,10 +33,10 @@
       "plays": 211,
       "pieces": 160,
       "recorded_at": {
-        "commit": "1c920bad45833e9019b0b75533f1335ec1125690",
-        "tracked_files_modified": false,
+        "commit": "0d478769c49bd26fad6dac89bf4cc6e50abcddd7",
+        "tracked_files_modified": true,
         "pam_version": "1.0.1",
-        "recorded": "2026-11-18"
+        "recorded": "2026-11-21"
       }
     },
     "wdj_nona-vs-governor-venus3.json": {
@@ -44,7 +50,13 @@
         "nona"
       ],
       "plays": 399,
-      "pieces": 31
+      "pieces": 31,
+      "recorded_at": {
+        "commit": "0d478769c49bd26fad6dac89bf4cc6e50abcddd7",
+        "tracked_files_modified": true,
+        "pam_version": "1.0.1",
+        "recorded": "2026-11-21"
+      }
     },
     "abe-isaac_wrist-pull_slice.json": {
       "golden": "abe-isaac_wrist-pull_slice.trace.json",
@@ -59,10 +71,10 @@
       "plays": 16,
       "pieces": 4,
       "recorded_at": {
-        "commit": "b62302b9fb7fe35886e05026225c9957fb9d8ca6",
-        "tracked_files_modified": false,
+        "commit": "0d478769c49bd26fad6dac89bf4cc6e50abcddd7",
+        "tracked_files_modified": true,
         "pam_version": "1.0.1",
-        "recorded": "2026-11-19"
+        "recorded": "2026-11-21"
       }
     },
     "abe-isaac_overlap_timeline.json": {
@@ -78,10 +90,10 @@
       "plays": 90,
       "pieces": 61,
       "recorded_at": {
-        "commit": "69712befeba46a51e8f473bdf3119ea448a74306",
-        "tracked_files_modified": false,
+        "commit": "0d478769c49bd26fad6dac89bf4cc6e50abcddd7",
+        "tracked_files_modified": true,
         "pam_version": "1.0.1",
-        "recorded": "2026-11-19"
+        "recorded": "2026-11-21"
       }
     },
     "abe-isaac_scene2-gags.json": {
@@ -97,10 +109,10 @@
       "plays": 129,
       "pieces": 93,
       "recorded_at": {
-        "commit": "69712befeba46a51e8f473bdf3119ea448a74306",
-        "tracked_files_modified": false,
+        "commit": "0d478769c49bd26fad6dac89bf4cc6e50abcddd7",
+        "tracked_files_modified": true,
         "pam_version": "1.0.1",
-        "recorded": "2026-11-19"
+        "recorded": "2026-11-21"
       }
     },
     "abe-isaac_knife-break.json": {
@@ -135,10 +147,10 @@
       "plays": 128,
       "pieces": 36,
       "recorded_at": {
-        "commit": "b480d821c995330f079f3d1f0da10d8d6a0be4ac",
+        "commit": "0d478769c49bd26fad6dac89bf4cc6e50abcddd7",
         "tracked_files_modified": true,
         "pam_version": "1.0.1",
-        "recorded": "2026-11-19"
+        "recorded": "2026-11-21"
       }
     },
     "abe-isaac_rope-snap.json": {
@@ -154,10 +166,10 @@
       "plays": 86,
       "pieces": 37,
       "recorded_at": {
-        "commit": "bb656f6207c40f63375e29ec08444ed1f6d76332",
+        "commit": "0d478769c49bd26fad6dac89bf4cc6e50abcddd7",
         "tracked_files_modified": true,
         "pam_version": "1.0.1",
-        "recorded": "2026-11-20"
+        "recorded": "2026-11-21"
       }
     }
   },

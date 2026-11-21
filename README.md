@@ -692,6 +692,8 @@ Use `_comment` entries instead of trying to add JSON comments:
 }
 ```
 
+The anchor joint keeps its place across the body. Heights are scaled about the anchor's height in the build's standing pose (the floor, for an ankle), so a pose that lifts the anchor foot, such as a walk or run keyframe, does not lift the whole scaled figure; before this was fixed, a figure at scale 0.48 rose half a unit at every step. A pose with the anchor on the floor is scaled as it always was. The 2.5D depth scale works the same way.
+
 Several scale actions use **target scale**, not multiplier semantics. If a character is already at `0.7` and you set `sy` to `0.5`, the new scale is `0.5`, not `0.35`.
 
 ### 2.5D depth (v0.9.23)
