@@ -3846,6 +3846,22 @@ class PropBuilder:
                        [(0, 0, lambda v: v), (1, 1, lambda v: v),
                         (2, 2, lambda v: v)], ck)
 
+    def fade(self, parts, rec, tag):
+        """A prop that fades in or out (its "opacity", trace version 5):
+        its parts and everything parented to them."""
+        if not rec.get("opacity"):
+            return
+        objs, todo = [], list(parts)
+        while todo:
+            o = todo.pop()
+            if o in objs:
+                continue
+            objs.append(o)
+            todo.extend(o.children)
+        n = fade_objects(self.bpy, objs, rec["opacity"], self.opt.fps, tag,
+                         self.rates)
+        self.faded = getattr(self, "faded", 0) + n
+
     def build(self, bubbles, empties):
         T, opt = self.T, self.opt
         plans = make_prop_plans(T)
@@ -3876,6 +3892,7 @@ class PropBuilder:
                 # coordinates; no root keys, no holds
                 parts = self.build_rope_piece(plan, tag)
                 self.visibility(parts, rec)
+                self.fade(parts, rec, tag)
                 stats[tag] = {"kind": k, "keys": len(rope_keys(rec)),
                               "holds": 0, "dz": 0.0, "stateful": True}
                 continue
@@ -3944,6 +3961,7 @@ class PropBuilder:
                 # its shape and its text come and go with its state
                 parts += self.build_scroll(plan, body, tag,
                                            self.text_rows(rec))
+            self.fade(parts, rec, tag)
             stats[tag] = {"kind": k, "keys": len(keys.f),
                           "holds": len(rec.get("holds", [])),
                           "dz": round(plan.dz, 3)}
@@ -4108,6 +4126,112 @@ def _blend(m):
             m.shadow_method = "NONE"
         except Exception:
             pass
+
+
+def _faded_material(bpy, m, tag):
+    """A copy of material *m* whose surface is mixed with a transparent
+    one by a "fade" Mix Shader (factor 1: as *m*; 0: not seen).  Returns
+    (copy, the factor socket to key)."""
+    c = m.copy()
+    c.name = f"{m.name} [{tag}]"
+    if bpy.app.version < (5, 0, 0):
+        c.use_nodes = True
+    nt = getattr(c, "node_tree", None)
+    if nt is None:
+        return c, None
+    out = next((n for n in nt.nodes if n.type == "OUTPUT_MATERIAL"), None)
+    if out is None:
+        return c, None
+    links = [ln for ln in nt.links if ln.to_socket == out.inputs["Surface"]]
+    if not links:
+        return c, None
+    src = links[0].from_socket
+    tr = nt.nodes.new("ShaderNodeBsdfTransparent")
+    mix = nt.nodes.new("ShaderNodeMixShader")
+    mix.name = mix.label = "fade"
+    nt.links.new(tr.outputs[0], mix.inputs[1])
+    nt.links.new(src, mix.inputs[2])
+    nt.links.new(mix.outputs[0], out.inputs["Surface"])
+    _blend(c)
+    return c, mix.inputs[0]
+
+
+def _key_fade(socket, moves, fps, rates=None):
+    """Key the fade factor *socket* from an "opacity" list of moves
+    (trace version 5): each move from its start to its end, a change
+    at once as a hard cut.  The tracer writes linear moves; a move with
+    another rate function is keyed on every Blender frame."""
+    def put(v, f):
+        socket.default_value = float(v)
+        socket.keyframe_insert("default_value", frame=f)
+    put(moves[0]["from"], 0)
+    for m in moves:
+        f0, f1 = frame_of(m["t0"], fps), frame_of(m["t1"], fps)
+        if f1 <= f0:
+            put(m["from"], f0 - CUT_NUDGE)
+            put(m["to"], f0)
+            continue
+        put(m["from"], f0)
+        rate = (rates or {}).get(m.get("rate") or "linear")
+        if rate is not None and m.get("rate") != "linear":
+            for f in range(int(math.floor(f0)) + 1, int(math.ceil(f1))):
+                u = (f - f0) / (f1 - f0)
+                put(m["from"] + (m["to"] - m["from"]) * rate(u), f)
+        put(m["to"], f1)
+    nt = socket.id_data
+    ad = getattr(nt, "animation_data", None)
+    if ad is not None and ad.action is not None:
+        for fc in _id_fcurves(nt):
+            for kp in fc.keyframe_points:
+                kp.interpolation = "LINEAR"
+
+
+def fade_objects(bpy, objs, moves, fps, tag, rates=None, coll=None):
+    """Fade *objs* in and out as the trace's "opacity" list *moves* says
+    (trace version 5): a figure fading in, a prop appearing, the
+    screen_fade card darkening the frame.  Every material the objects
+    use is copied once for this group and mixed with a transparent
+    surface whose amount is keyed.  A collection instance (a card, a
+    label) gets its own copy of the collection, so other instances of
+    the same shape do not fade with it.  Returns the number of
+    materials keyed."""
+    if not moves:
+        return 0
+    copies = {}
+
+    def faded(m):
+        if m is None:
+            return None
+        if m.name not in copies:
+            c, sock = _faded_material(bpy, m, tag)
+            if sock is not None:
+                _key_fade(sock, moves, fps, rates)
+            copies[m.name] = c
+        return copies[m.name]
+
+    def visit(o):
+        if o.instance_type == "COLLECTION" and o.instance_collection:
+            src = o.instance_collection
+            own = bpy.data.collections.new(f"{src.name} [{tag}]")
+            for so in src.objects:
+                co = so.copy()
+                own.objects.link(co)
+                fix(co)
+            o.instance_collection = own
+            return
+        fix(o)
+
+    def fix(o):
+        slots = getattr(o, "material_slots", None)
+        for s in slots or ():
+            m = s.material
+            if m is None:
+                continue
+            s.link = "OBJECT"
+            s.material = faded(m)
+    for o in objs:
+        visit(o)
+    return len(copies)
 
 
 def unlit(bpy, cache, hx, alpha=None):
@@ -4383,6 +4507,12 @@ class OverlayBuilder:
                     continue
                 self.card_keys(o, root)
                 key_visibility([inst], seq, self.opt.fps)
+                if o.get("opacity"):
+                    # a fade (screen_fade, a sound_cue's word): its own
+                    # copy of the shape, its materials keyed
+                    fade_objects(self.bpy, [inst], o["opacity"],
+                                 self.opt.fps, tag, self.rates)
+                    stats["faded"] = stats.get("faded", 0) + 1
                 stats["cards"] += 1
             else:
                 if not o.get("shape"):
@@ -4549,7 +4679,13 @@ def build(trace_path, out_path, opt=None):
                     continue
                 sids.append(o["shape"])
                 if o["kind"] == "card":
-                    kinds[o["shape"]] = "card"
+                    parts = ((T.get("shapes") or {}).get(o["shape"])
+                             or {}).get("parts") or []
+                    # a card that fades and is one filled shape (a
+                    # screen_fade) is what it shows, not the panel
+                    # behind a caption: it keeps its fill
+                    kinds[o["shape"]] = "fade" if (
+                        o.get("opacity") and len(parts) == 1) else "card"
                 elif o["kind"] == "face":
                     kinds[o["shape"]] = ("face", (-o["offset"][0],
                                                   -o["offset"][1]))
@@ -4804,6 +4940,12 @@ def build(trace_path, out_path, opt=None):
         for shoe, rows in shoes_pam:
             key_visibility([shoe], combine_vis(
                 seq, [[t, not on] for t, on, *_ in rows] or None), opt.fps)
+        # a figure that fades in or out (its "opacity", trace version 5):
+        # everything in its collection fades with it
+        fades = (T.get("opacity") or {}).get(name)
+        if fades:
+            stats[name]["faded"] = fade_objects(
+                bpy, list(col.objects), fades, opt.fps, name, rates)
 
     pstats = build_props(bpy, sc, T, rates, opt, native, all_empties) \
         if opt.props else {}
