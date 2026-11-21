@@ -100,7 +100,8 @@ def test_every_pose_writer_counts():
         "morph", "turn", "scale", "slip_on_back", "walk_to", "run_to",
         "trot_to", "pull_immovable", "cork_pop_up", "mismatched_hug",
         "react",     # (Milestone 6: a tic, react with fragment)
-        "catch_by_collar", "tie_wrist_loop"}     # (Stage 6b)
+        "catch_by_collar", "tie_wrist_loop",     # (Stage 6b)
+        "reach_and_tighten", "altar_tumble_hug", "hoist_overhead"}  # (6c)
     pairs = [
         ({"action": "turn", "who": "a", "pose": "standing_front",
           "frames": 9},

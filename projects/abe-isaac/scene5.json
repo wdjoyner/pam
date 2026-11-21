@@ -24,7 +24,9 @@
  {
   "action": "fade_in",
   "who": "abraham",
-  "rt": 0.2
+  "rt": 0.2,
+  "x": -2.319,
+  "pose": "crouch_reach_l_left"
  },
  {
   "action": "props",
@@ -43,22 +45,60 @@
   "action": "fade_in",
   "who": "isaac",
   "rt": 0.2,
-  "pose": "reach_forward"
+  "x": 1.08,
+  "pose": "recline_elbows_left"
  },
  {
   "_comment": "# CUE s05_goes_live (1 step): The phone slips in Abraham's shaking hands. He catches it. His thumb lan"
  },
  {
-  "action": "prop_transition",
-  "prop": "phone",
-  "to": "live",
-  "display": {
-   "viewers": 3
+  "action": "perform",
+  "id": "s05_goes_live",
+  "phases": {
+   "anticipation": 12,
+   "action": 5,
+   "reaction": 3,
+   "recovery": 6
   },
-  "beat": "goes_live"
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "tremble",
+    "cycles": 3,
+    "until": "anticipation",
+    "beat": "hands_shaking"
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "fumble_l",
+    "until": "reaction",
+    "beat": "slips"
+   },
+   {
+    "phase": "reaction",
+    "action": "prop_transition",
+    "prop": "phone",
+    "to": "live",
+    "display": {
+     "viewers": 3
+    },
+    "at": 2,
+    "beat": "goes_live"
+   },
+   {
+    "phase": "recovery",
+    "action": "wait",
+    "until": "recovery",
+    "beat": "stares"
+   }
+  ]
  },
  {
-  "_comment": "# CUE s05_count_climbs (1 step): ON THE SCREEN: LIVE. The viewer count climbs."
+  "_comment": "# CUE s05_count_climbs (2 steps): ON THE SCREEN: LIVE. The viewer count climbs."
  },
  {
   "action": "prop_transition",
@@ -70,97 +110,443 @@
   "beat": "count_climbs"
  },
  {
+  "action": "wait",
+  "frames": 6
+ },
+ {
   "_subscene_marker": "scene5_shot02",
   "_shot_meta": {
    "framing": "wide",
-   "subject": "ensemble",
+   "subject": "Isaac+Abraham+rock+barbell",
    "move": "static",
    "transition": "cut",
    "lighting": null,
-   "freeform": false
+   "freeform": false,
+   "fit": "bounds",
+   "margin": 0.08
   }
  },
  {
   "_comment": "# CUE s05_props_phone (1 step): Abraham props the phone on its rock and backs away from it."
  },
  {
-  "action": "prop_transition",
-  "prop": "phone",
-  "frames": 9,
-  "attached": {
-   "to": "rock",
-   "point": "top",
-   "by": "bottom"
-  }
+  "action": "perform",
+  "id": "s05_props_phone",
+  "phases": {
+   "anticipation": 3,
+   "action": 9,
+   "reaction": 5,
+   "recovery": 18
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "wait",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "phone",
+    "attached": {
+     "to": "rock",
+     "point": "top",
+     "by": "bottom"
+    },
+    "until": "action",
+    "beat": "props_phone"
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side_left",
+    "until": "reaction"
+   },
+   {
+    "phase": "recovery",
+    "action": "sequence",
+    "id": "backs_away",
+    "do": [
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "back_step_left",
+      "dx": 0.19,
+      "frames": 3,
+      "beat": "backs_away"
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "standing_side_left",
+      "dx": 0.19,
+      "frames": 3
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "back_step_left",
+      "dx": 0.19,
+      "frames": 3
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "standing_side_left",
+      "dx": 0.19,
+      "frames": 3
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "back_step_left",
+      "dx": 0.18,
+      "frames": 3
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "standing_side_left",
+      "dx": 0.18,
+      "frames": 3
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s05_points (1 step): Isaac points at the phone with both tied hands."
+ },
+ {
+  "action": "perform",
+  "id": "s05_points",
+  "phases": {
+   "anticipation": 3,
+   "action": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "wait",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "reach_and_tighten",
+    "id": "knot",
+    "who": "isaac",
+    "target": "phone",
+    "frames_reach": "action",
+    "frames_cinch": 0,
+    "frames_tug": 0,
+    "frames_settle": 0,
+    "beat": "points"
+   }
+  ]
  },
  {
   "_comment": "# CUE s05_were_on (1 step): Dad. We're on."
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "Dad. We're on.",
-  "frames": 18,
-  "frames_in": 3,
-  "frames_out": 3
+  "action": "perform",
+  "id": "s05_were_on",
+  "phases": {
+   "action": 18,
+   "reaction": 4
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "Dad. We're on.",
+    "frames": 18,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "left",
+    "bubble_scale": 0.6
+   },
+   {
+    "phase": "reaction",
+    "action": "turn",
+    "who": "abraham",
+    "pose": "standing_side",
+    "until": "reaction",
+    "beat": "abraham_turns"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "I wasn't ready.",
-  "side": "right",
-  "hold": 0.9
+  "_comment": "# CUE s05_knot_tightens (1 step): The knot cinches tighter. Isaac tugs at it; it only gets tighter."
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "Nobody's ever ready. Go.",
-  "side": "right",
-  "hold": 0.9
+  "action": "perform",
+  "id": "s05_knot_tightens",
+  "phases": {
+   "action": 3,
+   "reaction": 14,
+   "recovery": 8
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "reach_and_tighten",
+    "id": "knot",
+    "who": "isaac",
+    "target": "phone",
+    "frames_reach": 0,
+    "frames_cinch": "action",
+    "frames_tug": "reaction",
+    "frames_settle": "recovery",
+    "cycles": 2,
+    "pose": "recline_elbows_left",
+    "beat": "cinches"
+   }
+  ]
  },
  {
-  "_comment": "# REVIEW: Abraham faces the phone. He raises the wooden handle in one hand and counts on the fingers of the other."
+  "_comment": "# CUE s05_wasnt_ready (1 step): I wasn't ready."
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "People of Israel.",
-  "side": "right",
-  "hold": 0.9
+  "action": "perform",
+  "id": "s05_wasnt_ready",
+  "phases": {
+   "anticipation": 4,
+   "action": 20,
+   "recovery": 4
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "palms_up",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "I wasn't ready.",
+    "frames": 20,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "left",
+    "bubble_scale": 0.6
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side",
+    "until": "recovery"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "God said to me: go to Mount Moriah.",
-  "side": "right",
-  "hold": 1.44
+  "_comment": "# CUE s05_go (1 step): Nobody's ever ready. Go."
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "Build an altar. Tie down my son.",
-  "side": "right",
-  "hold": 1.26
+  "action": "perform",
+  "id": "s05_go",
+  "phases": {
+   "action": 28
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "Nobody's ever ready. Go.",
+    "frames": 28,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "left",
+    "bubble_scale": 0.6
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "isaac",
+    "fragment": "nod",
+    "at": 18,
+    "frames": 6,
+    "beat": "go"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "Raise my knife --",
-  "side": "right",
-  "hold": 0.9
+  "_comment": "# CUE s05_faces_phone (1 step): Abraham faces the phone. He raises the wooden handle in one hand and cou"
+ },
+ {
+  "action": "perform",
+  "id": "s05_faces_phone",
+  "phases": {
+   "anticipation": 4,
+   "action": 8,
+   "reaction": 8
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "turn",
+    "who": "abraham",
+    "pose": "standing_side_left",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "raise_count_left",
+    "until": "action",
+    "beat": "raises_handle"
+   },
+   {
+    "phase": "reaction",
+    "action": "wait",
+    "until": "reaction"
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s05_speech (1 step): People of Israel. God said to me: go to Mount Moriah. Build an altar. Ti"
+ },
+ {
+  "action": "perform",
+  "id": "s05_speech",
+  "phases": {
+   "action": 76
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "People of Israel.",
+    "frames": 14,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "left",
+    "bubble_scale": 0.6
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "God said to me: go to Mount Moriah.",
+    "frames": 24,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "left",
+    "bubble_scale": 0.6,
+    "at": 14
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "Build an altar.",
+    "frames": 12,
+    "frames_in": 3,
+    "frames_out": 2,
+    "side": "left",
+    "bubble_scale": 0.6,
+    "at": 38
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "Tie down my son.",
+    "frames": 12,
+    "frames_in": 2,
+    "frames_out": 3,
+    "side": "left",
+    "bubble_scale": 0.6,
+    "at": 50
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "Raise my knife --",
+    "frames": 14,
+    "frames_in": 3,
+    "frames_out": 1,
+    "side": "left",
+    "bubble_scale": 0.6,
+    "at": 62
+   },
+   {
+    "phase": "action",
+    "action": "sequence",
+    "id": "counts",
+    "at": 24,
+    "do": [
+     {
+      "action": "react",
+      "who": "abraham",
+      "fragment": "count_off_l",
+      "frames": 4,
+      "beat": "count_1"
+     },
+     {
+      "action": "wait",
+      "frames": 12
+     },
+     {
+      "action": "react",
+      "who": "abraham",
+      "fragment": "count_off_l",
+      "frames": 4,
+      "beat": "count_2"
+     },
+     {
+      "action": "wait",
+      "frames": 8
+     },
+     {
+      "action": "react",
+      "who": "abraham",
+      "fragment": "count_off_l",
+      "frames": 4,
+      "beat": "count_3"
+     },
+     {
+      "action": "wait",
+      "frames": 6
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "raise_high_left",
+      "frames": 4,
+      "beat": "raise_my_knife"
+     }
+    ]
+   }
+  ]
  },
  {
   "_comment": "# CUE s05_blade (1 step): The satchel slips from his shoulder. The blade slides out, CLATTERS acro"
  },
  {
-  "action": "parallel",
+  "action": "perform",
   "id": "s05_blade",
-  "frames": 30,
+  "phases": {
+   "anticipation": 5,
+   "action": 9,
+   "reaction": 6,
+   "recovery": 12
+  },
   "do": [
    {
+    "phase": "anticipation",
     "action": "prop_transition",
     "prop": "satchel",
-    "frames": 5,
+    "until": "anticipation",
     "rate": "rush_into",
     "beat": "satchel_slips",
     "attached": {
@@ -170,10 +556,10 @@
     }
    },
    {
+    "phase": "action",
     "action": "prop_transition",
     "prop": "knife",
     "to": "blade_embedded",
-    "at": 3,
     "frames": 9,
     "beat": "blade_sticks",
     "parts": {
@@ -197,9 +583,28 @@
     }
    },
    {
+    "phase": "action",
+    "action": "sound_cue",
+    "label": "CLATTER!",
+    "font_size": 36,
+    "x": 0.2,
+    "y": -1.0,
+    "frames": 9,
+    "frames_in": 1,
+    "frames_out": 2
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "recline_stare_left",
+    "until": "reaction",
+    "beat": "isaac_stares"
+   },
+   {
+    "phase": "recovery",
     "action": "wait",
-    "frames": 18,
-    "at": 12,
+    "until": "recovery",
     "beat": "silence"
    }
   ]
@@ -212,11 +617,18 @@
    "move": "static",
    "transition": "hold",
    "lighting": null,
-   "freeform": false
+   "freeform": false,
+   "fit": "bounds",
+   "margin": 0.1
   }
  },
  {
-  "_comment": "# REVIEW: For once, Isaac has no comeback."
+  "_comment": "# CUE s05_no_comeback (1 step): For once, Isaac has no comeback."
+ },
+ {
+  "action": "wait",
+  "frames": 24,
+  "beat": "no_comeback"
  },
  {
   "_subscene_marker": "scene5_shot04",
@@ -245,7 +657,7 @@
  },
  {
   "action": "wait",
-  "frames": 9
+  "frames": 18
  },
  {
   "_subscene_marker": "scene5_shot05",
@@ -255,37 +667,169 @@
    "move": "static",
    "transition": "hold",
    "lighting": null,
-   "freeform": false
+   "freeform": false,
+   "fit": "bounds",
+   "margin": 0.1
   }
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "And then...",
-  "side": "right",
-  "hold": 0.9
+  "_comment": "# CUE s05_and_then (1 step): And then..."
  },
  {
-  "_comment": "# REVIEW: He has run out of fingers"
+  "action": "perform",
+  "id": "s05_and_then",
+  "phases": {
+   "anticipation": 9,
+   "action": 18
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "wait",
+    "until": "anticipation",
+    "beat": "still_silent"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "And then...",
+    "frames": 18,
+    "frames_in": 4,
+    "frames_out": 4,
+    "side": "left",
+    "bubble_scale": 0.5
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s05_out_of_fingers (1 step): He has run out of fingers. He looks at the blade. At Isaac. At the watch"
+ },
+ {
+  "action": "perform",
+  "id": "s05_out_of_fingers",
+  "phases": {
+   "anticipation": 6,
+   "action": 8,
+   "reaction": 15,
+   "recovery": 54
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "wait",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "stare_hand_left",
+    "until": "action",
+    "beat": "out_of_fingers"
+   },
+   {
+    "phase": "reaction",
+    "action": "wait",
+    "until": "reaction",
+    "beat": "stares_at_hand"
+   },
+   {
+    "phase": "recovery",
+    "action": "sequence",
+    "id": "looks",
+    "do": [
+     {
+      "action": "turn",
+      "who": "abraham",
+      "pose": "look_down",
+      "frames": 6,
+      "beat": "at_the_blade"
+     },
+     {
+      "action": "wait",
+      "frames": 12
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "standing_side",
+      "frames": 6,
+      "beat": "at_isaac"
+     },
+     {
+      "action": "wait",
+      "frames": 12
+     },
+     {
+      "action": "turn",
+      "who": "abraham",
+      "pose": "standing_side_left",
+      "frames": 6,
+      "beat": "at_the_phone"
+     },
+     {
+      "action": "wait",
+      "frames": 12
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "_subscene_marker": "scene5_shot06",
+  "_shot_meta": {
+   "framing": "medium",
+   "subject": "Isaac+Abraham",
+   "move": "static",
+   "transition": "cut",
+   "lighting": null,
+   "freeform": false,
+   "fit": "bounds",
+   "margin": 0.1
+  }
+ },
+ {
+  "_comment": "# CUE s05_and_then_quietly (1 step): And then?"
+ },
+ {
+  "action": "perform",
+  "id": "s05_and_then_quietly",
+  "phases": {
+   "anticipation": 6,
+   "action": 20,
+   "recovery": 9
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "recline_elbows_left",
+    "until": "anticipation",
+    "beat": "looks_at_father"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "And then?",
+    "frames": 20,
+    "frames_in": 5,
+    "frames_out": 5,
+    "side": "left",
+    "bubble_scale": 0.4
+   },
+   {
+    "phase": "recovery",
+    "action": "wait",
+    "until": "recovery"
+   }
+  ]
  },
  {
   "action": "wait",
-  "t": 0.8
- },
- {
-  "_comment": "# REVIEW: At Isaac"
- },
- {
-  "_comment": "# REVIEW: At the watching phone."
- },
- {
-  "_comment": "# REVIEW: quietly"
- },
- {
-  "action": "say",
-  "who": "isaac",
-  "text": "And then?",
-  "side": "right",
-  "hold": 0.9
+  "frames": 9,
+  "beat": "s05_end_hold"
  }
 ]

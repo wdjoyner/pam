@@ -2045,6 +2045,19 @@ class _SoundCues:
 _SIDECAR_ACTIONS = ("cast", "faces", "scene_props", "props")
 
 
+def _bubble_scale_kw(step):
+    """``{"bubble_scale": k}`` for a ``say`` step that gives a usable
+    one (Milestone 6, Stage 6c), else ``{}``, so that a figure is called
+    exactly as before when the key is not there."""
+    k = step.get("bubble_scale")
+    if isinstance(k, bool) or not isinstance(k, (int, float)) or k <= 0:
+        if k is not None:
+            print(f"PAMPlayer: say — 'bubble_scale' must be a number above "
+                  f"0, got {k!r}; drawing the bubble at its usual size.")
+        return {}
+    return {"bubble_scale": float(k)}
+
+
 def _merge_sidecar(actions: list, script_path: str) -> list:
     """Load and merge an optional cast+props sidecar into *actions*.
 
@@ -3062,6 +3075,7 @@ class PAMPlayer(MovingCameraScene):
                     # if supported; gracefully ignored by older builds.
                     bubble_style=bubble_style if bubble_style != "normal" else None,
                     persist=(_persist or _duration is not None),
+                    **_bubble_scale_kw(step),
                 )
                 if _bubble is not None:
                     # v0.9.23 (backburner items 10-11, 2.5D step 2):
@@ -3698,6 +3712,9 @@ class PAMPlayer(MovingCameraScene):
                     _pending_camera.clear()
                     if _cam is not None:
                         anims.append(_cam)
+                # (bubble_scale, Stage 6c: passed only when given, so
+                # every other figure type is called as before)
+                _bkw = _bubble_scale_kw(step)
                 bubble = fig.say(
                     step["text"], self,
                     font_size=step.get("font_size", 20),
@@ -3705,7 +3722,7 @@ class PAMPlayer(MovingCameraScene):
                     side=step.get("side", "right"),
                     bubble_style=bubble_style if bubble_style != "normal"
                     else None,
-                    build_only=True,
+                    build_only=True, **_bkw,
                 )
                 if hasattr(bubble, "set_z_index"):
                     bubble.set_z_index(DEPTH_Z_BUBBLE)
@@ -3822,6 +3839,49 @@ class PAMPlayer(MovingCameraScene):
                                for pose, dx, n in kfs],
                     "end": end_sfx}
 
+        def _screen_fade_parts(step: dict):
+            """screen_fade: the rectangle (added to the scene), the
+            animation of its opacity, and which way it fades."""
+            to = str(step.get("to", "out")).lower()
+            if to not in ("out", "in"):
+                print(f"PAMPlayer: screen_fade — 'to' must be 'out' or "
+                      f"'in', got {to!r}; fading out.")
+                to = "out"
+            frame = getattr(self.camera, "frame", None)
+            if frame is not None:
+                c, w = frame.get_center(), float(frame.width)
+            else:
+                c, w = np.array([0.0, 0.0, 0.0]), float(config.frame_width)
+            color = step.get("color", "#000000")
+            # (no stroke: the tracer then sees the rectangle as soon as,
+            # and as long as, its fill shows)
+            rect = Rectangle(width=w * 1.02, height=w * 9 / 16 * 1.02,
+                             color=color, stroke_width=0, stroke_opacity=0.0,
+                             fill_color=color,
+                             fill_opacity=0.0 if to == "out" else 1.0)
+            rect.move_to(np.array([float(c[0]), float(c[1]), 0.0]))
+            rect.set_z_index(DEPTH_Z_BUBBLE + 10)
+            self.add(rect)
+            return rect, rect.animate.set_fill(
+                opacity=1.0 if to == "out" else 0.0), to
+
+        def _tl_fade(step: dict, info: dict):
+            """A screen_fade in a timed block, over its frames."""
+            Phase = _pam_timeline.Phase
+            made = {}
+
+            def _anims():
+                rect, anim, to = _screen_fade_parts(step)
+                made["rect"], made["to"] = rect, to
+                return [anim]
+
+            def _after():
+                if made.get("to") == "in":
+                    self.remove(made["rect"])
+            return {"phases": [Phase(info["frames"], _anims, rate=linear,
+                                     after=_after)],
+                    "end": _tl_sound(step, "screen_fade")}
+
         def _tl_label(step: dict, info: dict):
             """A sound_cue in a timed block: the word fades in, holds and
             fades out, as the sound_cue action plays it, on exact frames."""
@@ -3929,7 +3989,8 @@ class PAMPlayer(MovingCameraScene):
                 _seq = _pam_timeline.get(self).stack
                 started = _pam_choreography.start(
                     step, info, _pam_choreography.Env(
-                        self, _get_fig, _seq[-1]["id"] if _seq else None),
+                        self, _get_fig, _seq[-1]["id"] if _seq else None,
+                        get_prop=_get_prop),
                     block)
                 if started is not None and not block.quiet:
                     # (a routine on its own had its cue baked by the
@@ -3942,6 +4003,8 @@ class PAMPlayer(MovingCameraScene):
                 return _tl_tic(step, info)
             if kind == "label":
                 return _tl_label(step, info)
+            if kind == "fade":
+                return _tl_fade(step, info)
             if kind == "prop":
                 return _tl_prop_step(step, info, block)
             if kind != "anim":
@@ -4611,6 +4674,28 @@ class PAMPlayer(MovingCameraScene):
                       f"mob(s); background reset"
                       + (f"; kept live dog character(s) {kept_dogs}"
                          if kept_dogs else "") + ".")
+                continue
+
+            # ── screen_fade (Milestone 6, Stage 6c) ─────────────────────
+            # The whole frame fades to a color (FADE OUT), or back from
+            # it, on the frame clock: a rectangle the size of the camera
+            # frame, on top of everything, whose opacity goes from 0 to 1
+            # ("to": "out", the default) or from 1 to 0 ("to": "in").
+            #
+            # JSON keys:
+            #   "frames" — how long the fade takes (15 fps); or "rt" in
+            #              seconds (default 1.0)
+            #   "color"  — default "#000000"
+            #   "to"     — "out" (default) or "in"
+            if act == "screen_fade":
+                _sf_rt = float(step.get("rt", 1.0))
+                _sf_rect, _sf_anim, _sf_to = _screen_fade_parts(step)
+                self.play(_sf_anim, run_time=max(_sf_rt, 1e-3),
+                          rate_func=linear)
+                if _sf_to == "in":
+                    self.remove(_sf_rect)
+                print(f"PAMPlayer: screen_fade {_sf_to} over "
+                      f"{_sf_rt:.3f} s.")
                 continue
 
             # ── spawn_prop ───────────────────────────────────────────────

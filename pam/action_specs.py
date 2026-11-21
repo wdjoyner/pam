@@ -58,6 +58,8 @@ PLAYER_ACTIONS = frozenset({
     # staging and timing
     "end_scene", "focus", "focus_reset", "group_translate", "parallel",
     "set_background", "wait",
+    # the whole frame fades to a color, or back (Milestone 6, Stage 6c)
+    "screen_fade",
     # timeline and contact constraints (pam/timeline.py, constraints.py)
     "sequence", "constrain", "release",
     "perform",
@@ -134,6 +136,8 @@ TIMELINE_PLAYER = frozenset({
     "prop_transition",
     # a word such as THUD! flashed on exact frames (Milestone 6)
     "sound_cue",
+    # the whole frame fades to a color, or back (Stage 6c)
+    "screen_fade",
 })
 
 
@@ -153,6 +157,13 @@ ROUTINE_PHASES = {
                         ("set_down", 9)),
     "tie_wrist_loop":  (("approach", 6), ("wind", 18), ("knot", 9),
                         ("yank", 3), ("let_go", 6)),
+    # Stage 6c (Scenes 5 and 6)
+    "reach_and_tighten": (("reach", 6), ("cinch", 3), ("tug", 8),
+                          ("settle", 6)),
+    "altar_tumble_hug":  (("embrace", 9), ("flex", 4), ("close", 4),
+                          ("tumble", 8), ("land", 3), ("hold", 12),
+                          ("let_go", 6)),
+    "hoist_overhead":    (("grab", 3), ("lift", 6), ("carry", 18)),
 }
 TIMELINE_ROUTINES = frozenset(ROUTINE_PHASES)
 
@@ -162,6 +173,8 @@ ROUTINE_OPTIONAL_PHASE = {
     ("mismatched_hug", "release", False): "release",
     ("catch_by_collar", "release", False): "set_down",
     ("tie_wrist_loop", "release", False): "let_go",
+    ("reach_and_tighten", "release", False): "settle",
+    ("altar_tumble_hug", "release", False): "let_go",
 }
 
 
@@ -256,6 +269,12 @@ REFERENCE_OVERRIDES = {
     ("catch_by_collar", "target"):  "character",
     ("tie_wrist_loop", "who"):      "character",
     ("tie_wrist_loop", "target"):   "character",
+    # (reach_and_tighten reaches toward a figure or a prop: "any")
+    ("reach_and_tighten", "who"):   "character",
+    ("altar_tumble_hug", "who"):    "character",
+    ("altar_tumble_hug", "target"): "character",
+    ("hoist_overhead", "who"):      "character",
+    ("hoist_overhead", "target"):   "character",
     # a hand held on a prop (constrain, type joint_to_prop)
     ("constrain", "prop"):          "prop",
     # two-character interactions

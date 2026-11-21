@@ -34,6 +34,19 @@ Stage 6b of Milestone 6 adds two more from the roadmap's table (Scenes
     ``who`` ties ``target``'s held-out wrists together, and it is a
     struggle.
 
+Stage 6c adds the last two of the roadmap's table (Scenes 5 and 6), and
+one for the end of Scene 6:
+
+``reach_and_tighten``
+    ``who``, his wrists tied, reaches both hands out toward ``target``
+    (a figure or a prop), and the knot cinches tighter.
+``altar_tumble_hug``
+    ``who`` hugs ``target``, who is sitting; ``target`` flexes, hugs
+    back, and the two tumble off the seat into the dirt, still hugging.
+``hoist_overhead``
+    ``who`` hoists ``target`` overhead, lying flat, like a championship
+    belt, and runs with him.
+
 JSON
 ----
 ::
@@ -55,17 +68,21 @@ The three two-figure routines are made of phases that follow one
 another, each a whole number of frames on the 15 fps clock
 (``pam/timeline.py``):
 
-=================  ====================================================
-``pull_immovable``  ``reach`` 6, ``pull`` 12, ``strain`` 12
-``cork_pop_up``     ``offer`` 6, ``accept`` 6, ``pop`` 3, ``land`` 2,
-                    ``hold`` 9
-``mismatched_hug``  ``approach`` 6, ``reach`` 6, ``squeeze`` 12,
-                    ``release`` 6
-``catch_by_collar`` ``slip`` 3, ``catch`` 3, ``dangle`` 18,
-                    ``set_down`` 9
-``tie_wrist_loop``  ``approach`` 6, ``wind`` 18, ``knot`` 9, ``yank`` 3,
-                    ``let_go`` 6
-=================  ====================================================
+=====================  ================================================
+``pull_immovable``     ``reach`` 6, ``pull`` 12, ``strain`` 12
+``cork_pop_up``        ``offer`` 6, ``accept`` 6, ``pop`` 3, ``land`` 2,
+                       ``hold`` 9
+``mismatched_hug``     ``approach`` 6, ``reach`` 6, ``squeeze`` 12,
+                       ``release`` 6
+``catch_by_collar``    ``slip`` 3, ``catch`` 3, ``dangle`` 18,
+                       ``set_down`` 9
+``tie_wrist_loop``     ``approach`` 6, ``wind`` 18, ``knot`` 9, ``yank`` 3,
+                       ``let_go`` 6
+``reach_and_tighten``  ``reach`` 6, ``cinch`` 3, ``tug`` 8, ``settle`` 6
+``altar_tumble_hug``   ``embrace`` 9, ``flex`` 4, ``close`` 4, ``tumble`` 8,
+                       ``land`` 3, ``hold`` 12, ``let_go`` 6
+``hoist_overhead``     ``grab`` 3, ``lift`` 6, ``carry`` 18
+=====================  ================================================
 
 ``"frames_<phase>": n`` sets one phase (0 skips it); ``"frames": n``
 sets the whole routine, shared out over the phases that were not set
@@ -200,6 +217,82 @@ Scale-aware: ``who`` stands on the side of the wrists away from
 the loops' radius is measured against his reach (at most 30% of his
 arm).  Reported: the arm, the step in, how far the knot is above his
 shoulder, the radius, the loops, and the hands' shortfall.
+
+``reach_and_tighten``
+---------------------
+``who``, whose wrists are tied together (by a rope ``around`` them),
+comes up toward ``target`` and points both hands at it (``reach``); the
+knot cinches: the wrists are jerked together, in toward him and down
+(``cinch``); he tugs them apart and each time they snap back closer
+(``tug``); and he settles (``settle``).  The hands are held on moving
+points (``<id>.lhand``, ``<id>.rhand``).  Only ``who`` moves.  The rope
+does not change state (``tightened`` stays ``tightened``): its loop
+follows the wrists, so it gets smaller as they come together.
+
+``target``      what he reaches toward: a figure (his chest) or a prop
+                (its middle)
+``lean``        degrees his trunk comes up toward ``target`` (default 20)
+``tighten``     the fraction of the gap between the wrists the cinch
+                leaves (default 0.4)
+``cycles``      number of tugs (default 1)
+``pose``        the pose he settles in (default: the one he has)
+``release``     ``false``: no ``settle``; the hands stay where the last
+                phase left them
+
+Each phase starts from the figure as it is, so the phases can be played
+apart: one step with only ``reach`` (the hands stay out, since its last
+phase is 0 frames), and a later one with the same ``id`` and ``reach`` 0
+that cinches, tugs and settles.
+
+Scale-aware: the hands go out 85% of his arm from his shoulders, the
+wrists keeping their places on either side of the knot; the tugs open
+the gap by 12% of the arm.  Reported: the arm, where the hands went,
+the gap at the start, cinched and at the end, and the hands' shortfall.
+
+``altar_tumble_hug``
+--------------------
+``target`` sits (on the altar) facing ``who``.  ``target`` leans down
+toward ``who``, who steps in against him and puts his arms round his
+shoulders (``embrace``); ``target`` flexes, fists up and apart, which is
+when the rope between his wrists breaks (a ``prop_transition`` on the
+same frames; ``flex``), and closes his arms round ``who`` (``close``);
+``target`` topples forward off the seat and ``who`` goes over backward
+(``tumble``), landing on his back in the dirt with ``target`` on top of
+him, cheek to cheek, knees bent and feet kicked up (``land``); they lie
+there (``hold``) and let go (``let_go``).  Four hands are held on the
+other man's trunk (``<id>.who_upper``, ``<id>.who_lower``,
+``<id>.target_upper``, ``<id>.target_lower``), measured across the trunk
+on every frame, so the hug holds standing, falling and lying down.
+
+``release``     ``false``: no ``let_go``; the hug stays until ``release``
+                steps end it
+
+Scale-aware: ``target`` leans in (by up to 40 degrees) until his
+shoulders are within 45% of ``who``'s arm above ``who``'s; ``who`` stands
+against him at his shoulder height, as in ``mismatched_hug``; ``who``
+lands with his feet where they were and his head away from ``target``,
+and ``target`` lands on top of him.  Reported: the lean, the step in,
+how far apart the fists go, where ``who`` lands, and the hands'
+shortfall.
+
+``hoist_overhead``
+------------------
+``who`` takes ``target`` round the middle (``grab``), puts him up over
+his head, lying flat, his head the way they are going, on straight arms
+(``lift``), and runs with him to ``x`` (``carry``: ``who``'s run cycle,
+with ``target`` carried along on every keyframe).  The hands are held
+under ``target``'s back (``<id>.rhand``, ``<id>.lhand``).
+
+``x``           where he runs to (without it ``carry`` is stillness)
+``release``     ``false``: keep hold after the carry (end it with
+                ``release``)
+
+The phases can be played apart: a step with ``grab`` and ``lift`` (and
+``carry`` 0, ``release`` false), and a later one with the same ``id``
+and only ``carry``.  Scale-aware: the lift is 95% of ``who``'s arm above
+his shoulders, so ``target``'s back clears his head.  Reported: the
+lift, how far it clears his head, the distance carried, and the hands'
+shortfall.
 
 How a routine is played
 -----------------------
@@ -456,12 +549,15 @@ class Env:
     ``get_fig``     name -> live figure, or None
     ``sequence``    id of the open ``sequence``, or None (constraints a
                     routine leaves in force end with that sequence)
+    ``get_prop``    name -> live prop, or None (``reach_and_tighten``
+                    may reach toward a prop; optional)
     """
 
-    def __init__(self, scene, get_fig, sequence=None):
+    def __init__(self, scene, get_fig, sequence=None, get_prop=None):
         self.scene = scene
         self.get_fig = get_fig
         self.sequence = sequence
+        self.get_prop = get_prop
 
 
 class _Routine:
@@ -1343,8 +1439,554 @@ class TieWristLoop(_Routine):
         return out
 
 
+# ── Stage 6c: Scenes 5 and 6 ─────────────────────────────────────────────
+
+def _torso_axis(w):
+    """(bottom, top) of a figure's trunk: the middle of its hips and of
+    its shoulders (world coordinates)."""
+    hips = np.mean([w[j] for j in ("lhip", "rhip") if j in w], axis=0)
+    sh = np.mean([w[j] for j in ("lshoulder", "rshoulder") if j in w],
+                 axis=0)
+    return hips, sh
+
+
+def _around(fig, other, t, pad, near=False):
+    """Function giving, on any frame, the point on the far side of
+    *fig*'s trunk from *other* (where an arm put round *fig* by *other*
+    ends), at the fraction *t* of the way from the hips to the
+    shoulders; with *near*, on the side toward *other* (a hand under a
+    man held up overhead).  Measured across the trunk, so it works for
+    a figure standing, bent, or lying down."""
+    def point():
+        w, wo = _world(fig), _world(other)
+        lo, hi = _torso_axis(w)
+        axis = hi - lo
+        n = np.array([-axis[1], axis[0], 0.0])
+        ln = float(np.linalg.norm(n))
+        n = n / ln if ln > 1e-9 else np.array([1.0, 0.0, 0.0])
+        mo, mf = _torso_axis(wo)
+        c = lo + 0.5 * axis
+        if (float(np.dot(n, c - 0.5 * (mo + mf))) < 0) != near:
+            n = -n
+        half = max(abs(float(np.dot(w[j] - c, n)))
+                   for j in ("lshoulder", "rshoulder", "lhip", "rhip",
+                             "torso") if j in w)
+        p = lo + t * axis + n * (half + pad)
+        return (float(p[0]), float(p[1]))
+    return point
+
+
+def _place(fig, pose, feet_x=None, ground=None, at=None, joint=None):
+    """Offset that puts *pose* with its lowest joint on *ground* and
+    either its ankles' middle at *feet_x*, or its *joint* at *at*."""
+    local = _posed(fig, pose, np.zeros(3))
+    off = np.zeros(3)
+    if joint is not None:
+        off[0] = float(at[0]) - local[joint][0]
+        off[1] = float(at[1]) - local[joint][1]
+    if feet_x is not None:
+        off[0] = feet_x - float(np.mean([local[j][0]
+                                         for j in ("lankle", "rankle")]))
+    if ground is not None:
+        off[1] = ground - _ground(local)
+    return off
+
+
+def _rotated(pose, pivot, angle):
+    """*pose* turned by *angle* (radians, counterclockwise) about
+    *pivot* (pose units)."""
+    return {j: _rotate(np.array(p, dtype=float), pivot, angle)
+            for j, p in pose.items()}
+
+
+class ReachAndTighten(_Routine):
+    """``who``, his wrists tied together, reaches both hands out toward
+    ``target`` and the knot cinches; see the module docstring.  Only
+    ``who`` moves; the rope follows his wrists."""
+    action = "reach_and_tighten"
+
+    REACH = 0.85            # the knot goes out this fraction of the arm
+
+    def ok(self):
+        a = self.a
+        if a is None or not hasattr(a, "dots") or "lwrist" not in a.dots:
+            print(f"PAMPlayer: {self.action} — '{self.who}' has no live "
+                  f"human figure, skipping.")
+            return False
+        if self.b is a:
+            print(f"PAMPlayer: {self.action} — 'who' and 'target' are "
+                  f"the same figure, skipping.")
+            return False
+        if self.b is not None and hasattr(self.b, "dots"):
+            b = self.b
+            self.aim = lambda: _torso_axis(_world(b))[1]
+            return True
+        get = getattr(self.env, "get_prop", None)
+        prop = get(self.target) if (get and self.target) else None
+        if prop is None:
+            print(f"PAMPlayer: {self.action} — '{self.target}' is not a "
+                  f"figure or a prop on stage, skipping.")
+            return False
+        self.aim = lambda: np.array(prop.get_center(), dtype=float)
+        return True
+
+    def wrists(self):
+        w = _world(self.a)
+        return w["lwrist"], w["rwrist"]
+
+    def tighten(self):
+        try:
+            f = float(self.step.get("tighten", 0.4))
+        except (TypeError, ValueError):
+            f = 0.4
+        return min(1.0, max(0.0, f))
+
+    def hold_hands(self, where, blend):
+        for hand, joint in (("lhand", "lwrist"), ("rhand", "rwrist")):
+            fn = (lambda hand=hand: tuple(where(hand)[:2]))
+            self.hold(_cn.JointToPoint(f"{self.id}.{hand}", self.who,
+                                       self.a, joint, fn, blend=blend))
+
+    def phases(self):
+        Phase = _tl.Phase
+        a, n, step = self.a, self.n, self.step
+        w0 = _world(a)
+        self.arm = min(_length(w0, c) for c in ARMS.values())
+        self.pose0 = a.pose
+        l0, r0 = self.wrists()
+        self.measured.update(arm=round(self.arm, 4),
+                             gap_start=round(float(np.linalg.norm(r0 - l0)),
+                                             4))
+        scene = self.scene
+
+        def shoulders():
+            w = _world(a)
+            return np.mean([w["lshoulder"], w["rshoulder"]], axis=0)
+
+        def reach():
+            # his trunk comes up toward the target and both hands go out
+            # at it, the wrists keeping their places on either side of
+            # the knot
+            l, r = self.wrists()
+            k = 0.5 * (l + r)
+            rel = {"lhand": l - k, "rhand": r - k}
+            aim = np.array(self.aim(), dtype=float)
+            toward = 1.0 if aim[0] >= _center_x(_world(a)) else -1.0
+            try:
+                lean = float(step.get("lean", 20.0))
+            except (TypeError, ValueError):
+                lean = 20.0
+            up = _bend(a.pose, lean, toward)
+            w = _posed(a, up, a.offset)
+            sh = np.mean([w["lshoulder"], w["rshoulder"]], axis=0)
+            d = aim - sh
+            d[2] = 0.0
+            ln = float(np.linalg.norm(d))
+            d = d / ln if ln > 1e-9 else np.array([toward, 0.0, 0.0])
+            to = sh + d * self.REACH * self.arm
+            self.measured["reach_to"] = [round(float(to[0]), 4),
+                                         round(float(to[1]), 4)]
+            self.measured["lean"] = round(lean, 1)
+            self.hold_hands(lambda hand: to + rel[hand], blend=n["reach"])
+            return self.move(a, up, a.offset)
+
+        def cinch():
+            # the knot pulls the wrists together, with a jerk in toward
+            # him and down
+            l, r = self.wrists()
+            k = 0.5 * (l + r)
+            v = r - l
+            g = float(np.linalg.norm(v))
+            u = v / g if g > 1e-9 else np.array([0.0, 1.0, 0.0])
+            g1 = g * self.tighten()
+            k1 = k + 0.10 * (shoulders() - k) \
+                + np.array([0.0, -0.04 * self.arm, 0.0])
+            ends = {"lhand": k1 - 0.5 * g1 * u, "rhand": k1 + 0.5 * g1 * u}
+            self.measured["gap_cinched"] = round(g1, 4)
+            self.hold_hands(lambda hand: ends[hand], blend=n["cinch"])
+            return None
+
+        tug = []
+        cyc = self.cycles(n.get("tug", 0), default=1)
+        self.measured["tugs"] = cyc
+
+        def tug_start():
+            # tugs the wrists apart; each time they snap back closer
+            f0 = _frame(scene)
+            l, r = self.wrists()
+            k = 0.5 * (l + r)
+            v = r - l
+            g = float(np.linalg.norm(v))
+            u = v / g if g > 1e-9 else np.array([0.0, 1.0, 0.0])
+            total = max(1, n["tug"])
+            parts = _tl.split_frames(total, max(1, 2 * cyc))
+            gaps = [g]
+            for i in range(len(parts)):
+                last = gaps[-1] if i % 2 == 0 else gaps[-2]
+                gaps.append(last + 0.12 * self.arm if i % 2 == 0
+                            else 0.75 * last)
+            edges = np.cumsum([0] + parts)
+            self.measured["gap_end"] = round(float(gaps[-1]), 4)
+
+            def gap_now():
+                k_ = _frame(scene) - f0
+                for i in range(len(parts)):
+                    if k_ < edges[i + 1]:
+                        s = (k_ - edges[i]) / max(1, parts[i])
+                        s = s * s if i % 2 == 0 else math.sqrt(s)
+                        return gaps[i] + (gaps[i + 1] - gaps[i]) * s
+                return gaps[-1]
+
+            def where(hand):
+                h = 0.5 * gap_now()
+                return k + (-h if hand == "lhand" else h) * u
+            self.hold_hands(where, blend=0)
+            return None
+
+        if n.get("tug", 0) > 0:
+            tug = [Phase(n["tug"], tug_start)]
+
+        def note():
+            l, r = self.wrists()
+            self.measured["gap_final"] = round(float(np.linalg.norm(r - l)),
+                                               4)
+            short = 0.0
+            for c in self.mgr.active:
+                if c.id in (f"{self.id}.lhand", f"{self.id}.rhand"):
+                    short = max(short, float(c.max_shortfall))
+            self.measured["hands_shortfall"] = round(max(short, 0.0), 4)
+
+        def settle():
+            note()
+            self.let_go("lhand", "rhand")
+            name = step.get("pose")
+            pose = a.pose
+            if name:
+                from pam.actions import _resolve_pose
+                try:
+                    pose = _resolve_pose(name, fig=a)
+                except ValueError as exc:
+                    print(f"PAMPlayer: {self.action} — {exc}; settling in "
+                          f"the pose he has.")
+            return self.move(a, pose, a.offset)
+
+        named = [("reach", [Phase(n.get("reach", 0), reach)]),
+                 ("cinch", [Phase(n.get("cinch", 0), cinch, rate=rush_into)]),
+                 ("tug", tug),
+                 ("settle", [Phase(n.get("settle", 0), settle)])]
+        out = _routine_phases(named, n)
+        if out and out[-1][0] != "settle":
+            out[-1][1][-1].after = note
+        return out
+
+
+class AltarTumbleHug(_Routine):
+    """``who`` puts his arms round ``target``, who is sitting (on the
+    altar); ``target`` flexes, closes his arms round ``who``, and the two
+    tumble off the seat into the dirt, still hugging: ``who`` on his
+    back, ``target`` on top of him.  See the module docstring."""
+    action = "altar_tumble_hug"
+
+    HANDS = ("upper", "lower")
+
+    def hug_ids(self, side):
+        return [f"{self.id}.{side}_{h}" for h in self.HANDS]
+
+    def held(self, cid):
+        return any(c.id == cid for c in self.mgr.active)
+
+    def arms(self, fig, other, side, ts, pad, blend):
+        """Both of *fig*'s hands round *other*'s trunk, at the fractions
+        *ts* of its height."""
+        w = _world(fig)
+        wo = _world(other)
+        # the hand on the far side of the body goes high
+        toward = _toward(w, wo)
+        upper, lower = ("lwrist", "rwrist") if toward > 0 \
+            else ("rwrist", "lwrist")
+        name = self.who if fig is self.a else self.target
+        for which, joint, t in (("upper", upper, ts[0]),
+                                ("lower", lower, ts[1])):
+            cid = f"{self.id}.{side}_{which}"
+            self.hold(_cn.JointToPoint(cid, name, fig, joint,
+                                       _around(other, fig, t, pad),
+                                       blend=blend))
+
+    def phases(self):
+        Phase = _tl.Phase
+        a, b, n, step = self.a, self.b, self.n, self.step
+        wa, wb = _world(a), _world(b)
+        self.toward = _toward(wa, wb)           # from who to target
+        self.arm_a = min(_length(wa, c) for c in ARMS.values())
+        self.arm_b = min(_length(wb, c) for c in ARMS.values())
+        self.measured.update(arm_who=round(self.arm_a, 4),
+                             arm_target=round(self.arm_b, 4))
+        t = self.toward
+
+        def embrace():
+            # the target leans in, down to his father; who steps in
+            # against him and puts his arms round his shoulders
+            wa, wb = _world(a), _world(b)
+            sa = np.mean([wa["lshoulder"], wa["rshoulder"]], axis=0)
+            pose_b, deg = b.pose, 0.0
+            for d in np.arange(0.0, 40.1, 2.5):
+                p = _bend(b.pose, float(d), -t)
+                s = np.mean([_posed(b, p, b.offset)[j]
+                             for j in ("lshoulder", "rshoulder")], axis=0)
+                pose_b, deg = p, float(d)
+                if s[1] <= sa[1] + 0.45 * self.arm_a:
+                    break
+            self.lean_b = pose_b
+            stand = _side_pose(a, "standing_side", t)
+            hug = _bend(stand, HUG_LEAN, t)
+            here = _posed(a, hug, a.offset)
+            sh = np.mean([here["lshoulder"], here["rshoulder"]], axis=0)
+            leaned = _posed(b, pose_b, b.offset)
+            lo, hi = _extent(leaned, float(sh[1]))
+            near = lo if t > 0 else hi
+            dx = float(near - t * 0.06 * self.arm_a - sh[0])
+            off = np.array(a.offset, dtype=float) + np.array([dx, 0.0, 0.0])
+            self.measured.update(lean=round(deg, 1), step_in=round(dx, 4))
+            # (blend over the phase: the hands travel as he steps in)
+            self.arms(a, b, "who", (0.95, 0.72), 0.03 * self.arm_a,
+                      blend=max(1, n["embrace"]))
+            return (self.move(a, hug, off, t)
+                    + self.move(b, pose_b, b.offset, -t))
+
+        def flex():
+            # the target's arms go up and out, a fist on either side:
+            # the wrists apart, the rope between them breaks
+            pose = {j: np.array(p, dtype=float) for j, p in b.pose.items()}
+            face = -t
+            for sh, el, wr in ARMS.values():
+                ua = float(np.linalg.norm(pose[el] - pose[sh]))
+                fa = float(np.linalg.norm(pose[wr] - pose[el]))
+                front = (pose[sh][0] - np.mean(
+                    [pose["lshoulder"][0], pose["rshoulder"][0]])) * face
+                s = 1.0 if front >= 0 else -1.0
+                if abs(front) < 1e-6:
+                    s = 1.0 if sh == "lshoulder" else -1.0
+                pose[el] = pose[sh] + np.array([s * face * 0.92 * ua,
+                                                0.30 * ua, 0.0])
+                pose[wr] = pose[el] + np.array([s * face * 0.25 * fa,
+                                                0.95 * fa, 0.0])
+            self.flexed = pose
+            w = _posed(b, pose, b.offset)
+            self.measured["wrists_apart"] = round(float(np.linalg.norm(
+                w["lwrist"] - w["rwrist"])), 4)
+            return self.move(b, pose, b.offset, -t)
+
+        def close():
+            # ... and close all the way round his father
+            self.arms(b, a, "target", (0.88, 0.55), 0.03 * self.arm_b,
+                      blend=max(1, n["close"]))
+            lean = getattr(self, "lean_b", b.pose)
+            return self.move(b, lean, b.offset, -t)
+
+        def land_poses():
+            # who on his back in the dirt, his head away from the seat;
+            # the target lying on top of him, head by head
+            direction = "left" if t > 0 else "right"
+            wa = _world(a)
+            ground = _ground(wa)
+            feet = float(np.mean([wa[j][0] for j in ("lankle", "rankle")]))
+            lie_a = _side_pose(a, f"lying_flat_{direction}", 1)
+            off_a = _place(a, lie_a, feet_x=feet, ground=ground)
+            top_a = _posed(a, lie_a, off_a)
+            lie_b = _side_pose(b, "pile_on", -1 if t > 0 else 1)
+            local_b = _posed(b, lie_b, np.zeros(3))
+            off_b = np.zeros(3)
+            # cheek to cheek: his neck over his father's head
+            off_b[0] = float(top_a["head"][0] - local_b["neck"][0])
+            off_b[1] = float(max(p[1] for p in top_a.values())
+                             + 0.02 * self.arm_b - _ground(local_b))
+            return lie_a, off_a, lie_b, off_b, ground
+
+        def tumble():
+            # over they go: who tips back on his heels, the target pitches
+            # forward off the seat after him
+            lie_a, off_a, lie_b, off_b, ground = land_poses()
+            self._land = (lie_a, off_a, lie_b, off_b)
+            wa = _world(a)
+            feet = np.array([float(np.mean([wa[j][0]
+                                            for j in ("lankle", "rankle")])),
+                             ground, 0.0])
+            ang = t * math.radians(50.0)
+            pose_a = a.pose
+            piv_a = np.array(np.mean([pose_a[j] for j in ("lankle",
+                                                          "rankle")],
+                                     axis=0), dtype=float)
+            tip_a = _rotated(pose_a, piv_a, ang)
+            off = _place(a, tip_a, feet_x=float(feet[0]), ground=ground)
+            pose_b = b.pose
+            piv_b = np.array(np.mean([pose_b[j] for j in ("lankle",
+                                                          "rankle")],
+                                     axis=0), dtype=float)
+            tip_b = _rotated(pose_b, piv_b, ang * 0.8)
+            neck_a = _posed(a, tip_a, off)["neck"]
+            gap = _world(b)["neck"] - wa["neck"]
+            ob = _place(b, tip_b, joint="neck", at=neck_a + 0.8 * gap)
+            ob[1] = max(ob[1], ground - _ground(_posed(b, tip_b,
+                                                       np.zeros(3))))
+            self.measured["lands_at"] = round(float(off_a[0]), 4)
+            return self.move(a, tip_a, off) + self.move(b, tip_b, ob)
+
+        def land():
+            lie_a, off_a, lie_b, off_b = getattr(self, "_land", None) \
+                or land_poses()[:4]
+            return self.move(a, lie_a, off_a) + self.move(b, lie_b, off_b)
+
+        def note():
+            short = 0.0
+            for c in self.mgr.active:
+                if c.id.startswith(f"{self.id}."):
+                    short = max(short, float(c.max_shortfall))
+            self.measured["hands_shortfall"] = round(max(short, 0.0), 4)
+
+        def let_go():
+            note()
+            self.let_go(*[c.split(".", 1)[1] for c in
+                          self.hug_ids("who") + self.hug_ids("target")
+                          if self.held(c)])
+            return self.move(a, a.pose, a.offset) + self.move(b, b.pose,
+                                                              b.offset)
+
+        named = [("embrace", [Phase(n.get("embrace", 0), embrace)]),
+                 ("flex", [Phase(n.get("flex", 0), flex, rate=rush_from)]),
+                 ("close", [Phase(n.get("close", 0), close)]),
+                 ("tumble", [Phase(n.get("tumble", 0), tumble,
+                                   rate=rush_into)]),
+                 ("land", [Phase(n.get("land", 0), land, rate=rush_into)]),
+                 ("hold", [Phase(n.get("hold", 0))]),
+                 ("let_go", [Phase(n.get("let_go", 0), let_go)])]
+        out = _routine_phases(named, n)
+        if out and out[-1][0] != "let_go":
+            out[-1][1][-1].after = note
+        return out
+
+
+class HoistOverhead(_Routine):
+    """``who`` takes ``target`` round the middle, hoists him overhead,
+    lying flat, like a championship belt, and runs with him; see the
+    module docstring."""
+    action = "hoist_overhead"
+
+    def phases(self):
+        Phase = _tl.Phase
+        a, b, n, step = self.a, self.b, self.n, self.step
+        wa = _world(a)
+        self.arm = min(_length(wa, c) for c in ARMS.values())
+        self.measured["arm"] = round(self.arm, 4)
+        x = step.get("x")
+        try:
+            x = None if x is None else float(x)
+        except (TypeError, ValueError):
+            x = None
+        go = (x - float(a.offset[0])) if x is not None else 0.0
+        face = (1.0 if go > 0 else -1.0) if abs(go) > 1e-6 else (
+            1.0 if getattr(a, "facing", "right") == "right" else -1.0)
+        self.face = face
+
+        def grab():
+            # his hands go to his father's sides, under the arms
+            for hand, joint, tt_ in (("rhand", "rwrist", 0.75),
+                                     ("lhand", "lwrist", 0.40)):
+                self.hold(_cn.JointToPoint(
+                    f"{self.id}.{hand}", self.who, a, joint,
+                    _around(b, a, tt_, 0.02 * self.arm),
+                    blend=max(1, n["grab"])))
+            return None
+
+        def carried(pose_a, off_a):
+            # lying flat, head the way they go, over the lifter's head
+            # at the height his straight arms reach
+            lie = _side_pose(b, "lying_flat_left" if face < 0
+                             else "lying_flat_right", 1)
+            local = _posed(b, lie, np.zeros(3))
+            w = _posed(a, pose_a, off_a)
+            sh = np.mean([w["lshoulder"], w["rshoulder"]], axis=0)
+            mid = 0.5 * (local["lhip"] + local["neck"])
+            # (arms straight up: his back clears the lifter's head)
+            off = np.array([float(sh[0] - mid[0]),
+                            float(sh[1] + 0.95 * self.arm - _ground(local)),
+                            0.0])
+            return lie, off
+
+        def under(blend):
+            # his hands under his father's back, wherever he is
+            for hand, joint, tt_ in (("rhand", "rwrist", 0.62),
+                                     ("lhand", "lwrist", 0.38)):
+                self.hold(_cn.JointToPoint(
+                    f"{self.id}.{hand}", self.who, a, joint,
+                    _around(b, a, tt_, 0.02 * self.arm, near=True),
+                    blend=blend))
+
+        def lift():
+            under(max(1, n["lift"]))
+            lie, off = carried(a.pose, a.offset)
+            low = off[1] + _ground(_posed(b, lie, np.zeros(3)))
+            w = _world(a)
+            self.measured["lift_height"] = round(float(low - _ground(w)), 4)
+            self.measured["over_head"] = round(float(low - w["head"][1]), 4)
+            return self.move(b, lie, off)
+
+        carry = []
+        if n.get("carry", 0) > 0:
+            plan = a._run_plan(x) if x is not None else []
+            if plan:
+                lengths = _tl.split_frames(n["carry"], len(plan))
+                kfs, extra = [], 0.0
+                for (pose, dx), f in zip(plan, lengths):
+                    if f <= 0:
+                        extra += dx
+                        continue
+                    kfs.append((pose, dx + extra, f))
+                    extra = 0.0
+                for i, (pose, dx, f) in enumerate(kfs):
+                    def kf(pose=pose, dx=dx, first=(i == 0)):
+                        if first and not any(
+                                c.id == f"{self.id}.rhand"
+                                for c in self.mgr.active):
+                            under(0)
+                        off_a = np.array(a.offset, dtype=float) \
+                            + np.array([dx, 0.0, 0.0])
+                        lie, off_b = carried(pose, off_a)
+                        return (self.move(a, pose, off_a, face)
+                                + self.move(b, lie, off_b))
+                    carry.append(Phase(f, kf))
+                self.measured["carried"] = round(float(go), 4)
+            else:
+                carry = [Phase(n["carry"])]
+
+        def note():
+            short = 0.0
+            for c in self.mgr.active:
+                if c.id in (f"{self.id}.rhand", f"{self.id}.lhand"):
+                    short = max(short, float(c.max_shortfall))
+            self.measured["hands_shortfall"] = round(max(short, 0.0), 4)
+
+        named = [("grab", [Phase(n.get("grab", 0), grab)]),
+                 ("lift", [Phase(n.get("lift", 0), lift, rate=rush_from)]),
+                 ("carry", carry)]
+        out = _routine_phases(named, n)
+        if out:
+            last = out[-1][1][-1]
+            inner = last.after
+
+            def done():
+                if inner is not None:
+                    inner()
+                note()
+                if step.get("release", True) is not False:
+                    self.let_go("rhand", "lhand")
+            last.after = done
+        return out
+
+
 _CLASSES = {c.action: c for c in (PullImmovable, CorkPopUp, MismatchedHug,
-                                  CatchByCollar, TieWristLoop)}
+                                  CatchByCollar, TieWristLoop,
+                                  ReachAndTighten, AltarTumbleHug,
+                                  HoistOverhead)}
 
 
 def start(step, info, env, block=None):
@@ -1376,7 +2018,7 @@ def _act(fig, step, scene, name="I.G. NoreMe", *, props=None, cast=None):
 
     def get_fig(n):
         return (cast or {}).get(n, {}).get("fig")
-    env = Env(scene, get_fig)
+    env = Env(scene, get_fig, get_prop=lambda n: (props or {}).get(n))
     inner = {k: v for k, v in step.items() if k not in ("at", "beat")}
 
     def begin(sub, info, block):
@@ -1394,3 +2036,6 @@ act_cork_pop_up = _act
 act_mismatched_hug = _act
 act_catch_by_collar = _act
 act_tie_wrist_loop = _act
+act_reach_and_tighten = _act
+act_altar_tumble_hug = _act
+act_hoist_overhead = _act

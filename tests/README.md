@@ -7,7 +7,7 @@ continuity ledger, Stage 4a; the scroll, a text-bearing prop, Stage 4b;
 the rope, a deformable attachment, Stage 4c), Milestone 5 (Fountain+
 choreography cues, projects, and inserts framed from their subject), and
 Milestone 6 (the performance of the project's scenes: Scenes 1 and 2,
-Stage 6a; Scenes 3 and 4, Stage 6b).
+Stage 6a; Scenes 3 and 4, Stage 6b; Scenes 5 and 6, Stage 6c).
 None of them writes a video, and none writes into the repository.
 
 ```bash
@@ -28,6 +28,9 @@ python -m pytest -k performance   # Milestone 6: acting phases, tics, and
                                   # minutes)
 python -m pytest -k performance_6b  # Stage 6b: catch_by_collar, tie_wrist_loop,
                                     # and Scenes 3 and 4 (a few minutes)
+python -m pytest -k performance_6c  # Stage 6c: reach_and_tighten,
+                                    # altar_tumble_hug, hoist_overhead,
+                                    # and Scenes 5 and 6 (about two minutes)
 python -m pytest -k golden   # golden-trace comparison only
 python -m pytest -k validate # validator only (a few seconds)
 ```
@@ -60,6 +63,7 @@ something extra and are skipped without it:
 | `test_fountain_cues.py` | Milestone 5. Beat notes change nothing without a cue file; a cued action or line compiles to a copy of its cue, an empty cue to nothing, an uncued beat as before; the cue report (orphaned cues, beats without cues, duplicates, notes that are not identifiers, cues filed under another scene); malformed cue files; the project's source is the recorded copy of the script, and its scene files are what `fountain2pam.py --project` compiles; no invented cast or props in a project. `pam/shot_targets.py` on its own (the frame for a box, closing in on text, the steps of a shot), the validator on `fit` and `margin`, a fitted cut in a timed block, and an insert without `fit` framed as before. The roadmap's completion test (below). |
 | `test_performance.py` | Milestone 6, Stage 6a. The `perform` action: steps placed by acting phase, `until`, a routine's phases given by acting phase, the problems it reports; retiming one phase moves exactly the steps it should and rewrites nothing. `react` with `fragment` (a tic on the frame clock) and `sound_cue` on exact frames; a tic is a pose writer. The acting poses keep the bones and the shoulders of each build and have mirrors facing left. The `barbell` and `magazine` props; the cue file's `scenes.<id>.say`. Traced: a small scene played with two phase tables (the timing changes as expected and a tic returns to its pose), and Scenes 1 and 2 of the project, with the key pose of every gag (below). |
 | `test_performance_6b.py` | Milestone 6, Stage 6b. The routines `catch_by_collar` and `tie_wrist_loop`: known to the player, the validator and `perform`; `release: false` and a last phase of 0 frames keep the hold; the catch moves both figures and the tie only the one who ties. The new tic fragments and acting poses (crawling on hands and knees, seated with the feet on the ground, lying back, hanging, the heroic poses). Every cue of Scenes 3 and 4 compiled, the routines on beat notes of action lines, no prose left to stage, no invented dialogue. Traced: the catch and the tie at four combinations of sizes, and Scenes 3 and 4 of the project, with the key pose of every gag (below). |
+| `test_performance_6c.py` | Milestone 6, Stage 6c. The routines `reach_and_tighten`, `altar_tumble_hug` and `hoist_overhead`: known to the player, the validator and `perform`; which figures each moves; `release: false` keeps the hold. `screen_fade` at the top level and in a timed block. The new tic fragments and acting poses. Every cue of Scenes 5 and 6 compiled, the routines on beat notes of action lines, no prose left to stage, no invented dialogue. Traced: the three routines at four combinations of sizes, and Scenes 4 to 6 of the project, with the key pose of every gag (below). |
 | `test_scale_anchor.py` | A scaled figure does not bob when it walks: through every walk and run keyframe the lower foot is where the scaled pose puts it and the head rises only as much as the pose's own head; a pose with the anchor on the floor is scaled as before; nothing changes across the body; the depth scale behaves the same; an unscaled figure is untouched. No renderer. |
 | `test_validate.py` | The JSON validator and the `pam-validate` command, including what they report for each fixture. |
 | `test_action_specs.py` | `pam/action_specs.py` lists exactly the actions `pam_player.py` dispatches. |
@@ -747,3 +751,36 @@ scenes at four combinations of sizes (as cast; Isaac 1.30 wide; Isaac
 larger all over; Abraham 0.70, nearly as tall): the collar is held with
 no shortfall and the feet clear the ground, and the hands loop round the
 wrists at least twice, within reach, without falling short.
+
+## The Stage 6c checks (Milestone 6: Scenes 5 and 6 performed)
+
+`test_performance_6c.py` measures, on a trace of each scene, what the
+roadmap's last two acceptance rows (Scene 5: "the accidental livestream,
+blade incident, and dramatic silence work"; Scene 6: "rope snap,
+embrace, tumble, scroll editing, and final image are complete") come
+down to:
+
+| Scene | Gag | What the trace must show |
+|---|---|---|
+| 4 to 6 | continuity | each figure opens a scene within 0.03 of where the scene before left it (0.06 for the wrists) |
+| 5 | the livestream | in the insert, the phone slips with the hand that drops after it, and goes live as he catches it; then he backs away from it facing it, to where the satchel will fall |
+| 5 | the knot | Isaac's hands go out toward the phone and stay there through his line; the gap between his wrists ends under 0.4 of what it was; the rope stays `tightened` |
+| 5 | the speech | the handle above his head and in his hand; three fingers counted off; the handle higher on "Raise my knife" |
+| 5 | the blade | stuck by Isaac, the satchel on the ground, CLATTER! on the frames it flies |
+| 5 | the silence | from the end of Isaac's stare to "And then..." (78 frames, over 60 required), no joint of either figure moves (no breathing either), no bubble appears, the shots are the medium on Isaac, the insert (on screen for 24 frames or more with the comment up) and the medium on Abraham, and the handle stays raised |
+| 5 | out of fingers | the hand at his face, the handle down; his head lower at the blade than at Isaac; round to the phone |
+| 6 | the handle | laid down by his hand, more than 3 from the blade |
+| 6 | the knot | Isaac's wrists do not move while it is worked and heaved; Abraham heaves back; his head at the knot for the teeth and for "Not now." |
+| 6 | the embrace, the snap, the tumble | Abraham's arms round Isaac before the flex; the rope snaps on the flex frames, the wrists flung apart; Isaac's arms round his father with no shortfall; after the landing, through the hold, Abraham flat on the ground on his back and Isaac above him, both clear of the altar; the halves of the rope on either side of it |
+| 6 | the phone | taken from the rock by Isaac; 900 viewers at the end |
+| 6 | the scroll | the quill from the satchel; in his hand while he writes; an insert held 30 frames or more with AND ABRAHAM RAISED HIS SON. and THE KNIFE? crossed out |
+| 6 | the final image | Abraham flat over Isaac's head on every frame of the carry; caught in three strides; the scroll trailing from his hand; both still in the frame when the black fade begins, and black to the end |
+| 5, 6 | dialogue and framing | every sentence is spoken in a bubble, no bubble says words the script does not, and every bubble is inside the frame when it is shown |
+| 5, 6 | the ledger | the knife, rope, phone and scroll end each scene in the state, and the phone with the display, the ledger records |
+
+The same file traces the three routines in small scenes at the four
+combinations of sizes of Stage 6b: the hands go out at the target and the
+wrists come together and only get tighter; the tumble lands the one who
+hugs on his back with the other on top, hands on their marks; the hoist
+keeps the man held overhead flat and above the lifter's head, both
+moving together.

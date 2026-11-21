@@ -1898,7 +1898,8 @@ def build_poses(proportions: dict, torso_y_override: float | None = None) -> dic
 def _acting_defaults():
     from pam import acting_poses as _ap
     base = {"standing_side": STANDING_SIDE, "standing_front": STANDING_FRONT,
-            "sitting_down": SITTING_DOWN}
+            "sitting_down": SITTING_DOWN,
+            "lying_flat_right": LYING_FLAT_RIGHT}
     return {n: _ap.resolve(n, base.__getitem__) for n in sorted(_ap.names())
             if n not in POSES}
 

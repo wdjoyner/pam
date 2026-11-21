@@ -395,7 +395,8 @@ class _Validator:
             if d["kind"] in ("anim", "loco", "routine", "tic"):
                 who = sub.get("who") or sub.get("prop")
                 names = who if isinstance(who, list) else [who]
-                if act in ("cork_pop_up", "catch_by_collar"):
+                if act in ("cork_pop_up", "catch_by_collar",
+                           "altar_tumble_hug", "hoist_overhead"):
                     # it moves both figures
                     names = names + [sub.get("target")]
                 for name in names:
@@ -558,7 +559,9 @@ class _Validator:
             v = step.get(key)
             if v is None or not isinstance(v, str) or v not in self.joints:
                 continue                # (bad names: check_joints)
-            if act in ("mismatched_hug", "tie_wrist_loop"):
+            if act in ("mismatched_hug", "tie_wrist_loop",
+                       "reach_and_tighten", "altar_tumble_hug",
+                       "hoist_overhead"):
                 self.add(WARNING, "timeline-key",
                          f"'{key}' has no meaning for {act} "
                          f"(both arms are used); it is ignored", index,
@@ -584,7 +587,9 @@ class _Validator:
         # constraints the routine leaves in force (a routine of Stage
         # 6b also leaves them when its last phase is given 0 frames)
         last = {"catch_by_collar": "set_down",
-                "tie_wrist_loop": "let_go"}.get(act)
+                "tie_wrist_loop": "let_go",
+                "reach_and_tighten": "settle",
+                "altar_tumble_hug": "let_go"}.get(act)
         keeps = step.get("release", True) is False or (
             last is not None and step.get(f"frames_{last}") == 0)
         if keeps and isinstance(who, str):
@@ -592,7 +597,11 @@ class _Validator:
             left = {"pull_immovable": ("grip", "root"),
                     "mismatched_hug": ("upper", "lower"),
                     "catch_by_collar": ("collar",),
-                    "tie_wrist_loop": ("rhand", "lhand")}.get(act, ())
+                    "tie_wrist_loop": ("rhand", "lhand"),
+                    "reach_and_tighten": ("lhand", "rhand"),
+                    "altar_tumble_hug": ("who_upper", "who_lower",
+                                         "target_upper", "target_lower"),
+                    "hoist_overhead": ("rhand", "lhand")}.get(act, ())
             for name in left:
                 if name == "root" and step.get("lock", True) is False:
                     continue
@@ -901,6 +910,15 @@ class _Validator:
         self.check_frames(step, act, index, path, timed=timed)
         if act not in ("cast", "props", "scene_props", "scene_objects"):
             self.check_pose(step, index, act, path)
+
+        if act == "say" and "bubble_scale" in step:
+            k = step["bubble_scale"]
+            if isinstance(k, bool) or not isinstance(k, (int, float)) \
+                    or k <= 0:
+                self.add(WARNING, "bad-key",
+                         f"'bubble_scale' must be a number above 0, got "
+                         f"{k!r}; the bubble is drawn at its usual size",
+                         index, act, f"{path}bubble_scale")
 
         w = self.world
         if act == "title":

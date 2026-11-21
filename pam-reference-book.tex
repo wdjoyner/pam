@@ -945,8 +945,11 @@ subject's bounding box (\texttt{pam/shot\_targets.py}).
 on exact frames, the \texttt{barbell} and \texttt{magazine}, and Scenes
 1 and 2 of the short performed. \textbf{Stage 6b}: the routines
 \texttt{catch\_by\_collar} and \texttt{tie\_wrist\_loop}, five more tics,
-21 more acting poses, and Scenes 3 and 4 performed. All opt-in. See
-\S14. \\
+21 more acting poses, and Scenes 3 and 4 performed. \textbf{Stage 6c}:
+the routines \texttt{reach\_and\_tighten}, \texttt{altar\_tumble\_hug}
+and \texttt{hoist\_overhead}, \texttt{screen\_fade}, \texttt{bubble\_scale}
+on \texttt{say}, three more tics, nine more acting poses, and Scenes 5
+and 6 performed, completing Milestone 6. All opt-in. See \S14. \\
 0.9.23 & Backburner items 10--11, 18, and item-6 Option C.
 \textbf{2.5D depth system} (items 10--11): optional
 \texttt{"depth"}/\texttt{"rescale"} on cast and props entries;
@@ -4776,6 +4779,20 @@ To make this possible \texttt{HumanGraph.say} and \texttt{DogGraph.say}
 take \texttt{build\_only=True}, which builds the bubble, announces it
 on \texttt{pam.hooks}, and returns it without playing anything.
 
+\textbf{\texttt{bubble\_scale}}\index{bubble\_scale@\texttt{bubble\_scale}}
+(Milestone 6, Stage 6c). A speech bubble is laid out in stage units:
+its text at \texttt{font\_size}, 0.32 of padding, 0.75 above the head,
+at most 4.5 wide. In a shot framed closer than the full width (14.2) it
+therefore looks bigger and can run off the frame. \texttt{"bubble\_scale":
+k} on a \texttt{say} (human figures) draws the whole bubble at
+\(k\) times its usual size: text, padding, height above the head, tail
+and widest line. With \(k\) equal to the frame's width over 14.2 a
+bubble looks the size it does in a full-width shot; the fitted wide
+shots of Scenes 5 and 6 of \emph{Abraham and Isaac} use 0.6. Without
+the key, or with 1, the bubble is drawn exactly as before.
+\texttt{pam-validate} warns about a value that is not a number above 0,
+and the player ignores it.
+
 \subsection{14.6 The camera on the frame clock}\label{camera-on-the-frame-clock}
 
 A \texttt{\_subscene\_marker} step in a timed block cuts the camera on
@@ -5016,7 +5033,7 @@ ledger without writing to it.
 The regression tests are in \texttt{tests/}; \texttt{tests/README.md}
 describes the golden traces and how to record them.
 
-\subsection{14.11 Choreography routines}\label{choreography-routines}\index{choreography routines}\index{pull\_immovable@\texttt{pull\_immovable}}\index{cork\_pop\_up@\texttt{cork\_pop\_up}}\index{mismatched\_hug@\texttt{mismatched\_hug}}\index{slip\_on\_back@\texttt{slip\_on\_back}}\index{catch\_by\_collar@\texttt{catch\_by\_collar}}\index{tie\_wrist\_loop@\texttt{tie\_wrist\_loop}}
+\subsection{14.11 Choreography routines}\label{choreography-routines}\index{choreography routines}\index{pull\_immovable@\texttt{pull\_immovable}}\index{cork\_pop\_up@\texttt{cork\_pop\_up}}\index{mismatched\_hug@\texttt{mismatched\_hug}}\index{slip\_on\_back@\texttt{slip\_on\_back}}\index{catch\_by\_collar@\texttt{catch\_by\_collar}}\index{tie\_wrist\_loop@\texttt{tie\_wrist\_loop}}\index{reach\_and\_tighten@\texttt{reach\_and\_tighten}}\index{altar\_tumble\_hug@\texttt{altar\_tumble\_hug}}\index{hoist\_overhead@\texttt{hoist\_overhead}}
 
 Milestone 3 of the roadmap. A routine is an action that works out its
 own blocking from the figures as they stand: their scale, their limb
@@ -5063,6 +5080,16 @@ each a whole number of frames.
 \item
   \texttt{tie\_wrist\_loop} (Stage 6b) --- \texttt{approach} 6,
   \texttt{wind} 18, \texttt{knot} 9, \texttt{yank} 3, \texttt{let\_go} 6.
+\item
+  \texttt{reach\_and\_tighten} (Stage 6c) --- \texttt{reach} 6,
+  \texttt{cinch} 3, \texttt{tug} 8, \texttt{settle} 6.
+\item
+  \texttt{altar\_tumble\_hug} (Stage 6c) --- \texttt{embrace} 9,
+  \texttt{flex} 4, \texttt{close} 4, \texttt{tumble} 8, \texttt{land} 3,
+  \texttt{hold} 12, \texttt{let\_go} 6.
+\item
+  \texttt{hoist\_overhead} (Stage 6c) --- \texttt{grab} 3,
+  \texttt{lift} 6, \texttt{carry} 18.
 \end{itemize}
 
 \texttt{"frames\_<phase>": n} sets one phase, for example
@@ -5222,6 +5249,55 @@ Both Stage 6b routines start each phase from the figures as they are,
 so a step that gives frames to only some of their phases plays just
 those: \texttt{tie\_wrist\_loop} with only \texttt{knot} and
 \texttt{let\_go} is fiddling at the knot.
+
+\textbf{\texttt{reach\_and\_tighten}} (Milestone 6, Stage 6c).
+\texttt{who}, his wrists tied together, comes up toward \texttt{target}
+(a figure or a prop) and points both hands at it (\texttt{reach}); the
+knot cinches, the wrists jerked together, in toward him and down
+(\texttt{cinch}); he tugs them apart and each time they snap back closer
+(\texttt{tug}); he settles (\texttt{settle}). The hands are held on
+moving points (\texttt{<id>.lhand}, \texttt{<id>.rhand}); only
+\texttt{who} moves. The rope does not change state: a rope
+\texttt{tightened} round his wrists stays \texttt{tightened}, and its
+loop, which follows the wrists, gets smaller. Keys: \texttt{lean}
+(degrees his trunk comes up, default 20), \texttt{tighten} (the
+fraction of the gap the cinch leaves, default 0.4), \texttt{cycles}
+(tugs, default 1), \texttt{pose} (the pose he settles in),
+\texttt{release}. The hands go out 85\% of his arm from his shoulders;
+a tug opens the gap by 12\% of his arm.
+
+\textbf{\texttt{altar\_tumble\_hug}} (Milestone 6, Stage 6c).
+\texttt{target} sits facing \texttt{who}. He leans down, and
+\texttt{who} steps in and puts his arms round his shoulders
+(\texttt{embrace}); \texttt{target} flexes, fists up and apart: the
+rope between his wrists breaks here, a \texttt{prop\_transition} on the
+same frames (\texttt{flex}); he closes his arms round \texttt{who}
+(\texttt{close}), topples forward off his seat while \texttt{who} goes
+over backward (\texttt{tumble}), and they land in the dirt,
+\texttt{who} on his back with \texttt{target} on top, cheek to cheek
+(\texttt{land}, pose \texttt{pile\_on}); they lie there
+(\texttt{hold}) and let go (\texttt{let\_go}). Four hands are held on
+the other man's trunk, measured across it on every frame, so the hug
+holds standing, falling and lying down. Both figures move.
+\texttt{release} \texttt{false} keeps the hug. \texttt{target} leans
+in by up to 40 degrees, until his shoulders are within 45\% of
+\texttt{who}'s arm above \texttt{who}'s; \texttt{who} lands with his
+feet where they were.
+
+\textbf{\texttt{hoist\_overhead}} (Milestone 6, Stage 6c).
+\texttt{who} takes \texttt{target} round the middle (\texttt{grab}),
+puts him up over his head on straight arms, lying flat, like a
+championship belt (\texttt{lift}), and runs with him to \texttt{x}
+(\texttt{carry}: his run cycle, \texttt{target} carried along on every
+keyframe). The hands are held under \texttt{target}'s back. Both
+figures move. The lift is 95\% of \texttt{who}'s arm above his
+shoulders, so \texttt{target}'s back clears his head.
+
+The three Stage 6c routines also start each phase from the figures as
+they are: in Scene 5, \texttt{reach\_and\_tighten} with only
+\texttt{reach} points the hands during a line and leaves them out, and
+a later step with the same \texttt{id} and \texttt{reach} 0 cinches,
+tugs and settles.
 
 \textbf{How a routine is played.} A routine always runs on the frame
 clock. \texttt{pam.timeline.describe} gives its phases
@@ -6002,6 +6078,50 @@ dangle with the barbell on Isaac's shoulders, the altar built beside
 Isaac's feet, the phone upright on its rock, Isaac seated on the log
 while the rope goes round his wrists and is yanked tight on the frames
 it tightens, and the phone in Abraham's hand at the end.
+
+\textbf{Stage 6c: Scenes 5 and 6.} Scene 5 opens where Scene 4 ends,
+Isaac lying back on the altar and Abraham crouched at the rock. The
+phone slips in Abraham's shaking hands (tic \texttt{fumble\_l}) and his
+thumb lands on LIVE as he catches it; he props it on the rock and backs
+away from it, facing it. Isaac points at it with his tied hands and the
+knot cinches (\texttt{reach\_and\_tighten}). Abraham raises the knife
+handle and counts off God's instructions (\texttt{raise\_count},
+\texttt{count\_off\_l}); the satchel slips, the blade clatters across
+into the log beside Isaac, and nothing moves for 78 frames, through a
+medium shot on Isaac, the insert on the phone and a medium shot on
+Abraham, the handle still raised over his son. He runs out of fingers,
+looks at the blade, at Isaac and at the phone, and Isaac asks ``And
+then?'' quietly. In Scene 6 Abraham lays the handle down, works at the
+knot with his hands and his teeth (\texttt{bite\_knot},
+\texttt{gnaw}), and hugs his son; Isaac flexes, the rope snaps, and they
+tumble off the front of the altar (\texttt{altar\_tumble\_hug}).
+Isaac recovers the phone, Abraham revises the scroll, and Isaac hoists
+his father overhead (\texttt{hoist\_overhead}) and runs off with him,
+the scroll trailing, as the frame fades out.
+
+\textbf{\texttt{screen\_fade}}\index{screen\_fade@\texttt{screen\_fade}}
+fades the whole frame to a color, or back from it: a rectangle the size
+of the camera frame, on top of everything, whose opacity goes from 0 to
+1 (\texttt{"to": "out"}, the default) or from 1 to 0 (\texttt{"in"}).
+Keys: \texttt{frames} (or \texttt{rt}; default one second),
+\texttt{color} (default black), and, as a step of a timed block,
+\texttt{at}. The trace records the rectangle as an overlay card from
+the frame its fill shows, not how its opacity grows.
+
+The wide shots of Scenes 5 and 6 are framed on the action (\S7,
+\texttt{MARGIN}), so that the phone's display and the blade read in
+them as well as in the inserts, and their bubbles use
+\texttt{bubble\_scale} (\S14.5). New tic fragments: \texttt{fumble\_l},
+\texttt{count\_off\_l}, \texttt{gnaw}. New acting poses:
+\texttt{raise\_count}, \texttt{raise\_high}, \texttt{back\_step},
+\texttt{look\_down}, \texttt{recline\_stare}, \texttt{bite\_knot},
+\texttt{hold\_write}, \texttt{sit\_ground} and \texttt{pile\_on} (built
+on \texttt{lying\_flat\_right}). \texttt{tests/test\_performance\_6c.py}
+traces the three routines at four combinations of sizes and finds the
+key pose of every gag of the two scenes. It also checks that each scene
+opens as the one before ends, that nothing moves in the silence, that
+every bubble is inside the frame when it is shown, and that the props
+end each scene as the continuity ledger says.
 
 \chapter{Character Properties
 Reference}\label{character-properties-reference}

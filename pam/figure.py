@@ -1699,13 +1699,20 @@ class HumanGraph:
             hold=1.2, font_size=20, rt_in=0.4, rt_out=0.3,
             side="right", max_bubble_w=4.5, post_wait=0.0,
             extra_anims=None, bubble_style=None, persist=False,
-            build_only=False):
+            build_only=False, bubble_scale=1.0):
         """Pop a speech bubble above the head, hold, then dismiss.
 
         Parameters
         ----------
         side : str
             ``"right"`` (default) or ``"left"``.
+        bubble_scale : float
+            Size of the whole bubble (text, padding, its height above
+            the head, tail, widest line) relative to the usual one.
+            Default ``1.0``: as before.  For a shot framed closer than
+            the full width (Milestone 6, Stage 6c): at 0.6 a bubble in
+            a frame 0.6 of the full width looks the size it does in the
+            full-width shot.
         max_bubble_w : float
             Maximum bubble width in world units.  Default ``4.5``.
         post_wait : float
@@ -1768,8 +1775,12 @@ class HumanGraph:
         # ── pre-wrap text to fit max_bubble_w ────────────────────────────
         # Courier New at font_size 20 ≈ 0.113 world units per character.
         # Scale linearly with font_size so wrapping is always accurate.
+        k = float(bubble_scale) if bubble_scale else 1.0
+        if k != 1.0:
+            font_size = font_size * k
+            max_bubble_w = max_bubble_w * k
         char_w = 0.113 * (font_size / 20)
-        pad = 0.32
+        pad = 0.32 * k
         usable_w = max_bubble_w - pad * 2
         chars_per_line = max(10, int(usable_w / char_w))
         wrapped = textwrap.fill(text, width=chars_per_line)
@@ -1789,11 +1800,11 @@ class HumanGraph:
         x_min = -7.1 + x_margin + bw / 2
         x_max =  7.1 - x_margin - bw / 2
 
-        by = hy + 0.75
+        by = hy + 0.75 * k
         if side == "left":
-            bx = np.clip(hx - bw / 2 - 0.3, x_min, x_max)
+            bx = np.clip(hx - bw / 2 - 0.3 * k, x_min, x_max)
         else:
-            bx = np.clip(hx + bw / 2 + 0.3, x_min, x_max)
+            bx = np.clip(hx + bw / 2 + 0.3 * k, x_min, x_max)
 
         if is_os:
             # ── O.S. / phone bubble: dashed border, cooler fill ──────────
@@ -1823,17 +1834,18 @@ class HumanGraph:
             # border, dark text) ─────────────────────────────────────────
             box = RoundedRectangle(
                 width=bw, height=bh,
-                corner_radius=0.15,
+                corner_radius=0.15 * k,
                 color=bubble_col, fill_color=bubble_fill,
-                fill_opacity=1.0, stroke_width=2.4,
+                fill_opacity=1.0, stroke_width=2.4 if k == 1.0 else 2.4 * k,
             ).move_to(np.array([bx, by, 0]))
             txt.move_to(box.get_center())
 
-            tail_x = np.clip(hx, bx - bw / 2 + 0.3, bx + bw / 2 - 0.3)
+            tail_x = np.clip(hx, bx - bw / 2 + 0.3 * k,
+                             bx + bw / 2 - 0.3 * k)
             tail = Polygon(
-                np.array([tail_x - 0.12, by - bh / 2, 0]),
-                np.array([tail_x + 0.12, by - bh / 2, 0]),
-                np.array([tail_x,        by - bh / 2 - 0.28, 0]),
+                np.array([tail_x - 0.12 * k, by - bh / 2, 0]),
+                np.array([tail_x + 0.12 * k, by - bh / 2, 0]),
+                np.array([tail_x,        by - bh / 2 - 0.28 * k, 0]),
                 color=bubble_col, fill_color=bubble_fill,
                 fill_opacity=1.0, stroke_width=1.8,
             )
