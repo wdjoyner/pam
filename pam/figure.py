@@ -914,20 +914,54 @@ class HumanGraph:
         anchored at "lankle" leaves the (already torso-shifted) lankle
         position exactly invariant under the second scale.
         """
+        # Heights are scaled about the anchor joint's height in the
+        # build's standing pose (the floor, for an ankle), not about
+        # where the anchor joint is in *this* pose.  Otherwise a pose
+        # that lifts the anchor foot (a walk or run keyframe, a kick, a
+        # jump) lifts the whole scaled figure by (1 - scale) times the
+        # lift: Abraham, at 0.48, rose half a unit at every step.  A
+        # pose with the anchor on the floor is scaled exactly as before.
+        # Across the body, the anchor joint still stays where it is.
         out = pose
+        ref = self._scale_reference()
         if self.is_scaled:
+            a = self._scale_anchor
             out = scale_pose(out, sy=self._scale_sy, sx=self._scale_sx,
-                             anchor=self._scale_anchor)
+                             anchor=a)
+            if ref is not None and a in ref and a in pose:
+                dy = (1.0 - self._scale_sy) * (float(ref[a][1])
+                                              - float(pose[a][1]))
+                if dy:
+                    lift = np.array([0.0, dy, 0.0])
+                    out = {k: v + lift for k, v in out.items()}
+                ref = scale_pose(ref, sy=self._scale_sy,
+                                 sx=self._scale_sx, anchor=a)
         ds = getattr(self, "depth_scale", 1.0)
         if ds != 1.0:
             ground = getattr(self, "_depth_ground_joint", "lankle")
             if ground in out:
+                before = float(out[ground][1])
                 out = scale_pose(out, sy=ds, sx=ds, anchor=ground)
+                if ref is not None and ground in ref:
+                    dy = (1.0 - ds) * (float(ref[ground][1]) - before)
+                    if dy:
+                        lift = np.array([0.0, dy, 0.0])
+                        out = {k: v + lift for k, v in out.items()}
             # else: no ground joint by this name on this build — fall
             # through unscaled by depth rather than raising, matching
             # PAM's warn-and-continue philosophy elsewhere. (Shouldn't
             # happen for HumanGraph/AlienGraph builds shipped in PAM.)
         return out
+
+    def _scale_reference(self):
+        """The build's standing pose, whose joint heights the body and
+        depth scales are anchored at (see ``_apply_scale``); None when
+        the figure has none."""
+        bp = getattr(self, "_bp", None) or {}
+        ref = bp.get("standing_side") or bp.get("standing_front")
+        if not isinstance(ref, dict):
+            return None
+        return ref
 
     def _inv_scale_x(self) -> float:
         """Inverse of the TOTAL x-scale (body-scale * depth-scale)

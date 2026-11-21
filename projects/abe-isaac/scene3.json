@@ -746,18 +746,10 @@
   "action": "perform",
   "id": "s03_father_of_nations",
   "phases": {
-   "anticipation": 5,
    "action": 26,
    "recovery": 6
   },
   "do": [
-   {
-    "phase": "anticipation",
-    "action": "morph",
-    "who": "abraham",
-    "pose": "kneel_proud_left",
-    "until": "anticipation"
-   },
    {
     "phase": "action",
     "action": "say",
@@ -771,16 +763,17 @@
    {
     "phase": "action",
     "action": "react",
-    "at": 4,
+    "at": 2,
     "who": "abraham",
-    "fragment": "chest_pat_r",
-    "frames": 8
+    "fragment": "pant",
+    "cycles": 3,
+    "frames": 18
    },
    {
     "phase": "recovery",
     "action": "morph",
     "who": "abraham",
-    "pose": "crawl_a_left",
+    "pose": "crawl_b_left",
     "until": "recovery"
    }
   ]

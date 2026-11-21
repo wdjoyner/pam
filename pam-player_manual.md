@@ -387,7 +387,7 @@ Declares cast members before they are faded in.
 - `offset` — `[x, y, z]`
 - `style` — style dict
 - `build` — body build, usually `default`, `narrow`, `broad`, `alien`
-- `scale` — dict with `sx`, `sy`, `anchor`
+- `scale` — dict with `sx`, `sy`, `anchor`. The anchor joint keeps its place across the body; heights are scaled about the anchor's height in the build's standing pose (the floor, for an ankle), so a walk keyframe that lifts the anchor foot does not lift the whole figure
 - `color` — color hex
 - `torso_color` — second color for torso zone
 - `gender` — figure-dependent preset
@@ -1221,7 +1221,6 @@ Use them with `morph`, `turn` or `fade_in`'s `pose`.
 | `catch_breath` *(6b)* | side | bent over, hands on the knees |
 | `climb_reach` *(6b)* | side | both hands on a ledge at hip height, a knee coming up onto it |
 | `crawl_a`, `crawl_b` *(6b)* | side | on hands and knees; the two keyframes of a crawl |
-| `kneel_proud` *(6b)* | side | kneeling up tall, a hand on the chest |
 | `proud` *(6b)* | side | standing tall: chin up, a hand on the chest, the other on the hip |
 | `topple` *(6b)* | side | pitching forward off the feet, arms flung out |
 | `dangle`, `dangle_point_up` *(6b)* | side | hanging by the collar, arms limp, toes down; and pointing up while hanging |

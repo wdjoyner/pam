@@ -180,7 +180,7 @@ def test_vertical_fragments_read_the_same_facing_either_way(name):
 
 
 NEW_POSES = ("catch_breath", "crawl_a", "crawl_b", "climb_reach", "stagger",
-             "kneel_proud", "proud", "topple", "dangle", "dangle_point_up",
+             "proud", "topple", "dangle", "dangle_point_up",
              "hop_crouch", "hop_tuck", "foot_nudge", "crouch_reach_r",
              "crouch_reach_l", "sit_side",
              "sit_wrists_out", "recline_elbows", "recline_point",

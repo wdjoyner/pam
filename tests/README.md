@@ -60,6 +60,7 @@ something extra and are skipped without it:
 | `test_fountain_cues.py` | Milestone 5. Beat notes change nothing without a cue file; a cued action or line compiles to a copy of its cue, an empty cue to nothing, an uncued beat as before; the cue report (orphaned cues, beats without cues, duplicates, notes that are not identifiers, cues filed under another scene); malformed cue files; the project's source is the recorded copy of the script, and its scene files are what `fountain2pam.py --project` compiles; no invented cast or props in a project. `pam/shot_targets.py` on its own (the frame for a box, closing in on text, the steps of a shot), the validator on `fit` and `margin`, a fitted cut in a timed block, and an insert without `fit` framed as before. The roadmap's completion test (below). |
 | `test_performance.py` | Milestone 6, Stage 6a. The `perform` action: steps placed by acting phase, `until`, a routine's phases given by acting phase, the problems it reports; retiming one phase moves exactly the steps it should and rewrites nothing. `react` with `fragment` (a tic on the frame clock) and `sound_cue` on exact frames; a tic is a pose writer. The acting poses keep the bones and the shoulders of each build and have mirrors facing left. The `barbell` and `magazine` props; the cue file's `scenes.<id>.say`. Traced: a small scene played with two phase tables (the timing changes as expected and a tic returns to its pose), and Scenes 1 and 2 of the project, with the key pose of every gag (below). |
 | `test_performance_6b.py` | Milestone 6, Stage 6b. The routines `catch_by_collar` and `tie_wrist_loop`: known to the player, the validator and `perform`; `release: false` and a last phase of 0 frames keep the hold; the catch moves both figures and the tie only the one who ties. The new tic fragments and acting poses (crawling on hands and knees, seated with the feet on the ground, lying back, hanging, the heroic poses). Every cue of Scenes 3 and 4 compiled, the routines on beat notes of action lines, no prose left to stage, no invented dialogue. Traced: the catch and the tie at four combinations of sizes, and Scenes 3 and 4 of the project, with the key pose of every gag (below). |
+| `test_scale_anchor.py` | A scaled figure does not bob when it walks: through every walk and run keyframe the lower foot is where the scaled pose puts it and the head rises only as much as the pose's own head; a pose with the anchor on the floor is scaled as before; nothing changes across the body; the depth scale behaves the same; an unscaled figure is untouched. No renderer. |
 | `test_validate.py` | The JSON validator and the `pam-validate` command, including what they report for each fixture. |
 | `test_action_specs.py` | `pam/action_specs.py` lists exactly the actions `pam_player.py` dispatches. |
 | `test_fountain2pam_warnings.py` | `fountain2pam.py --warnings-json`, and that the validator reports the same `# REVIEW` comments. |
@@ -114,6 +115,14 @@ version label at that commit, the tolerance, and the recording environment
 (Python, Manim, platform). Each fixture also has a `recorded_at` entry; the
 `lucy-meets-lenny2_pam.json` trace was recorded again after that fixture was
 corrected.
+
+Eight of the nine traces were recorded again (each has a new
+`recorded_at`) when scaled figures stopped bobbing as they walk
+(`test_scale_anchor.py`): only heights changed, of the joints of scaled
+figures in poses that lift the anchor foot (walk and run keyframes, the
+lean of `pull_immovable`) and of the props and rope those figures carry;
+no horizontal position, frame or timing changed. `abe-isaac_knife-break.json`
+did not change.
 
 ### When a golden test fails
 

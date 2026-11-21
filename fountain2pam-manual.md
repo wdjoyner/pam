@@ -1387,7 +1387,7 @@ Stage 6b syntax, which the compiler copies as it is:
   by giving the other phases 0 frames;
 - the tic fragments `pant`, `leg_kick`, `tremble`, `bar_bounce` and
   `wrist_tug`;
-- 22 more acting poses (crawling, climbing, catching his breath,
+- 21 more acting poses (crawling, climbing, catching his breath,
   dangling, sitting sideways and lying back, a heroic pose, ...).
 
 A beat with a cue may stand on a line of dialogue as well as on an action

@@ -226,15 +226,6 @@ ACTING_POSES = {
                 "set": {"lwrist": ("lshoulder", 0.35, -1.55),
                         "rwrist": ("rshoulder", 0.22, -1.60),
                         "head":   ("head", 0.08, -0.06)}},
-    # kneeling up tall, a hand on his chest: a declaration
-    "kneel_proud": {"base": "standing_side",
-                    "move": {"lower": (0.0, -1.02)},
-                    "bends": {"lankle": 1, "rankle": 1},
-                    "set": {"lankle": ("lhip", -0.98, -1.26),
-                            "rankle": ("rhip", -1.12, -1.26),
-                            "rwrist": ("rshoulder", 0.30, -0.55),
-                            "lwrist": ("lhip", -0.25, 0.30),
-                            "head":   ("head", -0.05, 0.08)}},
     # standing tall: chin up, a hand on his chest, the other on his hip
     "proud": {"base": "standing_side", "set": {
         "rwrist": ("rshoulder", 0.30, -0.55),

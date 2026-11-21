@@ -4205,18 +4205,10 @@
      "action": "perform",
      "id": "s03_father_of_nations",
      "phases": {
-      "anticipation": 5,
       "action": 26,
       "recovery": 6
      },
      "do": [
-      {
-       "phase": "anticipation",
-       "action": "morph",
-       "who": "abraham",
-       "pose": "kneel_proud_left",
-       "until": "anticipation"
-      },
       {
        "phase": "action",
        "action": "say",
@@ -4230,22 +4222,23 @@
       {
        "phase": "action",
        "action": "react",
-       "at": 4,
+       "at": 2,
        "who": "abraham",
-       "fragment": "chest_pat_r",
-       "frames": 8
+       "fragment": "pant",
+       "cycles": 3,
+       "frames": 18
       },
       {
        "phase": "recovery",
        "action": "morph",
        "who": "abraham",
-       "pose": "crawl_a_left",
+       "pose": "crawl_b_left",
        "until": "recovery"
       }
      ]
     }
    ],
-   "note": "He rises up on his knees on the rock to say it, a hand on his chest, then crawls on."
+   "note": "Said from his hands and knees on the rock, out of breath; then he crawls on."
   },
   "s03_catch": {
    "scene": "scene3",
