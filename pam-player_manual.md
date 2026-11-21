@@ -955,25 +955,30 @@ A routine is an action that works out its own blocking from the figures as they 
 {"action": "slip_on_back", "who": "abraham", "frames": 4}
 {"action": "cork_pop_up", "who": "isaac", "target": "abraham"}
 {"action": "mismatched_hug", "who": "abraham", "target": "isaac", "frames_squeeze": 18}
+{"action": "catch_by_collar", "who": "isaac", "target": "abraham", "release": false}
+{"action": "tie_wrist_loop", "who": "abraham", "target": "isaac", "cycles": 3}
 ```
 
 A routine is a step like any other: at the top level, in a `sequence`, or in a timed `parallel` block (with `at`), where it overlaps dialogue, camera cuts and other actors.
 
 ### Phases
 
-The three two-figure routines are made of phases that follow one another, each a whole number of frames.
+The two-figure routines are made of phases that follow one another, each a whole number of frames.
 
 | Routine | Phases and their default lengths in frames |
 |---|---|
 | `pull_immovable` | `reach` 6, `pull` 12, `strain` 12 |
 | `cork_pop_up` | `offer` 6, `accept` 6, `pop` 3, `land` 2, `hold` 9 |
 | `mismatched_hug` | `approach` 6, `reach` 6, `squeeze` 12, `release` 6 |
+| `catch_by_collar` *(Stage 6b)* | `slip` 3, `catch` 3, `dangle` 18, `set_down` 9 |
+| `tie_wrist_loop` *(Stage 6b)* | `approach` 6, `wind` 18, `knot` 9, `yank` 3, `let_go` 6 |
 
 - `"frames_<phase>": n` sets one phase, for example `"frames_strain": 20`. `0` skips the phase
 - `"frames": n` sets the whole routine. The phases that were not set one by one share what is left, in proportion to their defaults, at least one frame each
 - each phase starts a beat named `<id>.<phase>` (`pull.strain`), reported on the console and written to the trace
+- a phase given 0 frames is skipped, and its moves are not made. The two Stage 6b routines start each phase from the figures as they are, so a step that gives frames to only some of their phases plays just those (see below)
 
-### Keys common to the three routines
+### Keys common to the routines
 - `who`, `target` — the two figures (required; human figures)
 - `id` — name for reports, beats and the routine's constraints (default `<action>_<who>`)
 - `frames`, `frames_<phase>` — see above
@@ -1031,11 +1036,66 @@ How wide `target`'s body is at the height of `who`'s shoulders: the torso outlin
 PAMPlayer: mismatched_hug 'hug' (abraham -> isaac) ran frames 97-127; arm 0.8648, width 0.9964, ..., reaches_around False, shortfall 0.3278
 ```
 
+## `catch_by_collar` *(Stage 6b)*
+
+`target` (standing on a rock, say) pitches forward toward `who` (`slip`), and `who`'s hand shoots out to meet his collar as he falls; the hand closes on it and he is hoisted up (`catch`); he hangs at arm's length, kicks, and goes limp (`dangle`); `who` lowers him onto his feet on the ground `who` stands on and lets go (`set_down`). The hand is held on the collar by a constraint, `<id>.collar`, from the slip to the set-down. `who` does not take a step, and nothing but his catching arm moves.
+
+```json
+{"action": "perform", "id": "s03_catch",
+ "phases": {"anticipation": 14, "action": 6, "reaction": 20, "recovery": 10},
+ "do": [
+   {"phase": "action", "action": "catch_by_collar", "id": "catch",
+    "who": "isaac", "target": "abraham",
+    "frames_slip": "action", "frames_catch": "action",
+    "frames_dangle": "reaction", "release": false},
+   {"phase": "recovery", "action": "wait", "until": "recovery", "beat": "dangles"}]}
+...  five lines of dialogue, and a shrug and a finger up, while he hangs ...
+{"action": "catch_by_collar", "id": "catch", "who": "isaac", "target": "abraham",
+ "frames_slip": 0, "frames_catch": 0, "frames_dangle": 0, "frames_set_down": 9}
+```
+
+### Keys
+- `joint` — the catching hand (default: the one toward `target`)
+- `target_joint` — what it takes hold of (default `neck`: the collar); any joint
+- `cycles` — kicks in `dangle` (default 2; 0 hangs still)
+- `lift` — how far the hanging feet clear the ground at least, as a fraction of `target`'s leg length (default 0.25)
+- `pose` — the pose `target` is set down in (default `standing_side`, turned to face `who`)
+- `release` — `false`: no `set_down`. He stays hanging, and the hand stays on his collar, through the steps that follow, until a later `catch_by_collar` with the same `id` and only `set_down` (its other phases 0) puts him down, or a `release` of `<id>.collar`. Giving `set_down` 0 frames does the same
+
+### What it measures
+`who`'s arm and shoulder, and how far `target`'s collar is above his feet when he hangs (the pose `dangle`). The catch point is in front of the shoulder, at its height, 82% of the arm's length away; it is raised (the arm angled up) if the hanging feet would not otherwise clear the ground by `lift`, and moved out if the hanging body would overlap `who`'s. On the set-down the collar is kept within reach, so `target` lands as near `who` as his arm needs. The console reports the catch height, the hang, the clearance, `feet_clear`, and the shortfall.
+
+## `tie_wrist_loop` *(Stage 6b)*
+
+`who` steps up in front of `target`'s held-out wrists, his hand going up to the coil on his shoulder (`approach`); winds his hands round the wrists in loops that get bigger and wilder, bobbing as he goes (`wind`); fiddles at the knot (`knot`); yanks it tight, jerking back half a step (`yank`); and lets go (`let_go`). The hands are held on moving points (`<id>.rhand`, `<id>.lhand`) measured on `target`'s wrists on every frame, so they follow him. The rope is not part of the routine: give it a `prop_transition` on the same frames. Only `who` moves.
+
+```json
+{"action": "perform", "id": "s04_winds_rope",
+ "phases": {"anticipation": 6, "action": 24, "reaction": 8, "recovery": 6},
+ "do": [
+   {"phase": "anticipation", "action": "tie_wrist_loop", "id": "tie",
+    "who": "abraham", "target": "isaac",
+    "frames_approach": "anticipation", "frames_wind": "action",
+    "frames_knot": "reaction", "frames_yank": 0, "frames_let_go": "recovery"},
+   {"phase": "action", "action": "prop_transition", "prop": "rope", "to": "tied",
+    "until": "action",
+    "attached": {"to": "isaac", "joints": ["lwrist", "rwrist"], "mode": "around"}}]}
+```
+
+### Keys
+- `cycles` — loops in `wind` (default 3)
+- `release` — `false`: no `let_go`; the hands stay on the knot. Giving `let_go` 0 frames does the same
+
+Each phase starts from the figures as they are, so the phases can be played apart: a step with only `knot` and `let_go` is fiddling at the knot (`"frames_approach": 0, "frames_wind": 0, "frames_yank": 0`); one with only `knot`, `yank` and `let_go` yanks it tight.
+
+### What it measures
+`target`'s wrists, on every frame, and `who`'s arms. `who` stands on the side of the wrists away from `target`'s body, facing them, his shoulders 55% of his arm's length from the knot; the loops' radius is at most 30% of his arm, and less if the knot is far above or below his shoulder. The console reports the arm, the step in, how far the knot is above his shoulder, the radius, the loops, and the hands' shortfall.
+
 ### Notes on all routines
 - every position is measured on the frame the routine starts, from the figures' joints after body scale, depth rescale and rotation. No routine contains a stage coordinate
 - a routine slides `who` to its stance. If that is more than about a leg and a half away the console says so; walk him closer first
 - the contacts are ordinary constraints, so the four rules of the solver apply. A routine that cannot reach says so and plays anyway
-- a routine sets the whole pose of the figures it moves (`who`; for `cork_pop_up` also `target`), so no other step may move them on the same frames: `pam-validate` reports an error
+- a routine sets the whole pose of the figures it moves (`who`; for `cork_pop_up` and `catch_by_collar` also `target`), so no other step may move them on the same frames: `pam-validate` reports an error. A hold that a routine leaves in force (`release: false`) is a constraint, and other steps may move the figures under it
 - `abe-isaac_scene2-gags.json` plays all four routines, two of them inside timed blocks
 
 ## Acting in four phases: `perform` (Milestone 6)
@@ -1111,6 +1171,17 @@ last piece returns it to that pose.
 | `startle` | the whole body jumps a little |
 | `chest_pat_r` | a hand pats the chest twice |
 
+### Fragments added in Stage 6b
+| Fragment | What it does |
+|---|---|
+| `pant` | the shoulders, head and hands heave up and drop: out of breath |
+| `leg_kick` | the legs kick, one forward and one back, then the other way (a man hanging in the air) |
+| `tremble` | both hands shake, a little and quickly, so that a prop held in either one trembles (repeat with `cycles`) |
+| `bar_bounce` | the shoulders hitch up and drop, and what rides on them (the barbell) bounces |
+| `wrist_tug` | tied wrists tugged apart and let go: testing the knot |
+
+`pant`, `bar_bounce` and `wrist_tug` move joints only up and down, so they read the same on a figure facing either way.
+
 A tic sets the figure's whole pose, so it may not overlap another move
 of the same figure (`pam-validate` reports an error).
 
@@ -1146,6 +1217,24 @@ Use them with `morph`, `turn` or `fade_in`'s `pose`.
 | `lift_squat`, `lift_chest`, `lift_overhead` | front | a weight lifted from the floor to overhead |
 | `tuck_r` | front | something carried under the right arm |
 | `sit_write`, `sit_admire`, `sit_study`, `sit_startle`, `sit_look_r`, `sit_reach_satchel` | sitting | seated with a scroll on the lap: writing, the quill lifted, bent over it, startled, looking off, reaching to the satchel |
+| `stagger` *(6b)* | side | hunched and heavy-footed, arms hanging |
+| `catch_breath` *(6b)* | side | bent over, hands on the knees |
+| `climb_reach` *(6b)* | side | both hands on a ledge at hip height, a knee coming up onto it |
+| `crawl_a`, `crawl_b` *(6b)* | side | on hands and knees; the two keyframes of a crawl |
+| `kneel_proud` *(6b)* | side | kneeling up tall, a hand on the chest |
+| `proud` *(6b)* | side | standing tall: chin up, a hand on the chest, the other on the hip |
+| `topple` *(6b)* | side | pitching forward off the feet, arms flung out |
+| `dangle`, `dangle_point_up` *(6b)* | side | hanging by the collar, arms limp, toes down; and pointing up while hanging |
+| `hop_crouch`, `hop_tuck` *(6b)* | side | the spring before a bound, arms swung back; in the air, knees tucked |
+| `foot_nudge` *(6b)* | side | a foot pushed forward along the ground |
+| `crouch_reach_r`, `crouch_reach_l` *(6b)* | side | a deep crouch, the right (or left) hand reaching down in front |
+| `sit_side`, `sit_wrists_out` *(6b)* | side | seated sideways on something knee high, hands on the thighs; holding out both wrists to be tied |
+| `recline_elbows`, `recline_point` *(6b)* | side | lying back propped on the elbows, the hands together on the chest; and pointing with both hands |
+| `headline` *(6b)* | front | both hands up and apart: a headline in lights |
+| `hero` *(6b)* | front | fists on hips, chin up |
+| `hero_shade` *(6b)* | front | one fist on a hip, the other hand shading the eyes |
+
+Poses that crawl, sit or lie back pitch the trunk with the key `bend` (degrees, about the middle of the hips, toward the way the figure faces), and some choose which way an elbow or knee bends with `bends`; a knee is solved whenever its ankle is placed. These are keys of the pose tables in `pam/acting_poses.py`, not of a screenplay.
 
 ## Stateful props
 

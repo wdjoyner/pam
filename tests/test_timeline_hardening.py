@@ -99,7 +99,8 @@ def test_every_pose_writer_counts():
     assert specs.TIMELINE_POSE_WRITERS == {
         "morph", "turn", "scale", "slip_on_back", "walk_to", "run_to",
         "trot_to", "pull_immovable", "cork_pop_up", "mismatched_hug",
-        "react"}     # (Milestone 6: a tic, react with fragment)
+        "react",     # (Milestone 6: a tic, react with fragment)
+        "catch_by_collar", "tie_wrist_loop"}     # (Stage 6b)
     pairs = [
         ({"action": "turn", "who": "a", "pose": "standing_front",
           "frames": 9},

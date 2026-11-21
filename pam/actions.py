@@ -106,7 +106,8 @@ def rush_into_start(t: float) -> float:
 from pam.poses import _v, scale_pose, STANDING_FRONT
 from pam import hooks as _hooks
 from pam.choreography import (act_slip_on_back, act_pull_immovable,
-                               act_cork_pop_up, act_mismatched_hug)
+                               act_cork_pop_up, act_mismatched_hug,
+                               act_catch_by_collar, act_tie_wrist_loop)
 from pam.tics import TIC_FRAGMENTS, fragment_applies, get_fragment
 from pam.actions_interactions import (
     act_kiss, act_hold_hands, act_hand_to, act_pat_head,
@@ -3482,6 +3483,8 @@ ACTION_REGISTRY: dict[str, callable] = {
     "pull_immovable":  act_pull_immovable,
     "cork_pop_up":     act_cork_pop_up,
     "mismatched_hug":  act_mismatched_hug,
+    "catch_by_collar": act_catch_by_collar,
+    "tie_wrist_loop":  act_tie_wrist_loop,
     "pick_up_phone":   act_pick_up_phone,
     "hang_up":         act_hang_up,
     # ── new v0.9.6 additions ──

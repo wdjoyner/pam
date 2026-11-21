@@ -15,7 +15,8 @@ Errors (the screenplay is rejected)
       that does not end a limb, or (``joint_to_prop``,
       ``joint_to_point``) a bad ``point``;
     * a choreography routine (``pull_immovable``, ``cork_pop_up``,
-      ``mismatched_hug``) without its ``who`` and ``target``, or with
+      ``mismatched_hug``, ``catch_by_collar``, ``tie_wrist_loop``)
+      without its ``who`` and ``target``, or with
       the same character as both;
     * steps the player cannot read at all (not an object, or no
       ``"action"`` key and no annotation key).
@@ -394,7 +395,8 @@ class _Validator:
             if d["kind"] in ("anim", "loco", "routine", "tic"):
                 who = sub.get("who") or sub.get("prop")
                 names = who if isinstance(who, list) else [who]
-                if act == "cork_pop_up":    # it moves both figures
+                if act in ("cork_pop_up", "catch_by_collar"):
+                    # it moves both figures
                     names = names + [sub.get("target")]
                 for name in names:
                     if isinstance(name, str) and start is not None:
@@ -556,13 +558,14 @@ class _Validator:
             v = step.get(key)
             if v is None or not isinstance(v, str) or v not in self.joints:
                 continue                # (bad names: check_joints)
-            if act == "mismatched_hug":
+            if act in ("mismatched_hug", "tie_wrist_loop"):
                 self.add(WARNING, "timeline-key",
-                         f"'{key}' has no meaning for mismatched_hug "
+                         f"'{key}' has no meaning for {act} "
                          f"(both arms are used); it is ignored", index,
                          act, f"{path}{key}")
-            elif v not in hands and not (act == "pull_immovable"
-                                         and key == "target_joint"):
+            elif v not in hands and not (
+                    act in ("pull_immovable", "catch_by_collar")
+                    and key == "target_joint"):
                 self.add(WARNING, "timeline-key",
                          f"'{key}' must be lwrist or rwrist for {act}; "
                          f"the routine chooses a hand", index, act,
@@ -578,11 +581,18 @@ class _Validator:
             for msg in tl.describe(step)["problems"]:
                 self.add(WARNING, "timeline-key", msg, index, act,
                          path.rstrip("."))
-        # constraints the routine leaves in force
-        if step.get("release", True) is False and isinstance(who, str):
+        # constraints the routine leaves in force (a routine of Stage
+        # 6b also leaves them when its last phase is given 0 frames)
+        last = {"catch_by_collar": "set_down",
+                "tie_wrist_loop": "let_go"}.get(act)
+        keeps = step.get("release", True) is False or (
+            last is not None and step.get(f"frames_{last}") == 0)
+        if keeps and isinstance(who, str):
             rid = step.get("id") or f"{act}_{who}"
             left = {"pull_immovable": ("grip", "root"),
-                    "mismatched_hug": ("upper", "lower")}.get(act, ())
+                    "mismatched_hug": ("upper", "lower"),
+                    "catch_by_collar": ("collar",),
+                    "tie_wrist_loop": ("rhand", "lhand")}.get(act, ())
             for name in left:
                 if name == "root" and step.get("lock", True) is False:
                     continue

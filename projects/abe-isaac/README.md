@@ -3,12 +3,12 @@
 The six scenes of the short, compiled from the screenplay (Milestone 5
 of *PAM: The Road to Blender*), with the prop continuity of Milestone 4
 (Stages 4a, 4b and 4c): the knife, the phone, the scroll and the rope.
-Scenes 1 and 2 are performed (Milestone 6, Stage 6a): every gag is
-acted in four phases (`perform`), with mannerisms (`react` with
-`fragment`), holds, and speech bubbles. Scenes 3 to 6 are still
-blocking for the props (Stages 6b and 6c): the characters stand, walk a
-little and speak their lines, and the knife, the phone, the scroll and
-the rope do everything Draft 3 of the script has them do.
+Scenes 1 to 4 are performed (Milestone 6, Stages 6a and 6b): every gag
+is acted in four phases (`perform`), with mannerisms (`react` with
+`fragment`), holds, and speech bubbles. Scenes 5 and 6 are still
+blocking for the props (Stage 6c): the characters stand, walk a little
+and speak their lines, and the knife, the phone, the scroll and the rope
+do everything Draft 3 of the script has them do.
 
 | File | What it holds |
 |---|---|
@@ -82,6 +82,56 @@ barbell becomes the altar").
 The Milestone 3 fixture `abe-isaac_scene2-gags.json` has two lines that
 are not in the script ("Up you get." and "My boy."); the scene does not
 use them.
+
+## Scenes 3 and 4 (Milestone 6, Stage 6b)
+
+Scenes 3 and 4 are performed the same way. The script has a beat note on
+every line PAM acts (24 new; see its revision log), and the scene files
+have no `# REVIEW` comment left: every action line is staged.
+
+Scene 3 travels from right to left, as Scene 2 left the cave, past one
+rock (a prop local to the scene). Isaac's bubbles are on his right and
+Abraham's on his right (`scenes.scene3.say`): Isaac is always to his
+father's left.
+
+| Beat | What is acted |
+|---|---|
+| `s03_climb` | an empty path; Isaac strides in at an even pace, the barbell riding on his shoulders, arms swinging; Abraham staggers in after him in short walks, hunched over between them (pose `stagger`) |
+| `s03_the_plan` | Isaac lays out the plan looking back at his father, strolls on and waits again; Abraham plods after him |
+| `s03_catch_breath` | Abraham bent double, hands on knees, heaving (`catch_breath`, tic `pant`); Isaac stands and waits without moving a joint |
+| `s03_morality` ... `s03_no_improvising` | the line gasped bent over; a headline in lights (`headline`); a nod and a wagging finger |
+| `s03_bounds_over_rock` | Isaac crouches and bounds over the rock in one leap (`hop_crouch`, `hop_tuck`), strolls on and turns to watch |
+| `s03_climbs_rock` | Abraham's hands on the rock (`climb_reach`); he hauls himself up, slides back to the ground, hauls again, and crawls along the top (`crawl_a`, `crawl_b`) |
+| `s03_father_of_nations` | he rises up on his knees on the rock to say it, a hand on his chest (`kneel_proud`, tic `chest_pat_r`) |
+| `s03_catch` | `catch_by_collar`: he stands up on the top (`proud`) and steps to its edge; his sandal slips (the `slip`, pose `topple`); Isaac's hand takes him by the collar and hoists him up (`catch`); he kicks and goes limp (`dangle`); the hold is left in force |
+| `s03_lamb` ... `s03_provide` | said while he hangs: Isaac looks about him; Abraham shrugs; the barbell bounces on Isaac's shoulders (`bar_bounce`); a finger up to heaven (`dangle_point_up`). "He provided the knife." is said flat |
+| `s03_sets_down` | a beat; `catch_by_collar` with only its `set_down`; Abraham gives himself a shake; Isaac walks on and Abraham staggers after him |
+
+In Scene 4 Isaac used to stand where the altar is built; he now drops
+the barbell, steps to its end (x 3.3), and builds the altar beside him.
+Isaac's bubbles are on his right and Abraham's on his left.
+
+| Beat | What is acted |
+|---|---|
+| `s04_builds_altar` | Abraham, still blown from the climb, pants; Isaac lifts the barbell off his shoulders and drops it (THUD!, and Abraham jumps); he steps to its end, squats, and the altar goes up beside him; Abraham straightens the left boulder, Isaac comes round and nudges it back with his foot (`foot_nudge`); a shrug and a nod |
+| `s04_props_phone`, `s04_heroic_pose` | Isaac crouches at the little rock (`crouch_reach_r`) and props his phone on it; back by the altar he strikes the pose (`hero`), and Abraham tries it (`hero_shade`); the image is held |
+| `s04_handle_not_blade` | a finger up |
+| `s04_takes_pieces_out`, `s04_blade_into_satchel` | the Stage 4a steps, with his hand going into the satchel and a look at the pieces |
+| `s04_sits_on_altar` | Isaac sits back on the log, facing his father (`sit_side`), and holds out his wrists (`sit_wrists_out`) |
+| `s04_winds_rope` | `tie_wrist_loop`: Abraham takes the coil from his shoulder as he steps up, winds it round Isaac's wrists in loops that get bigger and wilder (the rope goes from his shoulder to the wrists, state `tied`, on the same frames), fiddles at the knot and lets go; the knife handle stays in his other hand |
+| `s04_looser` ... `s04_before_you_were_born` | a shake of the head; "I'm tying a bow." said fiddling at the knot (`tie_wrist_loop`, only `knot`); a nod and a shrug; chin up, hand on chest (`proud`) |
+| `s04_yanks_knot` | `tie_wrist_loop`, `knot` and `yank`: the knot yanked tight in three frames (state `tightened` on the same frames), Abraham jerking back; Isaac tugs at it (`wrist_tug`); it holds; a shrug; he lies back on his elbows (`recline_elbows`) |
+| `s04_press_red` | both tied hands point at the phone (`recline_point`) |
+| `s04_picks_up_phone`, `s04_red_button` | Abraham walks to the rock, crouches for the phone (`crouch_reach_l`), comes back and holds it out; the insert holds the LIVE button 18 frames |
+| `s04_rehearses` | a nod; he counts on his fingers, phone in one hand and handle in the other (`count_tap_r`), and his hands shake (`tremble`); he turns and goes to the rock to lean the phone back against it, and the scene ends with him crouched there |
+
+The prop transitions of both scenes are the Milestone 4 steps, in the
+same order: the ledger is unchanged.
+
+Two things for Stage 6c: Scene 5 is "CONTINUOUS", and still opens with
+Isaac standing at the cast position with his wrists held out and Abraham
+at x -1.2; Scene 4 now ends with Isaac lying back on the altar and
+Abraham crouched at the rock with the phone.
 
 ## How the scenes are compiled
 

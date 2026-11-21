@@ -148,6 +148,11 @@ ROUTINE_PHASES = {
                        ("land", 2), ("hold", 9)),
     "mismatched_hug": (("approach", 6), ("reach", 6), ("squeeze", 12),
                        ("release", 6)),
+    # Stage 6b (Scenes 3 and 4)
+    "catch_by_collar": (("slip", 3), ("catch", 3), ("dangle", 18),
+                        ("set_down", 9)),
+    "tie_wrist_loop":  (("approach", 6), ("wind", 18), ("knot", 9),
+                        ("yank", 3), ("let_go", 6)),
 }
 TIMELINE_ROUTINES = frozenset(ROUTINE_PHASES)
 
@@ -155,6 +160,8 @@ TIMELINE_ROUTINES = frozenset(ROUTINE_PHASES)
 # (action, key, value) -> the phase that is dropped.
 ROUTINE_OPTIONAL_PHASE = {
     ("mismatched_hug", "release", False): "release",
+    ("catch_by_collar", "release", False): "set_down",
+    ("tie_wrist_loop", "release", False): "let_go",
 }
 
 
@@ -245,6 +252,10 @@ REFERENCE_OVERRIDES = {
     ("cork_pop_up", "target"):      "character",
     ("mismatched_hug", "who"):      "character",
     ("mismatched_hug", "target"):   "character",
+    ("catch_by_collar", "who"):     "character",
+    ("catch_by_collar", "target"):  "character",
+    ("tie_wrist_loop", "who"):      "character",
+    ("tie_wrist_loop", "target"):   "character",
     # a hand held on a prop (constrain, type joint_to_prop)
     ("constrain", "prop"):          "prop",
     # two-character interactions

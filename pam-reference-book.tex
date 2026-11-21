@@ -943,7 +943,10 @@ subject's bounding box (\texttt{pam/shot\_targets.py}).
 (\texttt{perform}), tics on the frame clock (\texttt{react} with
 \texttt{fragment}), acting poses built on each build, \texttt{sound\_cue}
 on exact frames, the \texttt{barbell} and \texttt{magazine}, and Scenes
-1 and 2 of the short performed. All opt-in. See \S14. \\
+1 and 2 of the short performed. \textbf{Stage 6b}: the routines
+\texttt{catch\_by\_collar} and \texttt{tie\_wrist\_loop}, five more tics,
+22 more acting poses, and Scenes 3 and 4 performed. All opt-in. See
+\S14. \\
 0.9.23 & Backburner items 10--11, 18, and item-6 Option C.
 \textbf{2.5D depth system} (items 10--11): optional
 \texttt{"depth"}/\texttt{"rescale"} on cast and props entries;
@@ -4522,8 +4525,8 @@ active at once.
 timeline, constraints, choreography and stateful props}\label{runtime-additions-timeline}\index{timeline}\index{frame clock}
 
 Milestones 1 to 5 of \emph{PAM: The Road to Blender} (Milestone 4 in
-three stages, 4a, 4b and 4c), its vertical slice, and Stage 6a of
-Milestone 6. Everything in this section
+three stages, 4a, 4b and 4c), its vertical slice, and Stages 6a and
+6b of Milestone 6. Everything in this section
 is opt-in: a screenplay that uses none
 of the keys and actions below is loaded, played and traced exactly as
 before. The modules are \texttt{pam/timeline.py},
@@ -5009,7 +5012,7 @@ ledger without writing to it.
 The regression tests are in \texttt{tests/}; \texttt{tests/README.md}
 describes the golden traces and how to record them.
 
-\subsection{14.11 Choreography routines}\label{choreography-routines}\index{choreography routines}\index{pull\_immovable@\texttt{pull\_immovable}}\index{cork\_pop\_up@\texttt{cork\_pop\_up}}\index{mismatched\_hug@\texttt{mismatched\_hug}}\index{slip\_on\_back@\texttt{slip\_on\_back}}
+\subsection{14.11 Choreography routines}\label{choreography-routines}\index{choreography routines}\index{pull\_immovable@\texttt{pull\_immovable}}\index{cork\_pop\_up@\texttt{cork\_pop\_up}}\index{mismatched\_hug@\texttt{mismatched\_hug}}\index{slip\_on\_back@\texttt{slip\_on\_back}}\index{catch\_by\_collar@\texttt{catch\_by\_collar}}\index{tie\_wrist\_loop@\texttt{tie\_wrist\_loop}}
 
 Milestone 3 of the roadmap. A routine is an action that works out its
 own blocking from the figures as they stand: their scale, their limb
@@ -5050,6 +5053,12 @@ each a whole number of frames.
 \item
   \texttt{mismatched\_hug} --- \texttt{approach} 6, \texttt{reach} 6,
   \texttt{squeeze} 12, \texttt{release} 6.
+\item
+  \texttt{catch\_by\_collar} (Stage 6b) --- \texttt{slip} 3,
+  \texttt{catch} 3, \texttt{dangle} 18, \texttt{set\_down} 9.
+\item
+  \texttt{tie\_wrist\_loop} (Stage 6b) --- \texttt{approach} 6,
+  \texttt{wind} 18, \texttt{knot} 9, \texttt{yank} 3, \texttt{let\_go} 6.
 \end{itemize}
 
 \texttt{"frames\_<phase>": n} sets one phase, for example
@@ -5156,6 +5165,59 @@ or the legs below them. \texttt{who} stands against the near side and
 each hand goes to the far side. If the arms are too short they
 straighten and stop short (rule 2 of the solver), and that is the joke.
 The console reports the width, the arm length and the shortfall.
+
+\textbf{\texttt{catch\_by\_collar}} (Milestone 6, Stage 6b).
+\texttt{target} pitches forward toward \texttt{who} (\texttt{slip}) and
+\texttt{who}'s hand shoots out to meet his collar as he falls; the hand
+closes on it and he is hoisted up (\texttt{catch}); he hangs at arm's
+length, kicks, and goes limp (\texttt{dangle}); \texttt{who} lowers him
+onto his feet and lets go (\texttt{set\_down}). The hand is held on the
+collar by a constraint, \texttt{<id>.collar}, and \texttt{who} does not
+take a step.
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{joint} --- the catching hand (default: the one toward
+  \texttt{target}); \texttt{target\_joint} --- what it takes hold of
+  (default \texttt{neck}, the collar).
+\item
+  \texttt{cycles} --- kicks in \texttt{dangle} (default 2);
+  \texttt{lift} --- how far the hanging feet clear the ground at least,
+  as a fraction of \texttt{target}'s leg length (default 0.25);
+  \texttt{pose} --- the pose he is set down in.
+\item
+  \texttt{release} --- \texttt{false}: no \texttt{set\_down}; he stays
+  hanging, the hand on his collar, through the steps that follow, until
+  a later \texttt{catch\_by\_collar} with the same \texttt{id} and only
+  \texttt{set\_down} (its other phases 0) puts him down.
+\end{itemize}
+
+It measures \texttt{who}'s arm and shoulder and how far the collar is
+above \texttt{target}'s feet when he hangs. He is held in front of the
+shoulder, at its height, 82\% of the arm's length away; higher, with
+the arm angled up, if his feet would not otherwise clear the ground by
+\texttt{lift}; farther out if he would overlap \texttt{who}'s body.
+
+\textbf{\texttt{tie\_wrist\_loop}} (Milestone 6, Stage 6b). \texttt{who}
+steps up in front of \texttt{target}'s held-out wrists, a hand going to
+the coil on his shoulder (\texttt{approach}); winds his hands round them
+in loops that get bigger and wilder (\texttt{wind}); fiddles at the knot
+(\texttt{knot}); yanks it tight, jerking back half a step
+(\texttt{yank}); and lets go (\texttt{let\_go}). The hands are held on
+points measured on \texttt{target}'s wrists on every frame
+(\texttt{<id>.rhand}, \texttt{<id>.lhand}). The rope itself is a
+\texttt{prop\_transition} on the same frames; only \texttt{who} moves.
+\texttt{cycles} is the number of loops (default 3); \texttt{release}
+\texttt{false} keeps the hands on the knot. \texttt{who} stands on the
+side of the wrists away from \texttt{target}'s body, his shoulders 55\%
+of his arm's length from the knot, and the loops are at most 30\% of
+his arm across.
+
+Both Stage 6b routines start each phase from the figures as they are,
+so a step that gives frames to only some of their phases plays just
+those: \texttt{tie\_wrist\_loop} with only \texttt{knot} and
+\texttt{let\_go} is fiddling at the knot.
 
 \textbf{How a routine is played.} A routine always runs on the frame
 clock. \texttt{pam.timeline.describe} gives its phases
@@ -5905,6 +5967,37 @@ at the THUD, the two sizes side by side, the lift, five finger taps,
 the pull that moves nothing, the fall, the cork-pop, the hug that does
 not reach, and the broken knife. Whether a gag is funny is for someone
 watching.
+
+\textbf{Stage 6b: Scenes 3 and 4.} In Scene 3 Isaac strides up the path
+with the barbell riding on his shoulders while Abraham staggers, stops
+bent double to pant, and climbs a rock on his hands and knees that Isaac
+cleared in one bound; Abraham slips off its top and Isaac catches him by
+the collar (\texttt{catch\_by\_collar}, \S14.11) and holds him up
+through five lines. In Scene 4 Isaac builds the altar beside him (he
+used to stand where it goes up), props his phone on a rock, sits on the
+altar and is tied (\texttt{tie\_wrist\_loop}), and lies back on his
+elbows. New tic fragments: \texttt{pant}, \texttt{leg\_kick},
+\texttt{tremble}, \texttt{bar\_bounce}, \texttt{wrist\_tug}. New acting
+poses: \texttt{stagger}, \texttt{catch\_breath}, \texttt{climb\_reach},
+\texttt{crawl\_a}, \texttt{crawl\_b}, \texttt{kneel\_proud},
+\texttt{proud}, \texttt{topple}, \texttt{dangle},
+\texttt{dangle\_point\_up}, \texttt{hop\_crouch}, \texttt{hop\_tuck},
+\texttt{foot\_nudge}, \texttt{crouch\_reach\_r},
+\texttt{crouch\_reach\_l}, \texttt{sit\_side},
+\texttt{sit\_wrists\_out}, \texttt{recline\_elbows},
+\texttt{recline\_point}, \texttt{headline}, \texttt{hero} and
+\texttt{hero\_shade}. Poses that crawl, sit or lie back pitch the trunk
+about the hips with the pose-table key \texttt{bend}, and may choose
+which way an elbow or knee bends with \texttt{bends}.
+\texttt{tests/test\_performance\_6b.py} traces both routines at four
+combinations of sizes and finds the key pose of every gag of the two
+scenes: Isaac moving on every frame of his stride while Abraham stops,
+Isaac still while his father pants, one bound against a long climb, the
+hand on the collar and the feet off the ground on every frame of the
+dangle with the barbell on Isaac's shoulders, the altar built beside
+Isaac's feet, the phone upright on its rock, Isaac seated on the log
+while the rope goes round his wrists and is yanked tight on the frames
+it tightens, and the phone in Abraham's hand at the end.
 
 \chapter{Character Properties
 Reference}\label{character-properties-reference}

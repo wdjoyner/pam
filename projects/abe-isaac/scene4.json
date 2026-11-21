@@ -25,12 +25,15 @@
  {
   "action": "fade_in",
   "who": "isaac",
-  "rt": 0.2
+  "rt": 0.2,
+  "x": 1.18
  },
  {
   "action": "fade_in",
   "who": "abraham",
-  "rt": 0.2
+  "rt": 0.2,
+  "x": -1.2,
+  "pose": "catch_breath"
  },
  {
   "_subscene_marker": "scene4_shot01",
@@ -50,7 +53,7 @@
   "action": "perform",
   "id": "s04_drops_barbell",
   "phases": {
-   "anticipation": 6,
+   "anticipation": 12,
    "action": 4,
    "reaction": 12,
    "recovery": 6
@@ -115,6 +118,29 @@
     "who": "isaac",
     "fragment": "nod",
     "until": "recovery"
+   },
+   {
+    "phase": "anticipation",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "pant",
+    "cycles": 2,
+    "frames": 10
+   },
+   {
+    "phase": "reaction",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "startle",
+    "frames": 5
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "at": 6,
+    "who": "abraham",
+    "pose": "standing_side",
+    "frames": 6
    }
   ]
  },
@@ -122,14 +148,38 @@
   "action": "perform",
   "id": "s04_builds",
   "phases": {
-   "anticipation": 6,
+   "anticipation": 22,
    "action": 15,
    "reaction": 6
   },
   "do": [
    {
     "phase": "anticipation",
+    "action": "turn",
+    "who": "isaac",
+    "pose": "standing_side",
+    "frames": 3
+   },
+   {
+    "phase": "anticipation",
+    "action": "walk_to",
+    "at": 3,
+    "who": "isaac",
+    "x": 3.3,
+    "frames": 10
+   },
+   {
+    "phase": "anticipation",
+    "action": "turn",
+    "at": 13,
+    "who": "isaac",
+    "pose": "standing_front",
+    "frames": 4
+   },
+   {
+    "phase": "anticipation",
     "action": "morph",
+    "at": 17,
     "who": "isaac",
     "pose": "lift_squat",
     "until": "anticipation"
@@ -182,10 +232,10 @@
   "action": "perform",
   "id": "s04_crooked",
   "phases": {
-   "anticipation": 12,
+   "anticipation": 14,
    "action": 6,
-   "reaction": 12,
-   "recovery": 12
+   "reaction": 16,
+   "recovery": 14
   },
   "do": [
    {
@@ -219,24 +269,39 @@
    {
     "phase": "action",
     "action": "morph",
+    "at": 3,
     "who": "abraham",
     "pose": "standing_side",
-    "at": 3,
     "frames": 3
+   },
+   {
+    "phase": "anticipation",
+    "action": "turn",
+    "who": "isaac",
+    "pose": "standing_side_left",
+    "frames": 3
+   },
+   {
+    "phase": "anticipation",
+    "action": "walk_to",
+    "at": 3,
+    "who": "isaac",
+    "x": 2.15,
+    "frames": 9
    },
    {
     "phase": "reaction",
     "action": "morph",
     "who": "isaac",
-    "pose": "look_down_l",
+    "pose": "foot_nudge_left",
     "frames": 4
    },
    {
     "phase": "reaction",
     "action": "prop_transition",
     "prop": "barbell.left",
-    "at": 4,
-    "frames": 6,
+    "at": 3,
+    "frames": 5,
     "beat": "isaac_moves_it_back",
     "attached": {
      "to": null,
@@ -249,10 +314,10 @@
    {
     "phase": "reaction",
     "action": "morph",
+    "at": 9,
     "who": "isaac",
-    "pose": "standing_front",
-    "at": 6,
-    "frames": 6
+    "pose": "standing_side_left",
+    "frames": 4
    },
    {
     "phase": "recovery",
@@ -264,117 +329,358 @@
    {
     "phase": "recovery",
     "action": "react",
+    "at": 4,
     "who": "isaac",
     "fragment": "nod",
-    "at": 2,
+    "frames": 6
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s04_props_phone (1 step): Isaac props his phone vertically against a smaller rock, its camera aime"
+ },
+ {
+  "action": "perform",
+  "id": "s04_props_phone",
+  "phases": {
+   "anticipation": 30,
+   "action": 9,
+   "reaction": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "walk_to",
+    "who": "isaac",
+    "x": -1.3,
+    "frames": 24
+   },
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "at": 24,
+    "who": "isaac",
+    "pose": "crouch_reach_r_left",
+    "until": "anticipation"
+   },
+   {
+    "phase": "anticipation",
+    "action": "walk_to",
+    "at": 10,
+    "who": "abraham",
+    "x": -1.65,
+    "frames": 16
+   },
+   {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "phone",
+    "to": "recording",
+    "until": "action",
+    "beat": "props_phone",
+    "attached": {
+     "to": "rock",
+     "point": "top",
+     "by": "bottom"
+    }
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "standing_side_left",
+    "until": "reaction"
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s04_heroic_pose (1 step): Isaac props his phone vertically against a smaller rock, its camera aime"
+ },
+ {
+  "action": "perform",
+  "id": "s04_heroic_pose",
+  "phases": {
+   "anticipation": 18,
+   "action": 6,
+   "reaction": 14,
+   "recovery": 8
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "turn",
+    "who": "isaac",
+    "pose": "standing_side",
+    "frames": 3
+   },
+   {
+    "phase": "anticipation",
+    "action": "walk_to",
+    "at": 3,
+    "who": "isaac",
+    "x": 0.45,
+    "frames": 11
+   },
+   {
+    "phase": "anticipation",
+    "action": "turn",
+    "at": 14,
+    "who": "isaac",
+    "pose": "standing_front",
+    "until": "anticipation"
+   },
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_front",
+    "frames": 4
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "hero",
+    "until": "action",
+    "beat": "isaac_poses"
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "at": 4,
+    "who": "abraham",
+    "pose": "hero_shade",
+    "frames": 6,
+    "beat": "abraham_tries"
+   },
+   {
+    "phase": "recovery",
+    "action": "wait",
+    "until": "recovery",
+    "beat": "both_posed"
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s04_handle_not_blade (1 step): Remember: raise the handle, not the blade."
+ },
+ {
+  "action": "perform",
+  "id": "s04_handle_not_blade",
+  "phases": {
+   "anticipation": 4,
+   "action": 38,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "finger_up_r",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "Remember: raise the handle, not the blade.",
+    "frames": 38,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "at": 8,
+    "who": "abraham",
+    "pose": "standing_side",
     "frames": 6
    },
    {
     "phase": "recovery",
-    "action": "walk_to",
-    "who": "abraham",
-    "x": -1.2,
-    "at": 8,
+    "action": "morph",
+    "who": "isaac",
+    "pose": "standing_front",
     "until": "recovery"
    }
   ]
  },
  {
-  "_comment": "# CUE s04_props_phone (2 steps): Isaac props his phone vertically against a smaller rock, its camera aime"
+  "_comment": "# CUE s04_takes_pieces_out (1 step): Abraham takes the two pieces of the knife out of his satchel, drops the "
  },
  {
-  "action": "prop_transition",
-  "prop": "phone",
-  "to": "recording",
-  "frames": 9,
-  "beat": "props_phone",
-  "attached": {
-   "to": "rock",
-   "point": "top",
-   "by": "bottom"
-  }
- },
- {
-  "action": "wait",
-  "frames": 6
- },
- {
-  "action": "say",
-  "who": "isaac",
-  "text": "Remember: raise the handle, not the blade.",
-  "side": "right",
-  "hold": 1.26
- },
- {
-  "_comment": "# CUE s04_takes_pieces_out (2 steps): Abraham takes the two pieces of the knife out of his satchel, drops the "
- },
- {
-  "action": "prop_transition",
-  "prop": "knife",
-  "frames": 6,
-  "beat": "takes_pieces_out",
-  "parts": {
-   "handle": {
-    "attached": {
-     "to": "abraham",
-     "joint": "rwrist"
-    }
-   },
-   "blade": {
-    "attached": {
-     "to": "abraham",
-     "joint": "lwrist"
-    }
-   }
-  }
- },
- {
-  "action": "wait",
-  "frames": 6
- },
- {
-  "_comment": "# CUE s04_blade_into_satchel (2 steps): Abraham takes the two pieces of the knife out of his satchel, drops the "
- },
- {
-  "action": "prop_transition",
-  "prop": "knife",
-  "to": "blade_carried",
-  "frames": 6,
-  "beat": "blade_into_satchel",
-  "parts": {
-   "blade": {
-    "attached": {
-     "to": "satchel",
-     "mode": "in",
-     "hidden": true
-    }
-   }
-  }
- },
- {
-  "action": "wait",
-  "frames": 9
- },
- {
-  "_comment": "# CUE s04_winds_rope (2 steps): Abraham takes the two pieces of the knife out of his satchel, drops the "
- },
- {
-  "action": "parallel",
-  "id": "s04_tie",
-  "frames": 18,
+  "action": "perform",
+  "id": "s04_takes_pieces_out",
+  "phases": {
+   "anticipation": 6,
+   "action": 6,
+   "reaction": 8
+  },
   "do": [
    {
+    "phase": "anticipation",
     "action": "morph",
-    "who": "isaac",
-    "pose": "reach_forward",
-    "frames": 18,
-    "beat": "holds_out_wrists"
+    "who": "abraham",
+    "pose": "reach_satchel",
+    "until": "anticipation"
    },
    {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "knife",
+    "beat": "takes_pieces_out",
+    "parts": {
+     "handle": {
+      "attached": {
+       "to": "abraham",
+       "joint": "rwrist"
+      }
+     },
+     "blade": {
+      "attached": {
+       "to": "abraham",
+       "joint": "lwrist"
+      }
+     }
+    },
+    "until": "action"
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "hands_low",
+    "until": "action"
+   },
+   {
+    "phase": "reaction",
+    "action": "wait",
+    "until": "reaction",
+    "beat": "looks_at_pieces"
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s04_blade_into_satchel (1 step): Abraham takes the two pieces of the knife out of his satchel, drops the "
+ },
+ {
+  "action": "perform",
+  "id": "s04_blade_into_satchel",
+  "phases": {
+   "action": 6,
+   "reaction": 6
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "knife",
+    "to": "blade_carried",
+    "beat": "blade_into_satchel",
+    "parts": {
+     "blade": {
+      "attached": {
+       "to": "satchel",
+       "mode": "in",
+       "hidden": true
+      }
+     }
+    },
+    "until": "action"
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side",
+    "until": "action"
+   },
+   {
+    "phase": "reaction",
+    "action": "wait",
+    "until": "reaction"
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s04_sits_on_altar (1 step): Abraham takes the two pieces of the knife out of his satchel, drops the "
+ },
+ {
+  "action": "perform",
+  "id": "s04_sits_on_altar",
+  "phases": {
+   "anticipation": 4,
+   "action": 9,
+   "reaction": 8
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "turn",
+    "who": "isaac",
+    "pose": "standing_side_left",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "sit_side_left",
+    "dx": 0.6300000000000001,
+    "until": "action",
+    "beat": "sits"
+   },
+   {
+    "phase": "action",
+    "action": "walk_to",
+    "who": "abraham",
+    "x": -0.6,
+    "until": "reaction"
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "sit_wrists_out_left",
+    "until": "reaction",
+    "beat": "holds_out_wrists"
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s04_winds_rope (1 step): Abraham takes the two pieces of the knife out of his satchel, drops the "
+ },
+ {
+  "action": "perform",
+  "id": "s04_winds_rope",
+  "phases": {
+   "anticipation": 6,
+   "action": 24,
+   "reaction": 8,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "tie_wrist_loop",
+    "id": "tie",
+    "who": "abraham",
+    "target": "isaac",
+    "frames_approach": "anticipation",
+    "frames_wind": "action",
+    "frames_knot": "reaction",
+    "frames_yank": 0,
+    "frames_let_go": "recovery",
+    "cycles": 3
+   },
+   {
+    "phase": "action",
     "action": "prop_transition",
     "prop": "rope",
     "to": "tied",
-    "frames": 18,
+    "until": "action",
     "beat": "winds_rope",
     "attached": {
      "to": "isaac",
@@ -383,97 +689,362 @@
       "rwrist"
      ],
      "mode": "around"
-    },
-    "at": 0
+    }
    }
   ]
  },
  {
-  "action": "wait",
-  "frames": 6
+  "_comment": "# CUE s04_looser (1 step): Looser. I'm supposed to escape after the speech."
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "Looser. I'm supposed to escape after the speech.",
-  "side": "right",
-  "hold": 1.44
+  "action": "perform",
+  "id": "s04_looser",
+  "phases": {
+   "action": 58
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "Looser.",
+    "frames": 16,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "at": 2,
+    "who": "isaac",
+    "fragment": "head_shake",
+    "frames": 9
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "I'm supposed to escape after the speech.",
+    "frames": 42,
+    "frames_in": 3,
+    "frames_out": 3,
+    "at": 16,
+    "side": "right"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "I'm tying a bow.",
-  "side": "right",
-  "hold": 0.9
+  "_comment": "# CUE s04_bow (1 step): I'm tying a bow."
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "That's a square knot.",
-  "side": "right",
-  "hold": 0.9
+  "action": "perform",
+  "id": "s04_bow",
+  "phases": {
+   "action": 24,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "I'm tying a bow.",
+    "frames": 24,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "left"
+   },
+   {
+    "phase": "action",
+    "action": "tie_wrist_loop",
+    "id": "tie",
+    "who": "abraham",
+    "target": "isaac",
+    "frames_approach": 0,
+    "frames_wind": 0,
+    "frames_knot": "action",
+    "frames_yank": 0,
+    "frames_let_go": "recovery"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "Give it here, I'll tie myself up.",
-  "side": "right",
-  "hold": 1.26
+  "_comment": "# CUE s04_square_knot (1 step): That's a square knot. Give it here, I'll tie myself up."
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "I was tying knots before you were born.",
-  "side": "right",
-  "hold": 1.44
+  "action": "perform",
+  "id": "s04_square_knot",
+  "phases": {
+   "action": 60
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "That's a square knot.",
+    "frames": 24,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "at": 3,
+    "who": "isaac",
+    "fragment": "nod",
+    "frames": 6
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "Give it here, I'll tie myself up.",
+    "frames": 36,
+    "frames_in": 3,
+    "frames_out": 3,
+    "at": 24,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "at": 28,
+    "who": "isaac",
+    "fragment": "shrug",
+    "frames": 10
+   }
+  ]
  },
  {
-  "_comment": "# CUE s04_yanks_knot (2 steps): He yanks the knot tight. Isaac tests it. It holds. He shrugs and lies ba"
+  "_comment": "# CUE s04_before_you_were_born (1 step): I was tying knots before you were born."
  },
  {
-  "action": "prop_transition",
-  "prop": "rope",
-  "to": "tightened",
-  "frames": 3,
-  "beat": "yanks_knot"
+  "action": "perform",
+  "id": "s04_before_born",
+  "phases": {
+   "anticipation": 4,
+   "action": 36,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "proud",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "I was tying knots before you were born.",
+    "frames": 36,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "left"
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side",
+    "until": "recovery"
+   }
+  ]
  },
  {
-  "action": "wait",
-  "frames": 6
+  "_comment": "# CUE s04_yanks_knot (1 step): He yanks the knot tight. Isaac tests it. It holds. He shrugs and lies ba"
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "Press the red button when you're ready.",
-  "side": "right",
-  "hold": 1.26
+  "action": "perform",
+  "id": "s04_yanks_knot",
+  "phases": {
+   "anticipation": 6,
+   "action": 3,
+   "reaction": 30,
+   "recovery": 18
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "tie_wrist_loop",
+    "id": "yank",
+    "who": "abraham",
+    "target": "isaac",
+    "frames_approach": 0,
+    "frames_wind": 0,
+    "frames_knot": "anticipation",
+    "frames_yank": "action",
+    "frames_let_go": 6
+   },
+   {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "rope",
+    "to": "tightened",
+    "beat": "yanks_knot",
+    "until": "action"
+   },
+   {
+    "phase": "reaction",
+    "action": "react",
+    "at": 6,
+    "who": "isaac",
+    "fragment": "wrist_tug",
+    "frames": 10,
+    "cycles": 2,
+    "beat": "tests_it"
+   },
+   {
+    "phase": "reaction",
+    "action": "wait",
+    "at": 16,
+    "frames": 4,
+    "beat": "it_holds"
+   },
+   {
+    "phase": "reaction",
+    "action": "react",
+    "at": 20,
+    "who": "isaac",
+    "fragment": "shrug",
+    "frames": 10
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "recline_elbows_left",
+    "frames": 12,
+    "beat": "lies_back"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "Then I'll say my part.",
-  "side": "right",
-  "hold": 0.9
+  "_comment": "# CUE s04_press_red (1 step): Press the red button when you're ready. Then I'll say my part."
  },
  {
-  "_comment": "# CUE s04_picks_up_phone (2 steps): Abraham picks up the phone."
+  "action": "perform",
+  "id": "s04_press_red",
+  "phases": {
+   "anticipation": 5,
+   "action": 56,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "recline_point_left",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "Press the red button when you're ready.",
+    "frames": 34,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "Then I'll say my part.",
+    "frames": 22,
+    "frames_in": 3,
+    "frames_out": 3,
+    "at": 34,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "at": 34,
+    "who": "isaac",
+    "pose": "recline_elbows_left",
+    "frames": 6
+   }
+  ]
  },
  {
-  "action": "prop_transition",
-  "prop": "phone",
-  "frames": 9,
-  "beat": "picks_up_phone",
-  "attached": {
-   "to": "abraham",
-   "joint": "lwrist",
-   "by": "bottom"
-  }
+  "_comment": "# CUE s04_picks_up_phone (1 step): Abraham picks up the phone."
  },
  {
-  "action": "morph",
-  "who": "abraham",
-  "pose": "reach_side_l",
-  "frames": 6
+  "action": "perform",
+  "id": "s04_picks_up_phone",
+  "phases": {
+   "anticipation": 22,
+   "action": 9,
+   "reaction": 30
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "walk_to",
+    "who": "abraham",
+    "x": -2.3,
+    "frames": 17
+   },
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "at": 17,
+    "who": "abraham",
+    "pose": "crouch_reach_l_left",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "phone",
+    "beat": "picks_up_phone",
+    "attached": {
+     "to": "abraham",
+     "joint": "lwrist",
+     "by": "bottom"
+    },
+    "until": "action"
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side_left",
+    "frames": 4
+   },
+   {
+    "phase": "reaction",
+    "action": "turn",
+    "at": 4,
+    "who": "abraham",
+    "pose": "standing_side",
+    "frames": 3
+   },
+   {
+    "phase": "reaction",
+    "action": "walk_to",
+    "at": 7,
+    "who": "abraham",
+    "x": -1.2,
+    "frames": 14
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "at": 21,
+    "who": "abraham",
+    "pose": "reach_side_l",
+    "until": "reaction"
+   }
+  ]
  },
  {
   "_subscene_marker": "scene4_shot02",
@@ -492,7 +1063,7 @@
  },
  {
   "action": "wait",
-  "frames": 9,
+  "frames": 18,
   "beat": "red_button"
  },
  {
@@ -507,6 +1078,80 @@
   }
  },
  {
-  "_comment": "# REVIEW: Abraham nods. He rehearses silently, counting on his fingers, hands shaking. He goes to lean the phone back against its rock."
+  "_comment": "# CUE s04_rehearses (1 step): Abraham nods. He rehearses silently, counting on his fingers, hands shak"
+ },
+ {
+  "action": "perform",
+  "id": "s04_rehearses",
+  "phases": {
+   "anticipation": 4,
+   "action": 44,
+   "reaction": 18
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "nod",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "count_hand",
+    "frames": 4
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "at": 4,
+    "who": "abraham",
+    "fragment": "count_tap_r",
+    "frames": 15,
+    "cycles": 3,
+    "beat": "counts"
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "at": 19,
+    "who": "abraham",
+    "fragment": "tremble",
+    "until": "action",
+    "cycles": 6,
+    "beat": "hands_shaking"
+   },
+   {
+    "phase": "reaction",
+    "action": "turn",
+    "who": "abraham",
+    "pose": "standing_side_left",
+    "frames": 3
+   },
+   {
+    "phase": "reaction",
+    "action": "walk_to",
+    "at": 3,
+    "who": "abraham",
+    "x": -2.3,
+    "frames": 10
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "at": 13,
+    "who": "abraham",
+    "pose": "crouch_reach_l_left",
+    "until": "reaction",
+    "beat": "to_the_rock"
+   }
+  ]
+ },
+ {
+  "action": "wait",
+  "frames": 6,
+  "beat": "s04_end_hold"
  }
 ]

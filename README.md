@@ -1744,6 +1744,8 @@ The full scene is `abe-isaac_scene2-gags.json`; render it with `./pam-render --s
 | `slip_on_back` | The feet shoot out and the figure lands flat on its back. | Leg length (for the slide) and the ground under the feet. |
 | `cork_pop_up` | `who` bends and offers a hand to `target`, who is lying down; `target` takes it and is pulled onto his feet and off the ground. Phases: `offer` 6, `accept` 6, `pop` 3, `land` 2, `hold` 9. | Both arms. The hand is offered where `target` can reach it; `who` bends only as far as his own arm needs. The hop grows if `who` is very tall. |
 | `mismatched_hug` | `who` steps in and throws his arms around `target`. Phases: `approach` 6, `reach` 6, `squeeze` 12, `release` 6. | `target`'s width at the height of `who`'s shoulders, against `who`'s arm. Arms that are too short straighten and stop short, and the shortfall is reported. |
+| `catch_by_collar` *(Milestone 6, Stage 6b)* | `target` pitches forward; `who` catches him by the collar with one hand, holds him up in the air at arm's length while he kicks and hangs, and sets him down. Phases: `slip` 3, `catch` 3, `dangle` 18, `set_down` 9. | `who`'s arm and shoulder, and how far `target`'s collar is above his feet when he hangs. He is held at the height of `who`'s shoulder, or higher if his feet would not clear the ground; `who` does not take a step. |
+| `tie_wrist_loop` *(Milestone 6, Stage 6b)* | `who` steps up to `target`'s held-out wrists and winds his hands round them in loops that get bigger and wilder, fiddles at the knot, yanks it tight and lets go. Phases: `approach` 6, `wind` 18, `knot` 9, `yank` 3, `let_go` 6. | `target`'s wrists on every frame, and `who`'s arms: he stands on the far side of the wrists from `target`, and the loops are as big as his reach allows. |
 
 | Key | Meaning |
 |---|---|
@@ -1752,8 +1754,9 @@ The full scene is `abe-isaac_scene2-gags.json`; render it with `./pam-render --s
 | `"frames": n` | The whole routine lasts `n` frames, shared over the phases in proportion to their defaults. |
 | `"frames_<phase>": n` | One phase lasts `n` frames (`"frames_strain": 20`); `0` skips it. |
 | `joint`, `target_joint` | `pull_immovable`, `cork_pop_up`: the hand that is used, and what it takes hold of. Chosen from the figures when omitted. |
-| `cycles` | `pull_immovable`, `mismatched_hug`: number of heaves or squeezes (default 2). |
-| `release` | `pull_immovable`, `mismatched_hug`: `false` keeps the contact after the routine, until a `release` step. |
+| `cycles` | `pull_immovable`, `mismatched_hug`, `catch_by_collar`, `tie_wrist_loop`: number of heaves, squeezes, kicks (default 2) or loops (default 3). |
+| `release` | `pull_immovable`, `mismatched_hug`, `catch_by_collar`, `tie_wrist_loop`: `false` keeps the contact after the routine, until a `release` step (or, for the two Stage 6b routines, a later step of the same routine with only its last phase). |
+| `target_joint`, `lift`, `pose` | `catch_by_collar`: what the hand takes hold of (default `neck`, the collar); how far the hanging feet clear the ground at least (fraction of `target`'s leg length, default 0.25); the pose he is set down in. |
 | `lock` | `pull_immovable`: `false` leaves `target` free to move. |
 | `hop`, `pose` | `cork_pop_up`: how high `target` leaves the ground (fraction of his leg length, default 0.25), and the pose he lands in (default `standing_side`). |
 
@@ -1863,7 +1866,7 @@ The roadmap's completion test is in `tests/test_fountain_cues.py`: recompiling t
 
 ### Acting in four phases: the Manim performance (Milestone 6)
 
-Milestone 6 of the Blender roadmap turns the project's scenes into a performance a viewer can follow without the script. Stage 6a does Scenes 1 and 2 of *Abraham and Isaac, Revisited*. Everything is opt-in: a screenplay that uses none of the syntax below plays exactly as before, and the nine golden traces are unchanged.
+Milestone 6 of the Blender roadmap turns the project's scenes into a performance a viewer can follow without the script. Stage 6a does Scenes 1 and 2 of *Abraham and Isaac, Revisited*, and Stage 6b Scenes 3 and 4. Everything is opt-in: a screenplay that uses none of the syntax below plays exactly as before, and the nine golden traces are unchanged.
 
 An action that matters is acted in four phases, **anticipation, action, reaction, recovery**. The `perform` action holds the length of each phase, in frames, in one table, and places its steps by phase, so that a phase can be retimed by changing one number:
 
@@ -1904,6 +1907,18 @@ Recurring mannerisms are tics (`pam/tics.py`), played on the frame clock with `r
 A fitted shot (`fit`, Milestone 5) may now be framed on a character: on the figure as it is drawn, or, before it has faded in, as its next `fade_in` will draw it.
 
 The completion checks for Stage 6a are in `tests/test_performance.py`: a phase's frame count changes the timing exactly as it should, and the key pose of each gag of Scenes 1 and 2 is in the trace. Whether a gag is funny is still for someone watching the render.
+
+**Stage 6b** does Scenes 3 and 4. In Scene 3 Isaac strides up the path with the barbell riding on his shoulders while Abraham staggers after him and stops, bent double, to pant; Isaac bounds over a rock in one leap and Abraham climbs it on his hands and knees; Abraham stands up on top, slips, and Isaac catches him by the collar without putting down the barbell and holds him up in the air through five lines of dialogue. In Scene 4 Isaac drops the barbell, steps to its end and builds the altar beside him, props his phone on a rock, and strikes a heroic pose that Abraham gets wrong; he sits on the altar, Abraham winds the rope round his wrists and yanks the knot tight, and Isaac lies back on his elbows while Abraham fetches the phone. The roadmap's two remaining routines for these scenes are new, and so are mannerisms and poses for them:
+
+| New syntax (Stage 6b) | What it does |
+|---|---|
+| `catch_by_collar` | A routine (see "Choreography routines"): phases `slip`, `catch`, `dangle`, `set_down`; keys `joint`, `target_joint`, `cycles`, `lift`, `pose`, `release`. |
+| `tie_wrist_loop` | A routine: phases `approach`, `wind`, `knot`, `yank`, `let_go`; keys `cycles`, `release`. |
+| A routine's phases given 0 frames | The two Stage 6b routines start every phase from the figures as they are, so a step with only some phases plays just those: `catch_by_collar` with only `set_down` puts down a man it left hanging; `tie_wrist_loop` with only `knot` and `let_go` fiddles at the knot. |
+| Tic fragments | `pant`, `leg_kick`, `tremble`, `bar_bounce`, `wrist_tug`. |
+| Acting poses | `stagger`, `catch_breath`, `climb_reach`, `crawl_a`, `crawl_b`, `kneel_proud`, `proud`, `topple`, `dangle`, `dangle_point_up`, `hop_crouch`, `hop_tuck`, `foot_nudge`, `crouch_reach_r`, `crouch_reach_l`, `sit_side`, `sit_wrists_out`, `recline_elbows`, `recline_point`, `headline`, `hero`, `hero_shade` (each with its `_left` mirror). |
+
+The checks for Stage 6b are in `tests/test_performance_6b.py`: the two routines at four combinations of character sizes, and the key pose of each gag of Scenes 3 and 4 in the trace (for example, that Isaac moves forward on every frame of his stride while Abraham stops, that Isaac does not move a joint while his father pants, that the hand is on the collar and the feet off the ground on every frame of the dangle, and that the altar is built beside Isaac's feet rather than between them).
 
 ### Timed parallel blocks: overlapping action on the frame clock
 

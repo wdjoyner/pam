@@ -94,7 +94,8 @@ list, and the validator and the player both read it):
   on its display that climbs, or text written on it or crossed out,
   takes that long;
 * a choreography routine (``pull_immovable``, ``cork_pop_up``,
-  ``mismatched_hug``; see ``pam/choreography.py``): its phases follow
+  ``mismatched_hug``, ``catch_by_collar``, ``tie_wrist_loop``; see
+  ``pam/choreography.py``): its phases follow
   one another, each a set number of frames;
 * a camera marker (``_subscene_marker`` with ``_shot_meta``): a cut on
   that frame, or with ``frames`` (or an animated ``move``) a move that

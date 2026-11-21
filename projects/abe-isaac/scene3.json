@@ -10,6 +10,19 @@
   "color": "#a9c8e6"
  },
  {
+  "action": "props",
+  "rt": 0.2,
+  "items": {
+   "rock": {
+    "type": "rock",
+    "x": -1.6,
+    "y": -2.6,
+    "width": 1.3,
+    "height": 0.95
+   }
+  }
+ },
+ {
   "action": "prop_transition",
   "prop": "barbell",
   "beat": "barbell_on_shoulders",
@@ -24,12 +37,16 @@
  {
   "action": "fade_in",
   "who": "isaac",
-  "rt": 0.2
+  "rt": 0.2,
+  "x": 8.8,
+  "pose": "standing_side_left"
  },
  {
   "action": "fade_in",
   "who": "abraham",
-  "rt": 0.2
+  "rt": 0.2,
+  "x": 10.4,
+  "pose": "stagger_left"
  },
  {
   "_subscene_marker": "scene3_shot01",
@@ -43,162 +60,916 @@
   }
  },
  {
-  "_comment": "# CUE s03_climb (2 steps): Isaac carries the log barbell on his shoulders. Abraham staggers after h"
+  "_comment": "# CUE s03_climb (1 step): Isaac carries the log barbell on his shoulders. Abraham staggers after h"
  },
  {
-  "action": "parallel",
+  "action": "perform",
   "id": "s03_climb",
+  "phases": {
+   "anticipation": 6,
+   "action": 54,
+   "reaction": 6
+  },
   "do": [
    {
-    "action": "walk_to",
-    "who": "isaac",
-    "x": 2.4,
-    "frames": 24
+    "phase": "anticipation",
+    "action": "wait",
+    "until": "anticipation",
+    "beat": "empty_path"
    },
    {
+    "phase": "action",
     "action": "walk_to",
-    "who": "abraham",
-    "x": 0.2,
+    "who": "isaac",
+    "x": 3.4,
+    "frames": 36,
+    "beat": "isaac_strides"
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "at": 36,
+    "who": "isaac",
+    "pose": "look_side_r",
+    "frames": 5
+   },
+   {
+    "phase": "action",
+    "action": "sequence",
     "at": 6,
-    "frames": 30
+    "id": "abraham_staggers",
+    "do": [
+     {
+      "action": "walk_to",
+      "who": "abraham",
+      "x": 8.9,
+      "frames": 14
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "stagger_left",
+      "frames": 4
+     },
+     {
+      "action": "wait",
+      "frames": 3,
+      "beat": "stagger"
+     },
+     {
+      "action": "walk_to",
+      "who": "abraham",
+      "x": 7.6,
+      "frames": 13
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "stagger_left",
+      "frames": 4
+     },
+     {
+      "action": "walk_to",
+      "who": "abraham",
+      "x": 6.6,
+      "frames": 12
+     }
+    ]
+   },
+   {
+    "phase": "reaction",
+    "action": "wait",
+    "until": "reaction"
    }
   ]
  },
  {
-  "action": "wait",
-  "frames": 9
+  "_comment": "# CUE s03_the_plan (1 step): We go up the mountain. I build the altar. You tie me up. You raise what'"
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "We go up the mountain. I build the altar.",
-  "side": "right",
-  "hold": 1.62
+  "action": "perform",
+  "id": "s03_the_plan",
+  "phases": {
+   "action": 128,
+   "recovery": 4
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "We go up the mountain. I build the altar.",
+    "frames": 30,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "You tie me up.",
+    "frames": 18,
+    "frames_in": 3,
+    "frames_out": 3,
+    "at": 30,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "You raise what's left of that knife and tell",
+    "frames": 30,
+    "frames_in": 3,
+    "frames_out": 3,
+    "at": 48,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "everybody God doesn't want people sacrificing people.",
+    "frames": 30,
+    "frames_in": 3,
+    "frames_out": 3,
+    "at": 78,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "Then we substitute a lamb.",
+    "frames": 20,
+    "frames_in": 3,
+    "frames_out": 3,
+    "at": 108,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "at": 60,
+    "who": "isaac",
+    "fragment": "nod",
+    "frames": 6
+   },
+   {
+    "phase": "action",
+    "action": "sequence",
+    "at": 30,
+    "id": "isaac_strolls",
+    "do": [
+     {
+      "action": "turn",
+      "who": "isaac",
+      "pose": "standing_side_left",
+      "frames": 3
+     },
+     {
+      "action": "walk_to",
+      "who": "isaac",
+      "x": 2.3,
+      "frames": 16
+     },
+     {
+      "action": "turn",
+      "who": "isaac",
+      "pose": "look_side_r",
+      "frames": 4
+     }
+    ]
+   },
+   {
+    "phase": "action",
+    "action": "sequence",
+    "at": 96,
+    "id": "isaac_strolls_on",
+    "do": [
+     {
+      "action": "turn",
+      "who": "isaac",
+      "pose": "standing_side_left",
+      "frames": 3
+     },
+     {
+      "action": "walk_to",
+      "who": "isaac",
+      "x": 1.0,
+      "frames": 18
+     },
+     {
+      "action": "turn",
+      "who": "isaac",
+      "pose": "look_side_r",
+      "frames": 4
+     }
+    ]
+   },
+   {
+    "phase": "action",
+    "action": "sequence",
+    "id": "abraham_plods",
+    "do": [
+     {
+      "action": "walk_to",
+      "who": "abraham",
+      "x": 5.8,
+      "frames": 16
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "stagger_left",
+      "frames": 4
+     },
+     {
+      "action": "wait",
+      "frames": 10
+     },
+     {
+      "action": "walk_to",
+      "who": "abraham",
+      "x": 4.8,
+      "frames": 16
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "stagger_left",
+      "frames": 4
+     },
+     {
+      "action": "wait",
+      "frames": 8
+     },
+     {
+      "action": "walk_to",
+      "who": "abraham",
+      "x": 4.4,
+      "frames": 10
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "stagger_left",
+      "frames": 4
+     },
+     {
+      "action": "wait",
+      "frames": 26
+     },
+     {
+      "action": "walk_to",
+      "who": "abraham",
+      "x": 3.4,
+      "frames": 16
+     }
+    ]
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "You tie me up.",
-  "side": "right",
-  "hold": 0.9
+  "_comment": "# CUE s03_catch_breath (1 step): Abraham stops to catch his breath. Isaac stops with him, not breathing h"
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "You raise what's left of that knife and tell",
-  "side": "right",
-  "hold": 1.62
+  "action": "perform",
+  "id": "s03_catch_breath",
+  "phases": {
+   "anticipation": 4,
+   "action": 24,
+   "reaction": 8
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "catch_breath_left",
+    "until": "anticipation",
+    "beat": "hands_on_knees"
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "pant",
+    "cycles": 4,
+    "until": "action",
+    "beat": "pants"
+   },
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "look_side_r",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "wait",
+    "until": "reaction",
+    "beat": "isaac_not_breathing"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "everybody God doesn't want people sacrificing people.",
-  "side": "right",
-  "hold": 1.26
+  "_comment": "# CUE s03_morality (1 step): A morality lesson?"
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "Then we substitute a lamb.",
-  "side": "right",
-  "hold": 0.9
+  "action": "perform",
+  "id": "s03_morality",
+  "phases": {
+   "action": 22,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "A morality lesson?",
+    "frames": 22,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "pant",
+    "cycles": 2,
+    "until": "action"
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side_left",
+    "until": "recovery"
+   }
+  ]
  },
  {
-  "_comment": "# REVIEW: Abraham stops to catch his breath. Isaac stops with him, not breathing hard at all."
+  "_comment": "# CUE s03_challenge (1 step): A challenge! \"Sacrifice a Lamb for God.\" It'll be huge on TikTok."
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "A morality lesson?",
-  "side": "right",
-  "hold": 0.9
+  "action": "perform",
+  "id": "s03_challenge",
+  "phases": {
+   "anticipation": 4,
+   "action": 60,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "headline",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "A challenge!",
+    "frames": 18,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "\"Sacrifice a Lamb for God.\" It'll be huge on TikTok.",
+    "frames": 42,
+    "frames_in": 3,
+    "frames_out": 3,
+    "at": 18,
+    "side": "right"
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "look_side_r",
+    "until": "recovery"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "A challenge!",
-  "side": "right",
-  "hold": 0.9
+  "_comment": "# CUE s03_no_improvising (1 step): We'll try it. But no improvising."
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "\"Sacrifice a Lamb for God.\" It'll be huge on TikTok.",
-  "side": "right",
-  "hold": 1.8
+  "action": "perform",
+  "id": "s03_no_improvising",
+  "phases": {
+   "action": 36,
+   "recovery": 5
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "We'll try it.",
+    "frames": 16,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "nod",
+    "at": 2,
+    "frames": 6
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "at": 14,
+    "who": "abraham",
+    "pose": "wag_finger_left",
+    "frames": 4
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "But no improvising.",
+    "frames": 20,
+    "frames_in": 3,
+    "frames_out": 3,
+    "at": 16,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "at": 19,
+    "who": "abraham",
+    "fragment": "finger_wag_r",
+    "frames": 10,
+    "cycles": 2
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side_left",
+    "until": "recovery"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "We'll try it. But no improvising.",
-  "side": "right",
-  "hold": 1.08
+  "_comment": "# CUE s03_bounds_over_rock (1 step): They walk on. Isaac bounds over a rock. Abraham climbs it on his hands a"
  },
  {
-  "_hint": "PATCH NEEDED — from: \"They walk on. Isaac bounds over a rock. Abraham climbs it on his hands and knees.\"\n     Replace the walk_to below with:\n     {\"action\": \"parallel\", \"rt_per_kf\": 0.22, \"do\": [\n       {\"who\": \"isaac\", \"action\": \"walk_to\", \"x\": 0.0},\n       {\"who\": \"abraham\", \"action\": \"walk_to\", \"x\": -0.0}\n     ]}\n     Set x to the destination world x coordinate.\n     Add turns: {\"action\": \"turn\", \"who\": \"isaac\", \"pose\": \"standing_side\"} before and {\"pose\": \"standing_front\"} after."
+  "action": "perform",
+  "id": "s03_bound",
+  "phases": {
+   "anticipation": 18,
+   "action": 9,
+   "reaction": 4,
+   "recovery": 26
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "turn",
+    "who": "isaac",
+    "pose": "standing_side_left",
+    "frames": 3
+   },
+   {
+    "phase": "anticipation",
+    "action": "walk_to",
+    "at": 3,
+    "who": "isaac",
+    "x": 0.05,
+    "frames": 11
+   },
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "at": 14,
+    "who": "isaac",
+    "pose": "hop_crouch_left",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "hop_tuck_left",
+    "dx": -1.5,
+    "dy": 1.15,
+    "frames": 4,
+    "beat": "bounds"
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "at": 4,
+    "who": "isaac",
+    "pose": "standing_side_left",
+    "dx": -1.5,
+    "dy": -1.15,
+    "frames": 5
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "hop_crouch_left",
+    "frames": 2
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "at": 2,
+    "who": "isaac",
+    "pose": "standing_side_left",
+    "frames": 2
+   },
+   {
+    "phase": "recovery",
+    "action": "walk_to",
+    "who": "isaac",
+    "x": -5.6,
+    "frames": 20
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "at": 20,
+    "who": "isaac",
+    "pose": "look_side_r",
+    "until": "recovery"
+   },
+   {
+    "phase": "anticipation",
+    "action": "walk_to",
+    "who": "abraham",
+    "x": 2.3,
+    "frames": 18
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "stagger_left",
+    "frames": 4
+   },
+   {
+    "phase": "reaction",
+    "action": "walk_to",
+    "who": "abraham",
+    "x": -0.5,
+    "until": "recovery"
+   }
+  ]
  },
  {
-  "action": "turn",
-  "who": "isaac",
-  "pose": "standing_side"
+  "_comment": "# CUE s03_climbs_rock (1 step): They walk on. Isaac bounds over a rock. Abraham climbs it on his hands a"
  },
  {
-  "action": "walk_to",
-  "who": "isaac",
-  "x": 1.0
+  "action": "perform",
+  "id": "s03_climb_rock",
+  "phases": {
+   "anticipation": 8,
+   "action": 42,
+   "reaction": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "climb_reach_left",
+    "until": "anticipation",
+    "beat": "hands_on_rock"
+   },
+   {
+    "phase": "action",
+    "action": "sequence",
+    "id": "hauls_up",
+    "do": [
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "crawl_a_left",
+      "dx": -0.3,
+      "dy": 0.62,
+      "frames": 8,
+      "beat": "hauls"
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "climb_reach_left",
+      "dx": 0.1,
+      "dy": -0.62,
+      "frames": 4,
+      "beat": "slides_back"
+     },
+     {
+      "action": "wait",
+      "frames": 4
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "crawl_b_left",
+      "dx": -0.3,
+      "dy": 0.95,
+      "frames": 10
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "crawl_a_left",
+      "dx": -0.12,
+      "frames": 7
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "crawl_b_left",
+      "dx": -0.12,
+      "frames": 7
+     }
+    ]
+   },
+   {
+    "phase": "reaction",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "pant",
+    "until": "reaction"
+   }
+  ]
  },
  {
-  "action": "turn",
-  "who": "isaac",
-  "pose": "standing_front"
+  "_comment": "# CUE s03_up_for_this (1 step): You sure you're up for this, Dad?"
  },
  {
-  "_comment": "# REVIEW: They walk on. Isaac bounds over a rock. Abraham climbs it on his hands and knees."
+  "action": "perform",
+  "id": "s03_up_for_this",
+  "phases": {
+   "action": 30
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "You sure you're up for this, Dad?",
+    "frames": 30,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "You sure you're up for this, Dad?",
-  "side": "right",
-  "hold": 1.26
+  "_comment": "# CUE s03_father_of_nations (1 step): I am the father of nations."
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "I am the father of nations.",
-  "side": "right",
-  "hold": 1.08
+  "action": "perform",
+  "id": "s03_father_of_nations",
+  "phases": {
+   "anticipation": 5,
+   "action": 26,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "kneel_proud_left",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "I am the father of nations.",
+    "frames": 26,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "at": 4,
+    "who": "abraham",
+    "fragment": "chest_pat_r",
+    "frames": 8
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "crawl_a_left",
+    "until": "recovery"
+   }
+  ]
  },
  {
-  "_comment": "# REVIEW: He reaches the top. His sandal slips. Isaac catches him by the collar without putting down the barbell. Abraham dangles."
+  "_comment": "# CUE s03_catch (1 step): He reaches the top. His sandal slips. Isaac catches him by the collar wi"
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "Where's the lamb?",
-  "side": "right",
-  "hold": 0.9
+  "action": "perform",
+  "id": "s03_catch",
+  "phases": {
+   "anticipation": 14,
+   "action": 6,
+   "reaction": 20,
+   "recovery": 10
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "proud_left",
+    "frames": 7,
+    "beat": "reaches_top"
+   },
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "at": 7,
+    "who": "abraham",
+    "pose": "stagger_left",
+    "dx": -0.25,
+    "frames": 3
+   },
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "at": 10,
+    "who": "abraham",
+    "pose": "proud_left",
+    "dx": -0.22,
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "catch_by_collar",
+    "id": "catch",
+    "who": "isaac",
+    "target": "abraham",
+    "frames_slip": "action",
+    "frames_catch": "action",
+    "frames_dangle": "reaction",
+    "release": false
+   },
+   {
+    "phase": "recovery",
+    "action": "wait",
+    "until": "recovery",
+    "beat": "dangles"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "I thought you brought the lamb.",
-  "side": "right",
-  "hold": 1.08
+  "_comment": "# CUE s03_lamb (1 step): Where's the lamb?"
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "I brought the altar.",
-  "side": "right",
-  "hold": 0.9
+  "action": "perform",
+  "id": "s03_lamb",
+  "phases": {
+   "action": 22
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "Where's the lamb?",
+    "frames": 22,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "at": 3,
+    "who": "isaac",
+    "fragment": "head_shake",
+    "frames": 12
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "God will provide.",
-  "side": "right",
-  "hold": 0.9
+  "_comment": "# CUE s03_you_brought (1 step): I thought you brought the lamb."
+ },
+ {
+  "action": "perform",
+  "id": "s03_you_brought",
+  "phases": {
+   "action": 28
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "I thought you brought the lamb.",
+    "frames": 28,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "at": 4,
+    "who": "abraham",
+    "fragment": "shrug",
+    "frames": 10
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s03_brought_altar (1 step): I brought the altar."
+ },
+ {
+  "action": "perform",
+  "id": "s03_brought_altar",
+  "phases": {
+   "action": 22
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "I brought the altar.",
+    "frames": 22,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "at": 6,
+    "who": "isaac",
+    "fragment": "bar_bounce",
+    "frames": 8
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s03_provide (1 step): God will provide."
+ },
+ {
+  "action": "perform",
+  "id": "s03_provide",
+  "phases": {
+   "anticipation": 4,
+   "action": 22,
+   "recovery": 5
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "dangle_point_up_left",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "God will provide.",
+    "frames": 22,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right"
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "dangle_left",
+    "until": "recovery"
+   }
+  ]
  },
  {
   "action": "say",
@@ -208,24 +979,81 @@
   "hold": 0.9
  },
  {
-  "_hint": "PATCH NEEDED — from: \"Isaac sets his father on the path and walks on.\"\n     Replace the walk_to below with:\n     {\"action\": \"parallel\", \"rt_per_kf\": 0.22, \"do\": [\n       {\"who\": \"isaac\", \"action\": \"walk_to\", \"x\": 0.0},\n       {\"who\": \"other_character\", \"action\": \"walk_to\", \"x\": -0.0}\n     ]}\n     Set x to the destination world x coordinate.\n     Add turns: {\"action\": \"turn\", \"who\": \"isaac\", \"pose\": \"standing_side\"} before and {\"pose\": \"standing_front\"} after."
+  "_comment": "# CUE s03_sets_down (1 step): Isaac sets his father on the path and walks on."
  },
  {
-  "action": "turn",
-  "who": "isaac",
-  "pose": "standing_side"
+  "action": "perform",
+  "id": "s03_sets_down",
+  "phases": {
+   "anticipation": 8,
+   "action": 9,
+   "reaction": 8,
+   "recovery": 40
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "wait",
+    "until": "anticipation",
+    "beat": "beat"
+   },
+   {
+    "phase": "action",
+    "action": "catch_by_collar",
+    "id": "catch",
+    "who": "isaac",
+    "target": "abraham",
+    "frames_slip": 0,
+    "frames_catch": 0,
+    "frames_dangle": 0,
+    "frames_set_down": "action"
+   },
+   {
+    "phase": "reaction",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "startle",
+    "frames": 6
+   },
+   {
+    "phase": "reaction",
+    "action": "turn",
+    "who": "isaac",
+    "pose": "standing_side_left",
+    "frames": 3
+   },
+   {
+    "phase": "recovery",
+    "action": "walk_to",
+    "who": "isaac",
+    "x": -9.8,
+    "frames": 26
+   },
+   {
+    "phase": "recovery",
+    "action": "sequence",
+    "at": 8,
+    "id": "abraham_follows",
+    "do": [
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "stagger_left",
+      "frames": 4
+     },
+     {
+      "action": "walk_to",
+      "who": "abraham",
+      "x": -9.2,
+      "frames": 28
+     }
+    ]
+   }
+  ]
  },
  {
-  "action": "walk_to",
-  "who": "isaac",
-  "x": 1.0
- },
- {
-  "action": "turn",
-  "who": "isaac",
-  "pose": "standing_front"
- },
- {
-  "_comment": "# REVIEW: Isaac sets his father on the path and walks on."
+  "action": "wait",
+  "frames": 6,
+  "beat": "s03_end_hold"
  }
 ]
