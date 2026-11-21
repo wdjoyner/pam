@@ -1441,7 +1441,7 @@ Tested with Blender 4.2, 4.4, and 5.2; written to also work with 3.x.
 - **Held props follow the hands.** Between a figure's attach and release (`carry`, `pick_up`, `grab`, `hand_to`, ...) the prop rides on the holding wrist(s), so it moves with the Blender figure's smoothed walk. A prop placed on a table slides from the hand to the tabletop and rests there, tilted toward the camera if it is a phone. Hats and other `pam_follows` accessories ride on the head or torso.
 - **Faces, wardrobe, labels, and on-screen text.** Each face (`attach_face`) becomes a 3D head: an ellipsoid in the face's skin color, sized to its head shape, with the eyes, brows, mouth, and hair wrapped onto its front and the ears at its sides; the neck and bib lie flat on the chest (`--flat-faces` keeps the whole face flat). Torso icons and name tags (`attach_torso_icon`, `attach_name_tag`), dog harnesses, and head labels are flat decals traced from their Manim outlines, riding on the torso, head, or spine; the head ball hides while a face replaces it. Gloves become small 3D mitts on the wrists, `attach_shoes` sets the 3D shoes' color and length, and clothed limbs (`clothed_limbs` in a cast style) become tapered sleeves and trouser legs in the band colors, with `torso_color` on the chest. On-screen text, captions, and title text appear where they sit in the Manim frame, even with `--camera wide`, without their dark backing panel (`--card-bg` brings it back, fully or partly see-through).
 - **The Governor** spins slowly (when its `spawn_prop` asks for `"animate": "spin"`, the default), glows gold, flares word by word while it speaks, and dims to amber and slows down in its low-power state (`prop_color` with `#d47b00`).
-- **Fade-ins and fade-outs, camera moves, and background colors** from the Manim scene.
+- **Fade-ins and fade-outs, camera moves, and background colors** from the Manim scene. In a version 5 trace a fade keeps its frames: a prop fading in, a word card fading in and out, and the `screen_fade` to black at the end of a scene fade in Blender as they do in Manim (the trace's `"opacity"` lists, keyed as a see-through mix on the materials).
 
 ### `trace2blender.py` options
 
@@ -1477,7 +1477,7 @@ Options go after the `.blend` name.
 
 ### How it works: `pam.hooks`
 
-`pam/hooks.py` lets an outside script listen to PAM while a screenplay plays. PAM emits events for motion segments (from `morph_to`, `set_pose`, `turn`, and `_pose_anims`), figure creation, fade-ins and fade-outs, action begin/end, prop attach/release, speech bubbles, and, for stateful props, `prop_declared`, `prop_state_changed`, `prop_attached`, `prop_display`, `prop_text` and `prop_shape`:
+`pam/hooks.py` lets an outside script listen to PAM while a screenplay plays. PAM emits events for motion segments (from `morph_to`, `set_pose`, `turn`, and `_pose_anims`), figure creation, fade-ins and fade-outs, action begin/end, prop attach/release, speech bubbles, every top-level step as it starts (`step`) and every camera marker as it is applied (`shot`), and, for stateful props, `prop_declared`, `prop_state_changed`, `prop_attached`, `prop_display`, `prop_text` and `prop_shape`:
 
 ```python
 from pam import hooks
@@ -1573,6 +1573,8 @@ pam/
 ├── fountain2pam.py          Fountain+ to PAM JSON converter (cues, projects)
 ├── pam_trace.py             records a motion trace for the Blender export
 ├── trace2blender.py         builds an animated .blend from a motion trace
+├── trace_replay.py          replays a motion trace frame by frame (reference
+│                            reader; no Manim, no Blender)
 ├── pam2blender.py           PAM JSON to Blender layout exporter
 └── tntd_characters.json     canonical TNTD character registry
 ```
@@ -1593,7 +1595,7 @@ pam/
 | Body proportions | `builds.py` |
 | Prop geometry | `props_*.py` |
 | Fountain parsing | `fountain2pam.py` |
-| Blender export (motion) | `pam_trace.py`, `trace2blender.py`, `pam/hooks.py` |
+| Blender export (motion) | `pam_trace.py`, `trace2blender.py`, `trace_replay.py`, `pam/hooks.py` |
 | Blender export (layout) | `pam2blender.py` |
 
 ---
@@ -1936,6 +1938,31 @@ The checks for Stage 6b are in `tests/test_performance_6b.py`: the two routines 
 
 The checks for Stage 6c are in `tests/test_performance_6c.py`: the three routines at four combinations of character sizes, and the key pose of each gag of Scenes 5 and 6 in the trace. For example, each scene opens as the one before ends. No joint of either figure moves in the 78 frames between the blade sticking in the log and "And then...". The wrists come together as the knot cinches. Abraham lands on his back with Isaac on top of him, clear of the altar. His back is over Isaac's head on every frame of the carry. Every bubble is inside the frame when it is shown. The props end each scene as the continuity ledger says.
 
+### The semantic trace and its replay (Milestone 7)
+
+Milestone 7 of the Blender roadmap completes trace version 5, the format `pam_trace.py` writes for a screenplay that uses the timeline. Nothing in a screenplay changes: there is no new screenplay syntax, a version 4 trace is written byte for byte as before, and the new keys appear only in version 5 traces. The format is documented at the top of `pam_trace.py`.
+
+What a version 5 trace now also holds:
+
+| Key | What it says |
+|---|---|
+| `"events"` | The trace's meaning as one list in frame order: `{"frame", "event", "frames"?, ...}`. The types are `step`, `sequence`, `block`, `beat`, `routine`, `constraint` (its active interval), `shot`, `camera_cut`, `camera_move`, `background`, `figure_shown`, `figure_hidden`, `prop_created` (a new prop component), `prop_shown`, `prop_hidden`, `prop_state_changed`, `prop_attached`, `display_changed`, `text_changed` (the words on a surface), `line` (dialogue), `tic`, `sound` and `screen_fade` (`pam_trace.EVENT_TYPES`). |
+| `"params"` on each item of `"blocks"` | The step's own keys, so a tic's fragment, a sound cue's word or a fade's color is in the trace. |
+| `"opacity"` | How opaque a figure (at the top), a prop object or an overlay is, frame by frame, as camera-style moves `{"t0", "t1", "f0", "f1", "rate", "from", "to"}`. Measured on every frame Manim draws, and written only where it says more than the visibility rows. |
+
+`trace_replay.py` is a reference reader: it needs neither Manim nor Blender, and given a trace it says where every joint, the camera and every prop is on any frame, what each stateful prop shows, what is on screen and how opaque it is, and which events happen on which frame. `python trace_replay.py scene6.trace.json` prints the event stream; `--frame F` prints one frame's events.
+
+To check a replay, run the tracer with the frame probe on:
+
+```bash
+PAM_TRACE_FRAMES=scene6.frames.json PAM_SCRIPT=scene6.json \
+    python pam_trace.py scene6.trace.json
+```
+
+The probe writes, beside the trace, what Manim drew on every frame; the trace itself is the same with or without it. `tests/test_replay.py` does this for all six scenes of `projects/abe-isaac` and holds the replay to `trace_replay.TOLERANCES`: every joint within 0.002 units on every frame, the camera within 0.002 (cuts included), props within 0.005 (sizes within 2 %, a rope's points within 0.002), opacity within 0.002, and exactly what is on screen, every prop state, display and text, the number of frames, and the frame of every event that shows. The one exception is a known open item: a prop placed while its holder fades in is recorded where it was built for the frames of that play.
+
+Two hooks were added for the event stream, both no-ops without a listener: `step` (a top-level step is about to run) and `shot` (a camera marker is applied, with the shot it describes).
+
 ### Timed parallel blocks: overlapping action on the frame clock
 
 Milestone 2 of the Blender roadmap. A `parallel` block has always played its steps together, all with one run time. Give its steps `at` and `frames` and each one starts on its own frame and lasts its own number of frames. Dialogue is one of the things such a block can run, so a line can begin on an exact frame while two actors are moving and the camera cuts.
@@ -2023,7 +2050,7 @@ python -m pytest            # everything, about two minutes
 python -m pytest -k golden  # only the golden-trace comparison
 ```
 
-The tests trace seven fixture screenplays with `pam_trace.py` and compare the result with stored golden traces, so a change to motion, timing, camera, or props shows up without rendering a video. See `tests/README.md` for what is covered and for when and how to record new golden traces.
+The tests trace nine fixture screenplays with `pam_trace.py` and compare the result with stored golden traces, so a change to motion, timing, camera, or props shows up without rendering a video, and replay the six project scenes from their traces against what Manim drew on every frame (`tests/test_replay.py`). See `tests/README.md` for what is covered and for when and how to record new golden traces.
 
 ---
 

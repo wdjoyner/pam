@@ -3644,6 +3644,19 @@ class PAMPlayer(MovingCameraScene):
 
         _tl_blocks: list = []       # the timed blocks being played
 
+        def _emit_shot(step: dict, meta: dict, frames=None):
+            """Milestone 7: tell a listener that a camera marker is
+            applied (its id and the shot it describes), on this frame."""
+            if not _pam_hooks.active():
+                return
+            t = float(self.renderer.time)
+            _pam_hooks.emit("shot", scene=self,
+                            id=step.get("_subscene_marker"),
+                            meta=dict(meta or {}), frames=frames,
+                            block=(_tl_blocks[-1].get("id")
+                                   if _tl_blocks else None),
+                            t=t, frame=_pam_timeline.frame_of(t))
+
         def _tl_camera(step: dict):
             """A camera marker in a timed block: a cut on this frame,
             or a move that lasts the marker's frames."""
@@ -3663,6 +3676,7 @@ class PAMPlayer(MovingCameraScene):
             if frame is None:
                 return {"phases": []}
             _pending_camera.clear()
+            _emit_shot(step, meta, frames=info["frames"])
             cut = {**meta, "move": "static"}
             if info["frames"] <= 0:
                 _apply_camera(cut, self, char_x)
@@ -4100,11 +4114,20 @@ class PAMPlayer(MovingCameraScene):
             if _persistent_bubbles:
                 _sweep_expired_bubbles()
 
+            # Milestone 7: tell a listener (pam_trace.py) which step is
+            # about to run, on which frame.  Nothing happens without one.
+            if _pam_hooks.active():
+                _pam_hooks.emit("step", scene=self, index=_step_idx,
+                                step=step, t=float(self.renderer.time),
+                                frame=_pam_timeline.frame_of(
+                                    float(self.renderer.time)))
+
             # ── _subscene_marker: camera-mode sync ───────────────────────
             if "_subscene_marker" in step:
                 if _camera_mode:
                     meta, char_x = _marker_context(step)
                     meta = _fit_meta(meta, actions[_step_idx + 1:])
+                    _emit_shot(step, meta)
                     # For static cuts: apply immediately (no scene time used).
                     # For animated moves: defer so the camera moves concurrently
                     # with the next FadeIn(bubble) rather than before it.

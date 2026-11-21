@@ -7,7 +7,9 @@ continuity ledger, Stage 4a; the scroll, a text-bearing prop, Stage 4b;
 the rope, a deformable attachment, Stage 4c), Milestone 5 (Fountain+
 choreography cues, projects, and inserts framed from their subject), and
 Milestone 6 (the performance of the project's scenes: Scenes 1 and 2,
-Stage 6a; Scenes 3 and 4, Stage 6b; Scenes 5 and 6, Stage 6c).
+Stage 6a; Scenes 3 and 4, Stage 6b; Scenes 5 and 6, Stage 6c), and
+Milestone 7 (the semantic trace: a replay of each scene's trace against
+what Manim drew on every frame).
 None of them writes a video, and none writes into the repository.
 
 ```bash
@@ -31,6 +33,9 @@ python -m pytest -k performance_6b  # Stage 6b: catch_by_collar, tie_wrist_loop,
 python -m pytest -k performance_6c  # Stage 6c: reach_and_tighten,
                                     # altar_tumble_hug, hoist_overhead,
                                     # and Scenes 5 and 6 (about two minutes)
+python -m pytest -k replay        # Milestone 7: the six scenes replayed
+                                  # from their traces against what Manim
+                                  # drew (about four minutes)
 python -m pytest -k golden   # golden-trace comparison only
 python -m pytest -k validate # validator only (a few seconds)
 ```
@@ -51,7 +56,7 @@ something extra and are skipped without it:
 | `test_scroll.py` | Milestone 4, Stage 4b, without a renderer. The scroll's machine; writing, crossing out and replacing text, and what an op may not do; text and shape changing independently; text shown letter by letter and a line through a phrase growing from its left end; the validator on scroll steps, also in timed blocks; the ledger carrying the text and its revisions; and the six-scene project, with the completion test for the scroll (below). |
 | `test_rope.py` | Milestone 4, Stage 4c, without a renderer. The rope's machine (loose, tied, tightened, snapped; nothing follows a snap); a rope tied only while it is `around` something; attachments to several `joints`, and what an attachment may not say; its two pieces, joined until it snaps and each on its own attachment after; the validator on rope steps, also in timed blocks; the ledger carrying the rope and its pieces; and the six-scene project, with the completion test for the rope (below). |
 | `test_rope_shapes.py` | The rope's shapes, plain functions of world positions (`pam.props_carried`): a coil hanging from a shoulder or lying on the ground; a loop that goes round both wrists, stays clear of them, has its knot on top and its break under them, smaller when tight; a piece lying where it fell or hanging from a hand; the throw of a broken end; `attrs.scale`. |
-| `test_blender_build.py` | `trace2blender.py` builds a `.blend` from a stored golden trace without error; in the built scene a constrained hand stays on the wrist it holds, including a wrist that moves, and the contacts of the Scene 2 routines hold (the pull, the offered hand, the pop). Stateful props: the knife's handle and blade are built once each and are where the trace has them before and after the break; a hand held on a prop is on it in Blender, also on a prop the builder moves (a door set on the floor); a stateful phone gets its screens. The scroll: its roll, sheet and ribbon each shown in its state, its text letter by letter and the lines through struck text as long as the trace has them, on the same frames, and its grip in Abraham's hand. The rope: each piece built once, as a curve object; its control points in Blender are the trace's, and it is shown when the trace shows it, on every frame of every change and between them; the break of the tied rope is under Isaac's wrists, between them, as Blender places them. |
+| `test_blender_build.py` | `trace2blender.py` builds a `.blend` from a stored golden trace without error (both version 4 traces with figures, a dog and props among them); fades (Milestone 7): a prop fading in and a `screen_fade` to black fade in the built scene on the trace's frames; in the built scene a constrained hand stays on the wrist it holds, including a wrist that moves, and the contacts of the Scene 2 routines hold (the pull, the offered hand, the pop). Stateful props: the knife's handle and blade are built once each and are where the trace has them before and after the break; a hand held on a prop is on it in Blender, also on a prop the builder moves (a door set on the floor); a stateful phone gets its screens. The scroll: its roll, sheet and ribbon each shown in its state, its text letter by letter and the lines through struck text as long as the trace has them, on the same frames, and its grip in Abraham's hand. The rope: each piece built once, as a curve object; its control points in Blender are the trace's, and it is shown when the trace shows it, on every frame of every change and between them; the break of the tied rope is under Isaac's wrists, between them, as Blender places them. |
 | `test_blender_mouth.py` | Talking mouths in the Blender export: shown only while the character's bubble is showing, kept with `--no-bubbles`, removed by `--no-mouths`. |
 | `test_timeline.py` | The 15 fps frame clock: a duration in `frames` lasts exactly that many frames, sequences and beats land on their frames, and legacy screenplays are not touched. |
 | `test_timeline_blocks.py` | Timed `parallel` blocks (Milestone 2): overlapping moves start and end on their frames and keep their easing, a line of dialogue and a camera cut land on their frames, walks take exactly their frames, constraints start and end inside a block, repeated runs are identical, a block is exact at 30 fps, and ordinary `parallel` blocks and `say` lines are not touched. |
@@ -64,6 +69,7 @@ something extra and are skipped without it:
 | `test_performance.py` | Milestone 6, Stage 6a. The `perform` action: steps placed by acting phase, `until`, a routine's phases given by acting phase, the problems it reports; retiming one phase moves exactly the steps it should and rewrites nothing. `react` with `fragment` (a tic on the frame clock) and `sound_cue` on exact frames; a tic is a pose writer. The acting poses keep the bones and the shoulders of each build and have mirrors facing left. The `barbell` and `magazine` props; the cue file's `scenes.<id>.say`. Traced: a small scene played with two phase tables (the timing changes as expected and a tic returns to its pose), and Scenes 1 and 2 of the project, with the key pose of every gag (below). |
 | `test_performance_6b.py` | Milestone 6, Stage 6b. The routines `catch_by_collar` and `tie_wrist_loop`: known to the player, the validator and `perform`; `release: false` and a last phase of 0 frames keep the hold; the catch moves both figures and the tie only the one who ties. The new tic fragments and acting poses (crawling on hands and knees, seated with the feet on the ground, lying back, hanging, the heroic poses). Every cue of Scenes 3 and 4 compiled, the routines on beat notes of action lines, no prose left to stage, no invented dialogue. Traced: the catch and the tie at four combinations of sizes, and Scenes 3 and 4 of the project, with the key pose of every gag (below). |
 | `test_performance_6c.py` | Milestone 6, Stage 6c. The routines `reach_and_tighten`, `altar_tumble_hug` and `hoist_overhead`: known to the player, the validator and `perform`; which figures each moves; `release: false` keeps the hold. `screen_fade` at the top level and in a timed block. The new tic fragments and acting poses. Every cue of Scenes 5 and 6 compiled, the routines on beat notes of action lines, no prose left to stage, no invented dialogue. Traced: the three routines at four combinations of sizes, and Scenes 4 to 6 of the project, with the key pose of every gag (below). |
+| `test_replay.py` | Milestone 7. Each of the six project scenes is traced with the frame probe on (`PAM_TRACE_FRAMES`), and `trace_replay.py`, reading only the trace, must give what Manim drew on every frame, within the tolerances below: joint movement, the camera and its cuts, props (position, size, opacity, a rope's points), every prop state, display and text, the bubbles, cards and background, the number of frames, and the frame of every event that shows. The fade to black at the end of Scene 6. The event vocabulary covers what the six scenes do, and every step is an event. Without a renderer: `trace_replay.py` reads all nine golden traces (version 4 included), and a figure is where each move leaves it. |
 | `test_scale_anchor.py` | A scaled figure does not bob when it walks: through every walk and run keyframe the lower foot is where the scaled pose puts it and the head rises only as much as the pose's own head; a pose with the anchor on the floor is scaled as before; nothing changes across the body; the depth scale behaves the same; an unscaled figure is untouched. No renderer. |
 | `test_validate.py` | The JSON validator and the `pam-validate` command, including what they report for each fixture. |
 | `test_action_specs.py` | `pam/action_specs.py` lists exactly the actions `pam_player.py` dispatches. |
@@ -73,7 +79,7 @@ something extra and are skipped without it:
 
 ## Fixtures and golden traces
 
-The fixtures are eight screenplays in the repository root:
+The fixtures are nine screenplays in the repository root:
 
 - `screenplay_alice-meets-bob.json`
 - `lucy-meets-lenny2_pam.json`
@@ -119,6 +125,12 @@ version label at that commit, the tolerance, and the recording environment
 (Python, Manim, platform). Each fixture also has a `recorded_at` entry; the
 `lucy-meets-lenny2_pam.json` trace was recorded again after that fixture was
 corrected.
+
+The six version 5 traces were recorded again in Milestone 7, when the
+trace gained `"events"`, `"opacity"` and the `"params"` of the steps of
+timed blocks. The change only adds keys: each stored trace is the one
+before with those keys added, and no value it already had changed. The
+three version 4 traces did not change.
 
 Eight of the nine traces were recorded again (each has a new
 `recorded_at`) when scaled figures stopped bobbing as they walk
@@ -166,6 +178,34 @@ get the strict comparison on your own machine, first check that the portable
 comparison passes, then run `python tests/update_golden.py` there and commit
 the result. `PAM_GOLDEN_MODE=strict` or `PAM_GOLDEN_MODE=portable` forces a
 mode.
+
+## The Milestone 7 completion test
+
+The roadmap's test for Milestone 7 reads: *a trace replay reconstructs the
+Manim performance's joint movement, camera cuts, prop states, and frame
+timings within specified numerical tolerances; version 4 traces still
+build.* It is `test_replay.py`, over all six scenes of `projects/abe-isaac`,
+with the tolerances of `trace_replay.TOLERANCES`:
+
+| What | Tolerance |
+|---|---|
+| every joint of every figure on stage, on every frame | 0.002 units |
+| the camera's center and width, on every frame, cuts included | 0.002 units |
+| a prop's position (box center, or its anchor) | 0.005 units |
+| a prop's size | 2 % (the tracer writes a change of size only beyond that) |
+| a rope's control points | 0.002 units |
+| the opacity of figures, props and on-screen cards | 0.002 |
+| what is on screen (figures, props, bubbles, cards), prop states, displays and text, the background, the number of frames, and the frame of every event that shows (a cut, a line, a figure or prop appearing or leaving, a change of state, a display) | exact |
+
+For scale, the frame is 14.2 units wide in a wide shot; the measured worst
+case on the six scenes is 0.0003 for joints and 0 for the camera. The one
+exception is a known open item: a prop placed while its holder fades in is
+recorded where it was built for the frames of that play, so its position is
+not compared on the frames of a prop's first move when that move starts on
+the frame the prop is first shown (at most six frames for any prop; a test
+checks that too). The version 4 half is `test_blender_build.py`, which builds
+all three version 4 golden traces, and the golden comparison, which proves
+that they are still written byte for byte as before.
 
 ## The Milestone 3 completion test
 

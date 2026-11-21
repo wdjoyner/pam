@@ -40,6 +40,7 @@ def _command(trace, out):
 
 @pytest.mark.parametrize("fixture", [
     "screenplay_alice-meets-bob.json",        # figures and bubbles only
+    "lucy-meets-lenny2_pam.json",             # trace version 4, a dog
     "wdj_nona-vs-governor-venus3.json",       # props, a held prop, the Governor
     "abe-isaac_wrist-pull_slice.json",        # trace version 5, sampled piece
     "abe-isaac_overlap_timeline.json",        # a timed parallel block
@@ -649,3 +650,61 @@ def test_the_knot_is_round_isaacs_wrists_in_blender(rope_blend):
             max(wl[0], wr[0]) + 0.05, f
         # in front of the figure
         assert brk[1] < wl[1]
+
+
+# ── fades (Milestone 7: opacity over time, trace version 5) ──────────────
+
+FADE_SCENE = [
+    {"action": "set_background", "color": "#a9c8e6"},
+    {"action": "props", "rt": 0.4, "items": {
+        "rock": {"type": "rock", "x": -2.0, "y": -2.6, "width": 0.5,
+                 "height": 0.45}}},
+    {"action": "cast", "characters": {"alice": {"figure_type": "human"}}},
+    {"action": "fade_in", "who": "alice", "rt": 0.4},
+    {"action": "wait", "frames": 6},
+    # (in a timed block, so that the trace is a version 5 one)
+    {"action": "parallel", "frames": 12,
+     "do": [{"action": "screen_fade", "frames": 12}]},
+]
+
+
+def test_fades_carry_over_to_blender(tmp_path):
+    """A prop that fades in and the screen_fade to black fade in the
+    built scene, keyed on Blender frame 1 + 2 f from the trace's
+    opacity, instead of appearing at once (the Stage 6c gap)."""
+    if _command(tt.golden_path(tt.FIXTURES[0]), tmp_path / "x.blend") is None:
+        pytest.skip("Blender is not available")
+    trace, _ = tt.trace_actions(FADE_SCENE, tmp_path)
+    assert trace["trace_version"] == 5
+    rock = tt.prop_object(trace, "rock")
+    assert rock["opacity"][-1]["to"] == 1.0
+    card = next(o for o in trace["overlays"] if o["kind"] == "card")
+    fade = card["opacity"]
+    assert len(fade) == 1 and fade[0]["f1"] - fade[0]["f0"] == 12
+    tr = tmp_path / "fade.trace.json"
+    tr.write_text(json.dumps(trace))
+    out = tmp_path / "fade.blend"
+    proc = subprocess.run(_command(tr, out), cwd=tmp_path, env=tt._env(),
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stdout[-2000:] + proc.stderr[-4000:]
+    f0, f1 = fade[0]["f0"], fade[0]["f1"]
+    mid = (f0 + f1) // 2
+    frames = [1, 1 + 2 * (f0 - 1), 1 + 2 * mid, 1 + 2 * f1]
+    probe = tmp_path / "fade.json"
+    proc = subprocess.run(
+        _run(tt.REPO / "tests" / "blender_fade_probe.py", out, probe,
+             ",".join(map(str, frames))),
+        cwd=tmp_path, env=tt._env(), capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stdout[-2000:] + proc.stderr[-4000:]
+    mats = json.loads(probe.read_text())["materials"]
+    black = [m for k, m in mats.items() if k.startswith("flat #000000")
+             and "overlay." in k]
+    assert black, "the fade card is drawn, not taken for a caption's panel"
+    v = black[0]["values"]
+    assert v[str(frames[1])] < 0.05
+    want = fade[0]["from"] + (fade[0]["to"] - fade[0]["from"]) \
+        * (mid - f0) / (f1 - f0)
+    assert abs(v[str(frames[2])] - want) < 0.01
+    assert v[str(frames[3])] > 0.99
+    rocks = [m for k, m in mats.items() if "[prop.rock." in k]
+    assert rocks and all(m["values"][str(frames[3])] == 1.0 for m in rocks)

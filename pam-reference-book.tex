@@ -4531,9 +4531,9 @@ active at once.
 \section{14. Runtime additions for the Blender roadmap (PAM 1.0.1): the
 timeline, constraints, choreography and stateful props}\label{runtime-additions-timeline}\index{timeline}\index{frame clock}
 
-Milestones 1 to 5 of \emph{PAM: The Road to Blender} (Milestone 4 in
-three stages, 4a, 4b and 4c), its vertical slice, and Stages 6a and
-6b of Milestone 6. Everything in this section
+Milestones 1 to 7 of \emph{PAM: The Road to Blender} (Milestone 4 in
+three stages, 4a, 4b and 4c, and Milestone 6 in three, 6a, 6b and 6c),
+and its vertical slice. Everything in this section
 is opt-in: a screenplay that uses none
 of the keys and actions below is loaded, played and traced exactly as
 before. The modules are \texttt{pam/timeline.py},
@@ -4977,7 +4977,12 @@ Version 5 adds:
 \item
   \texttt{routines}: for each choreography routine, its frames, its
   phases, and what it measured on the figures (\S14.11). Present only
-  when there are any.
+  when there are any;
+\item
+  \texttt{prop\_states} and \texttt{prop\_events} (\S14.12);
+\item
+  \texttt{events}, \texttt{opacity}, and the \texttt{params} of every
+  step of a timed block (Milestone 7, \S14.17).
 \end{itemize}
 
 Inside a timed block the tracer records frame by frame: one linear
@@ -6106,7 +6111,8 @@ of the camera frame, on top of everything, whose opacity goes from 0 to
 Keys: \texttt{frames} (or \texttt{rt}; default one second),
 \texttt{color} (default black), and, as a step of a timed block,
 \texttt{at}. The trace records the rectangle as an overlay card from
-the frame its fill shows, not how its opacity grows.
+the frame its fill shows, and (Milestone 7, \S14.17) how its opacity
+grows, frame by frame, so a Blender build fades over the same frames.
 
 The wide shots of Scenes 5 and 6 are framed on the action (\S7,
 \texttt{MARGIN}), so that the phone's display and the blade read in
@@ -6122,6 +6128,114 @@ key pose of every gag of the two scenes. It also checks that each scene
 opens as the one before ends, that nothing moves in the silence, that
 every bubble is inside the frame when it is shown, and that the props
 end each scene as the continuity ledger says.
+
+\subsection{14.17 The semantic trace and its replay (Milestone
+7)}\label{semantic-trace}\index{trace!events}\index{events@\texttt{events}}\index{opacity@\texttt{opacity}}\index{trace\_replay.py@\texttt{trace\_replay.py}}\index{PAM\_TRACE\_FRAMES@\texttt{PAM\_TRACE\_FRAMES}}
+
+Milestone 7 completes trace version 5. There is no new screenplay
+syntax: a screenplay plays as before, a scene that does not use the
+timeline is still traced as version 4, byte for byte, and version 5
+only gains keys. The format is documented in full at the top of
+\texttt{pam\_trace.py}.
+
+\paragraph{The event stream.}
+\texttt{"events"} is the trace's meaning as one list in frame order.
+Each event is \texttt{\{"frame", "event", "frames"?, ...\}};
+\texttt{frames} is how long it lasts. The types
+(\texttt{pam\_trace.EVENT\_TYPES}) are:
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{step} (every step at the top level, with its keys as
+  \texttt{params}, and every step of a timed block, with its block,
+  beat and track), \texttt{sequence}, \texttt{block}, \texttt{beat},
+  \texttt{routine};
+\item
+  \texttt{constraint}: a contact constraint's active interval, with
+  its type, figure, joints and target;
+\item
+  \texttt{shot} (a camera marker as applied: its id and framing,
+  subject, move, transition, fit), \texttt{camera\_cut},
+  \texttt{camera\_move}, \texttt{background};
+\item
+  \texttt{figure\_shown}, \texttt{figure\_hidden}, with the frames of
+  the fade;
+\item
+  \texttt{prop\_created} (a new prop component: a prop object first
+  drawn), \texttt{prop\_shown}, \texttt{prop\_hidden},
+  \texttt{prop\_state\_changed}, \texttt{prop\_attached},
+  \texttt{display\_changed};
+\item
+  \texttt{text\_changed}: the words on a surface (the scroll), with the
+  letters one step writes over its frames as one event;
+\item
+  \texttt{line} (a line of dialogue: speaker, bubble, text, frames on
+  screen), \texttt{tic} (a \texttt{react} fragment), \texttt{sound}
+  (a \texttt{sound\_cue}, with its word), \texttt{screen\_fade}.
+\end{itemize}
+
+Each step of a timed block also carries its own keys in
+\texttt{blocks} (\texttt{params}), so a tic's fragment, a sound cue's
+word and a fade's color are in the trace.
+
+\paragraph{Opacity.}
+\texttt{"opacity"} says how opaque a figure (at the top of the trace),
+a prop object or an overlay (on its record) is, frame by frame, as
+moves of the camera's shape:
+\texttt{\{"t0", "t1", "f0", "f1", "rate", "from", "to"\}}. The tracer
+measures opacity on every frame Manim draws, writes a change from one
+frame to the next as a one-frame linear move (merged while the steps
+are equal, so a linear fade is one move), and writes a list only where
+it says more than shown or hidden. The \texttt{screen\_fade} at the end
+of Scene 6 is a card the size of the frame going from 0 to 1 over 28
+frames; \texttt{trace2blender.py} keys a see-through mix on the
+materials of anything with a list, so it fades to black in Blender
+instead of cutting.
+
+\paragraph{The replay.}
+\texttt{trace\_replay.py} is a reference reader with no Manim and no
+Blender: given a trace, it gives every joint, the camera, every prop's
+box and a rope's control points, every stateful prop's state, display
+and text, what is on screen and how opaque, and the events, on any
+frame. It interpolates with the trace's rate functions, lays the
+sampled pieces over the ordinary ones, and solves nothing.
+\texttt{python trace\_replay.py trace.json} prints the event stream.
+
+\paragraph{The frame probe and the completion test.}
+With \texttt{PAM\_TRACE\_FRAMES=frames.json}, \texttt{pam\_trace.py}
+also writes what Manim drew on every frame. It reads the scene where
+every drawn frame passes through the renderer, and changes nothing:
+the trace beside it is the trace written without it.
+\texttt{tests/test\_replay.py} traces the six scenes of
+\texttt{projects/abe-isaac} with the probe on and requires the replay
+to match, within \texttt{trace\_replay.TOLERANCES}:
+
+\begin{center}
+\begin{tabular}{p{3.6in}l}
+\hline
+every joint of every figure on stage, on every frame & 0.002 units \\
+the camera's center and width, cuts included & 0.002 units \\
+a prop's position & 0.005 units \\
+a prop's size & 2\,\% \\
+a rope's control points & 0.002 units \\
+the opacity of figures, props and cards & 0.002 \\
+what is on screen, every prop state, display and text, the background,
+the number of frames, and the frame of every event that shows & exact \\
+\hline
+\end{tabular}
+\end{center}
+
+For scale, a wide shot is 14.2 units across; the worst joint error on
+the six scenes is 0.0003. One known open item is exempted, and the
+test checks that it stays small: a prop placed while its holder fades
+in is recorded where it was built for the frames of that play.
+Version 4 traces still build (\texttt{tests/test\_blender\_build.py}
+builds all three) and are written exactly as before.
+
+New \texttt{pam.hooks} events: \texttt{step} (a top-level step is about
+to run) and \texttt{shot} (a camera marker is applied). Like every
+hook, they do nothing without a listener.
 
 \chapter{Character Properties
 Reference}\label{character-properties-reference}
