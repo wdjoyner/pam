@@ -387,7 +387,10 @@ def camera_at(trace, frame):
 
 def fitted_shots(trace):
     """``[(first frame, end frame, width, center)]`` of every insert
-    (every shot narrower than the legacy insert's 7 units)."""
+    (every shot narrower than 3 units; the legacy insert was 7.  Since
+    Stage 6c a medium shot fitted on a character, as narrow as 5.6, is
+    not an insert, as Scene 1's mediums on Abraham were not since Stage
+    6a: see ``_fit_lines``)."""
     cuts = sorted({0} | {round(m["t1"] * trace["fps"])
                          for m in trace["camera"]})
     end = round(trace["duration"] * trace["fps"])
@@ -395,7 +398,7 @@ def fitted_shots(trace):
     for k, f0 in enumerate(cuts):
         f1 = cuts[k + 1] if k + 1 < len(cuts) else end
         w, c = camera_at(trace, f0)
-        if w < 7.0 - 1e-6:
+        if w < 3.0:
             out.append((f0, f1, w, c))
     return out
 
@@ -468,10 +471,12 @@ CHARACTERS = ("abraham", "isaac")
 def _fit_lines(log):
     """What each fitted insert in a console log framed: "subject" or
     "text".  (A fitted shot on a character, such as Scene 1's medium
-    shots on Abraham since Milestone 6, is not an insert.)"""
+    shots on Abraham since Milestone 6, is not an insert; nor, since
+    Stage 6c, is a shot fitted on several subjects of which one is a
+    character, such as the wide shots of Scenes 5 and 6.)"""
     return [m.group(1) for m in re.finditer(
         r"CAM fit (subject|text) [^\n]*?subject=(\S+)", log)
-        if m.group(2).lower() not in CHARACTERS]
+        if not set(m.group(2).lower().split("+")) & set(CHARACTERS)]
 
 
 def _scroll_text_box(trace, frame):

@@ -9,7 +9,8 @@ for the default proportions, and a ``broad`` or ``narrow`` figure that
 morphs into one of them takes on the default shoulders and hips for the
 length of the pose.  The poses here are written instead as changes to
 a *base* pose of the figure's own build (its ``standing_side``,
-``standing_front`` or ``sitting_down``), so they keep its proportions.
+``standing_front`` or ``sitting_down``; Stage 6c adds
+``lying_flat_right``), so they keep its proportions.
 
 A pose is::
 
@@ -322,6 +323,66 @@ ACTING_POSES = {
                               "rwrist": ("rshoulder", 1.55, 0.27),
                               "head":   ("neck", 0.52, 0.45)}},
 
+    # ── Stage 6c: Scene 5, live (side) ───────────────────────────────
+    # one hand raised high (holding the knife handle aloft), the other
+    # out in front at chest height, counting off what God said
+    "raise_count": {"base": "standing_side", "set": {
+        "rwrist": ("rshoulder", 0.80, 1.40),
+        "lwrist": ("lshoulder", 0.85, -0.25)}},
+    # ... and the raised hand thrust higher: "Raise my knife --"
+    "raise_high": {"base": "standing_side", "set": {
+        "rwrist": ("rshoulder", 0.55, 1.70),
+        "lwrist": ("lshoulder", 0.85, -0.25),
+        "head":   ("head", -0.04, 0.08)}},
+    # a step backward, still facing the way he faces: one foot reaching
+    # back, the trunk leaning back a little (backing away)
+    "back_step": {"base": "standing_side", "bend": -4,
+                  "bends": {"rankle": 1},
+                  "set": {"rankle": ("rhip", -0.62, -2.18)}},
+    # looking down at something on the ground in front of him
+    "look_down": {"base": "standing_side", "set": {
+        "head": ("head", 0.24, -0.30),
+        "neck": ("neck", 0.06, -0.08)}},
+    # lying back on the elbows, the head dropped forward: staring down at
+    # something beside him (the blade in the log)
+    "recline_stare": {"base": "standing_side",
+                      "move": {"lower": (0.0, -1.0)}, "bend": -60,
+                      "bends": {"lankle": 1, "rankle": 1,
+                                "lwrist": -1, "rwrist": -1},
+                      "set": {"lankle": ("lhip", 1.30, -1.28),
+                              "rankle": ("rhip", 1.40, -1.28),
+                              "lwrist": ("lshoulder", 0.80, -0.32),
+                              "rwrist": ("rshoulder", 0.80, -0.40),
+                              "head":   ("neck", 0.66, 0.02)}},
+
+    # ── Stage 6c: Scene 6, the revision (side) ───────────────────────
+    # bent over a knot held at the height of his face, teeth on it
+    "bite_knot": {"base": "standing_side", "bend": 38,
+                  "set": {"lwrist": ("neck", 0.70, -0.55),
+                          "rwrist": ("neck", 0.80, -0.70),
+                          "head":   ("neck", 0.52, 0.42)}},
+    # standing, the scroll held open in front in the left hand, the
+    # quill at it in the right
+    "hold_write": {"base": "standing_side", "set": {
+        "lwrist": ("lshoulder", 0.80, -0.55),
+        "rwrist": ("rshoulder", 0.62, -0.38),
+        "head":   ("head", 0.12, -0.10)}},
+    # sitting on the ground, legs out in front, leaning back on the
+    # hands: getting up after a fall
+    "sit_ground": {"base": "standing_side", "move": {"lower": (0.0, -2.05)},
+                   "bend": -18, "bends": {"lankle": 1, "rankle": 1},
+                   "set": {"lankle": ("lhip", 2.05, -0.24),
+                           "rankle": ("rhip", 2.15, -0.24),
+                           "lwrist": ("lhip", -0.55, 0.02),
+                           "rwrist": ("rhip", -0.45, 0.02)}},
+
+    # lying face down on top of someone, head to the right, knees bent
+    # and the feet kicked up behind (the end of the tumble in Scene 6)
+    "pile_on": {"base": "lying_flat_right",
+                "bends": {"lankle": 1, "rankle": 1},
+                "set": {"lankle": ("lhip", -0.55, 1.15),
+                        "rankle": ("rhip", -0.35, 1.10)}},
+
     # ── Stage 6b: front poses ────────────────────────────────────────
     # both hands up and apart: a headline in lights
     "headline": {"base": "standing_front", "set": {
@@ -459,7 +520,16 @@ def resolve(key, base_of):
         pose = {j: np.array(p, dtype=float)
                 for j, p in base_of("standing_side").items()}
     elif name in ACTING_POSES:
-        pose = build(name, base_of(ACTING_POSES[name]["base"]))
+        base = ACTING_POSES[name]["base"]
+        try:
+            got = base_of(base)
+        except KeyError:
+            if base != "lying_flat_right":
+                raise
+            # (the same for every build: pam/poses.py passes it through)
+            from pam.poses import LYING_FLAT_RIGHT
+            got = LYING_FLAT_RIGHT
+        pose = build(name, got)
     else:
         return None
     return mirror(pose) if left else pose

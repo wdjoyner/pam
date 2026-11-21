@@ -3,12 +3,11 @@
 The six scenes of the short, compiled from the screenplay (Milestone 5
 of *PAM: The Road to Blender*), with the prop continuity of Milestone 4
 (Stages 4a, 4b and 4c): the knife, the phone, the scroll and the rope.
-Scenes 1 to 4 are performed (Milestone 6, Stages 6a and 6b): every gag
-is acted in four phases (`perform`), with mannerisms (`react` with
-`fragment`), holds, and speech bubbles. Scenes 5 and 6 are still
-blocking for the props (Stage 6c): the characters stand, walk a little
-and speak their lines, and the knife, the phone, the scroll and the rope
-do everything Draft 3 of the script has them do.
+All six scenes are performed (Milestone 6: Scenes 1 and 2 in Stage 6a,
+3 and 4 in Stage 6b, 5 and 6 in Stage 6c): every gag is acted in four
+phases (`perform`), with mannerisms (`react` with `fragment`), holds,
+and speech bubbles, and the knife, the phone, the scroll and the rope do
+everything Draft 3 of the script has them do.
 
 | File | What it holds |
 |---|---|
@@ -128,10 +127,54 @@ Isaac's bubbles are on his right and Abraham's on his left.
 The prop transitions of both scenes are the Milestone 4 steps, in the
 same order: the ledger is unchanged.
 
-Two things for Stage 6c: Scene 5 is "CONTINUOUS", and still opens with
-Isaac standing at the cast position with his wrists held out and Abraham
-at x -1.2; Scene 4 now ends with Isaac lying back on the altar and
-Abraham crouched at the rock with the phone.
+## Scenes 5 and 6 (Milestone 6, Stage 6c)
+
+Scenes 5 and 6 are performed the same way, with 28 new beat notes in the
+script and new CAMERA notes (see its revision log). Both scenes are
+CONTINUOUS. Scene 5 opens as Scene 4 ends, with Isaac lying back on the
+altar, propped on his elbows, and Abraham crouched at the rock with the
+phone and the knife handle. Scene 6 opens as Scene 5 ends. The `fade_in`
+steps of their `before` lists put each figure where the scene before
+left it, within 0.03 of each joint (tested). The wide shots are framed
+on the action (`SUBJECT=Isaac+Abraham+rock+barbell`, `MARGIN=0.08`), and
+three shots stay full width: the opening of Scene 6, Isaac standing up
+after the tumble, and the run-off. In the fitted shots the bubbles have
+`bubble_scale` (0.6 in the wides, 0.5 and 0.4 in the mediums, 0.75 in
+the wide after the scroll insert), so they look the size they do in the
+full-width shots of Scenes 1 to 4. Abraham's bubbles are on his left
+throughout, and Isaac's on his left in Scene 5 and his right in Scene 6.
+
+| Beat | What is acted |
+|---|---|
+| `s05_goes_live` | in the insert: his hands shake (`tremble`); the phone slips and his hand drops after it and catches it (`fumble_l`); his thumb lands on LIVE as the hand comes back up; he stares at it |
+| `s05_count_climbs` | the count climbs to 240, the phone not moving in his hand |
+| `s05_props_phone` | the phone onto the rock; he stands and backs away from it in six short steps, still facing it (`back_step`) |
+| `s05_points`, `s05_were_on` | `reach_and_tighten`, only its reach: Isaac comes up off his elbows and points both tied hands at the phone, and says "Dad. We're on." with them out; Abraham turns round |
+| `s05_knot_tightens` | `reach_and_tighten` without its reach: the knot cinches, the wrists jerked together; he tugs twice and each time they come back closer; he lies back |
+| `s05_wasnt_ready`, `s05_go` | palms up to his son; a nod toward the phone on "Go." |
+| `s05_faces_phone`, `s05_speech` | he turns to the phone and raises the handle, the other hand out to count on (`raise_count`); a finger counted off (`count_off_l`) on go to Mount Moriah, build an altar, tie down my son; the handle thrust up on Raise my knife (`raise_high`); the last bubble is cut off |
+| `s05_blade` | the satchel slips to the ground; the blade slides out and sticks in the log beside Isaac (CLATTER!); Isaac's head drops to stare at it (`recline_stare`). Abraham does not move |
+| `s05_no_comeback`, `s05_count_doubles`, `s05_and_then` | the silence: nothing moves, the handle still raised over his son, through the medium shot on Isaac, the insert (the count doubles, IS THAT A REAL KNIFE) and a beat in the medium shot on Abraham; then "And then..." |
+| `s05_out_of_fingers` | the hand stared at (as in Scene 2), the handle coming down; he looks down at the blade, up at Isaac, and round at the phone, a long hold on each |
+| `s05_and_then_quietly` | in a two-shot, Isaac lifts his head to his father and says it quietly |
+| `s06_handle_down` | he crouches and lays the handle on the ground, stands, and turns his back on the phone |
+| `s06_say_it` | a shake of the head; he walks to his son and holds out a hand; Isaac sits up and holds out his wrists |
+| `s06_pulls_knot` | `tie_wrist_loop`, `knot` and `yank`: it does not budge (Isaac's wrists do not move); his teeth on it (`bite_knot`, `gnaw`) |
+| `s06_told_you` ... `s06_let_them_hear` | he keeps gnawing; "Not now." through the rope; he straightens and looks round at the phone; palms out to the world, and back to his son |
+| `s06_rope_snaps` | `altar_tumble_hug`: Isaac leans down and Abraham's arms go round his shoulders; Isaac flexes and the rope snaps (the Stage 4c step, on the same frames), his arms close round his father, and they tumble off the front of the altar, Abraham on his back and Isaac on top (`pile_on`); they lie there hugging |
+| `s06_recovers_phone`, `s06_count_climbs_again` | the hug let go; Isaac pushes himself up, takes the phone from the rock, and walks back reading it; Abraham sits up (`sit_ground`) |
+| `s06_awesome` ... `s06_ill_drive` | the headline in lights again for the challenge; Abraham gets up behind him; a dry line; a hopeful shrug; he looks past his son at the blade and back; a nod |
+| `s06_scroll_from_belt` ... `s06_insert` | the Stage 4b steps: the scroll from his belt, unrolled and held up (`hold_write`); the quill from the satchel at his feet; the revision with his writing hand moving; the insert held 30 frames |
+| `s06_buzz` ... `s06_luggage` | BZZZ and a jump; Isaac reads the comment; a start; a nod |
+| `s06_quill_away`, `s06_bolts`, `s06_hoists` | the quill into the satchel; the scroll let trail and he bolts up the mountain; Isaac catches him in three strides and hoists him overhead (`hoist_overhead`, `grab` and `lift`) |
+| `s06_banner` | `hoist_overhead`, its `carry`: Isaac runs off with his father overhead, the scroll trailing behind them like a banner, and the frame fades out (`screen_fade`) |
+
+Two of the script's beats were chosen by the author for this stage: Isaac
+pulls the knot tighter by pointing at the phone (the roadmap's
+`reach_and_tighten`), and the tumble lands Abraham on his back with
+Isaac on top, in front of the altar. The prop transitions of both
+scenes are the Milestone 4 steps, in the same order: the ledger is
+unchanged.
 
 ## How the scenes are compiled
 

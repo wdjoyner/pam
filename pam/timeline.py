@@ -200,7 +200,7 @@ DEFAULT_SECONDS_KEY = "rt"
 # sequence.  ``say`` and ``parallel`` are played by the block runner
 # below; ``constrain`` reads its own ``frames``.
 FRAME_ACTIONS = (frozenset(SECONDS_KEY) | {"constrain", "parallel",
-                                           "prop_transition"}
+                                           "prop_transition", "screen_fade"}
                  | _specs.TIMELINE_ROUTINES)
 
 # Keys that only the timeline understands.  A step that carries one is
@@ -901,6 +901,15 @@ def describe(step, block=None, meta=None) -> dict:
                 else seconds_to_frames(SAY_SECONDS["hold"])
         out["parts"] = {"in": fin, "hold": hold, "out": fout}
         out["frames"] = fin + hold + fout
+        return out
+
+    if act == "screen_fade":
+        # the frame fades to a color, or back from it (Stage 6c)
+        out["kind"] = "fade"
+        if frames is None:
+            key, sec = _seconds(step, ("rt",))
+            frames = conv(key, sec) if key else FPS
+        out["frames"] = frames
         return out
 
     if act == "sound_cue":

@@ -1374,6 +1374,33 @@ repeating the full `CHARACTER` annotation.
 
 ## 15. Changelog
 
+### Milestone 6, Stage 6c (PAM 1.0.1)
+
+Nothing changed in the compiler: its output for any screenplay, with or
+without a cue file, is what it was.  Cues may now use the player's
+Stage 6c syntax, which the compiler copies as it is:
+
+- the routines **`reach_and_tighten`** (phases `reach`, `cinch`, `tug`,
+  `settle`; its `target` may be a prop), **`altar_tumble_hug`** (phases
+  `embrace`, `flex`, `close`, `tumble`, `land`, `hold`, `let_go`) and
+  **`hoist_overhead`** (phases `grab`, `lift`, `carry`; key `x`), with
+  their phases settable by acting phase inside a `perform` and played
+  apart by giving the other phases 0 frames;
+- **`screen_fade`**, the frame fading to a color (a FADE OUT; a step of
+  a timed block too);
+- **`bubble_scale`** on a `say`: a smaller bubble for a shot framed
+  closer than the full width;
+- the tic fragments `fumble_l`, `count_off_l` and `gnaw`, and nine
+  more acting poses.
+
+A beat note may stand on a transition such as `FADE OUT.`: with a cue it
+compiles to the cue (in the *Abraham and Isaac* project that cue is
+empty, since the fade is a step of the shot before it), as an action
+line does; without one it is a review comment, as before.  A `CAMERA`
+note with `MARGIN` may name several subjects (`SUBJECT=Isaac+Abraham+
+rock+barbell`): the shot is fitted to all of them, as an insert's two
+subjects always were.  See section 9 of `pam-player_manual.md`.
+
 ### Milestone 6, Stage 6b (PAM 1.0.1)
 
 Nothing changed in the compiler: its output for any screenplay, with or

@@ -26,12 +26,15 @@
   "action": "fade_in",
   "who": "isaac",
   "rt": 0.2,
-  "pose": "reach_forward"
+  "x": 1.08,
+  "pose": "recline_elbows_left"
  },
  {
   "action": "fade_in",
   "who": "abraham",
-  "rt": 0.2
+  "rt": 0.2,
+  "x": -1.208,
+  "pose": "standing_side_left"
  },
  {
   "_subscene_marker": "scene6_shot01",
@@ -45,102 +48,426 @@
   }
  },
  {
-  "_comment": "# CUE s06_handle_down (2 steps): Abraham sets the handle on the ground, far from the blade. He turns his "
+  "_comment": "# CUE s06_handle_down (1 step): Abraham sets the handle on the ground, far from the blade. He turns his "
  },
  {
-  "action": "prop_transition",
-  "prop": "knife.handle",
-  "frames": 9,
-  "beat": "handle_down",
-  "attached": {
-   "to": null,
-   "x": -2.2,
-   "y": -2.57,
-   "angle": 0
+  "action": "perform",
+  "id": "s06_handle_down",
+  "phases": {
+   "anticipation": 10,
+   "action": 9,
+   "reaction": 8,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "wait",
+    "frames": 4
+   },
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "crouch_reach_r_left",
+    "at": 4,
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "knife.handle",
+    "until": "action",
+    "beat": "handle_down",
+    "attached": {
+     "to": null,
+     "x": -2.2,
+     "y": -2.57,
+     "angle": 0
+    }
+   },
+   {
+    "phase": "reaction",
+    "action": "sequence",
+    "id": "stands",
+    "do": [
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "standing_side_left",
+      "frames": 4
+     },
+     {
+      "action": "turn",
+      "who": "abraham",
+      "pose": "standing_side",
+      "frames": 4,
+      "beat": "faces_his_son"
+     }
+    ]
+   },
+   {
+    "phase": "recovery",
+    "action": "wait",
+    "until": "recovery"
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s06_say_it (1 step): I can't remember what God said next. So I'll say it. And then I take my "
+ },
+ {
+  "action": "perform",
+  "id": "s06_say_it",
+  "phases": {
+   "action": 76,
+   "reaction": 9
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "I can't remember what God said next.",
+    "frames": 30,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "left"
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "head_shake",
+    "at": 4,
+    "frames": 10
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "So I'll say it.",
+    "frames": 18,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "left",
+    "at": 30
+   },
+   {
+    "phase": "action",
+    "action": "walk_to",
+    "who": "abraham",
+    "x": -0.62,
+    "at": 31,
+    "frames": 15,
+    "beat": "goes_to_him"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "And then I take my son home.",
+    "frames": 28,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "left",
+    "at": 48
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "offer_r",
+    "at": 50,
+    "frames": 6
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "sit_wrists_out_left",
+    "at": 56,
+    "frames": 10,
+    "beat": "isaac_sits_up"
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side",
+    "until": "reaction"
+   }
+  ]
+ },
+ {
+  "_subscene_marker": "scene6_shot02",
+  "_shot_meta": {
+   "framing": "wide",
+   "subject": "Isaac+Abraham+rock+barbell",
+   "move": "static",
+   "transition": "cut",
+   "lighting": null,
+   "freeform": false,
+   "fit": "bounds",
+   "margin": 0.08
   }
  },
  {
-  "action": "wait",
-  "frames": 9
+  "_comment": "# CUE s06_pulls_knot (1 step): He pulls at Isaac's knot. It will not budge. He tries with his teeth."
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "I can't remember what God said next.",
-  "side": "right",
-  "hold": 1.26
- },
- {
-  "action": "say",
-  "who": "abraham",
-  "text": "So I'll say it.",
-  "side": "right",
-  "hold": 0.9
- },
- {
-  "action": "say",
-  "who": "abraham",
-  "text": "And then I take my son home.",
-  "side": "right",
-  "hold": 1.26
- },
- {
-  "_comment": "# REVIEW: He pulls at Isaac's knot. It will not budge. He tries with his teeth."
- },
- {
-  "action": "say",
-  "who": "isaac",
-  "text": "Told you. Square knot.",
-  "side": "right",
-  "hold": 0.9
- },
- {
-  "_comment": "# REVIEW: through the rope"
- },
- {
-  "action": "say",
-  "who": "abraham",
-  "text": "Not now.",
-  "side": "right",
-  "hold": 0.9
- },
- {
-  "action": "say",
-  "who": "isaac",
-  "text": "Dad, you're still live.",
-  "side": "right",
-  "hold": 0.9
- },
- {
-  "action": "say",
-  "who": "abraham",
-  "text": "Then let them hear it.",
-  "side": "right",
-  "hold": 0.9
- },
- {
-  "action": "say",
-  "who": "abraham",
-  "text": "God doesn't want us sacrificing one another.",
-  "side": "right",
-  "hold": 1.26
- },
- {
-  "_comment": "# CUE s06_rope_snaps (2 steps): Abraham puts his arms around Isaac's shoulders, as far as they will go. "
- },
- {
-  "action": "parallel",
-  "id": "s06_snap",
-  "frames": 24,
+  "action": "perform",
+  "id": "s06_pulls_knot",
+  "phases": {
+   "anticipation": 12,
+   "action": 3,
+   "reaction": 12,
+   "recovery": 18
+  },
   "do": [
    {
-    "action": "morph",
-    "who": "isaac",
-    "pose": "standing_front",
-    "frames": 8,
-    "beat": "flexes"
+    "phase": "anticipation",
+    "action": "tie_wrist_loop",
+    "id": "untie",
+    "who": "abraham",
+    "target": "isaac",
+    "frames_approach": 0,
+    "frames_wind": 0,
+    "frames_knot": "anticipation",
+    "frames_yank": "action",
+    "frames_let_go": 6,
+    "beat": "pulls_at_knot"
    },
    {
+    "phase": "reaction",
+    "action": "wait",
+    "at": 6,
+    "until": "reaction",
+    "beat": "will_not_budge"
+   },
+   {
+    "phase": "recovery",
+    "action": "sequence",
+    "id": "teeth",
+    "do": [
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "bite_knot",
+      "dx": 0.0,
+      "frames": 6,
+      "beat": "teeth"
+     },
+     {
+      "action": "react",
+      "who": "abraham",
+      "fragment": "gnaw",
+      "frames": 12,
+      "cycles": 2
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s06_told_you (1 step): Told you. Square knot."
+ },
+ {
+  "action": "perform",
+  "id": "s06_told_you",
+  "phases": {
+   "action": 26
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "Told you. Square knot.",
+    "frames": 26,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right",
+    "bubble_scale": 0.6
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "gnaw",
+    "at": 4,
+    "frames": 18,
+    "cycles": 3
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s06_not_now (1 step): Not now."
+ },
+ {
+  "action": "perform",
+  "id": "s06_not_now",
+  "phases": {
+   "action": 16
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "Not now.",
+    "frames": 16,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "left",
+    "bubble_scale": 0.6
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "gnaw",
+    "frames": 12,
+    "cycles": 2
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s06_still_live (1 step): Dad, you're still live."
+ },
+ {
+  "action": "perform",
+  "id": "s06_still_live",
+  "phases": {
+   "action": 22,
+   "reaction": 12
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "Dad, you're still live.",
+    "frames": 22,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right",
+    "bubble_scale": 0.6
+   },
+   {
+    "phase": "reaction",
+    "action": "sequence",
+    "id": "looks_round",
+    "do": [
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "standing_side",
+      "frames": 5,
+      "beat": "lets_go_of_knot"
+     },
+     {
+      "action": "turn",
+      "who": "abraham",
+      "pose": "standing_side_left",
+      "frames": 4,
+      "beat": "looks_at_phone"
+     },
+     {
+      "action": "wait",
+      "frames": 3
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s06_let_them_hear (1 step): Then let them hear it. God doesn't want us sacrificing one another."
+ },
+ {
+  "action": "perform",
+  "id": "s06_let_them_hear",
+  "phases": {
+   "action": 58,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "palms_up_left",
+    "frames": 5
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "Then let them hear it.",
+    "frames": 20,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "left",
+    "bubble_scale": 0.6
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "God doesn't want us sacrificing one another.",
+    "frames": 38,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "left",
+    "bubble_scale": 0.6,
+    "at": 20
+   },
+   {
+    "phase": "action",
+    "action": "turn",
+    "who": "abraham",
+    "pose": "standing_side",
+    "at": 34,
+    "frames": 6,
+    "beat": "turns_to_son"
+   },
+   {
+    "phase": "recovery",
+    "action": "wait",
+    "until": "recovery"
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s06_rope_snaps (1 step): Abraham puts his arms around Isaac's shoulders, as far as they will go. "
+ },
+ {
+  "action": "perform",
+  "id": "s06_rope_snaps",
+  "phases": {
+   "anticipation": 12,
+   "action": 8,
+   "reaction": 13,
+   "recovery": 24
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "altar_tumble_hug",
+    "id": "hug",
+    "who": "abraham",
+    "target": "isaac",
+    "frames_embrace": "anticipation",
+    "frames_flex": 4,
+    "frames_close": 4,
+    "frames_tumble": 9,
+    "frames_land": 4,
+    "frames_hold": "recovery",
+    "frames_let_go": 0,
+    "beat": "embrace"
+   },
+   {
+    "phase": "action",
     "action": "prop_transition",
     "prop": "rope",
     "to": "snapped",
@@ -164,140 +491,521 @@
       }
      }
     }
+   },
+   {
+    "phase": "recovery",
+    "action": "wait",
+    "until": "recovery",
+    "beat": "still_hugging"
    }
   ]
  },
  {
-  "action": "wait",
-  "frames": 6
+  "_subscene_marker": "scene6_shot03",
+  "_shot_meta": {
+   "framing": "wide",
+   "subject": "ensemble",
+   "move": "static",
+   "transition": "cut",
+   "lighting": null,
+   "freeform": false
+  }
  },
  {
   "_comment": "# CUE s06_recovers_phone (1 step): Isaac recovers the phone. The viewer count climbs again."
  },
  {
-  "action": "prop_transition",
-  "prop": "phone",
-  "frames": 9,
-  "beat": "isaac_recovers_phone",
-  "display": {
-   "comment": null
+  "action": "perform",
+  "id": "s06_recovers_phone",
+  "phases": {
+   "anticipation": 22,
+   "action": 9,
+   "reaction": 6
   },
-  "attached": {
-   "to": "isaac",
-   "joint": "rwrist",
-   "by": "bottom"
-  }
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "sequence",
+    "id": "gets_up",
+    "do": [
+     {
+      "action": "release",
+      "id": "hug.who_upper"
+     },
+     {
+      "action": "release",
+      "id": "hug.who_lower"
+     },
+     {
+      "action": "release",
+      "id": "hug.target_upper"
+     },
+     {
+      "action": "release",
+      "id": "hug.target_lower"
+     },
+     {
+      "action": "morph",
+      "who": "isaac",
+      "pose": "crawl_a_left",
+      "frames": 5,
+      "beat": "isaac_gets_up"
+     },
+     {
+      "action": "morph",
+      "who": "isaac",
+      "pose": "standing_side_left",
+      "frames": 4
+     },
+     {
+      "action": "walk_to",
+      "who": "isaac",
+      "x": -1.2,
+      "frames": 9
+     },
+     {
+      "action": "morph",
+      "who": "isaac",
+      "pose": "crouch_reach_r_left",
+      "frames": 4
+     }
+    ]
+   },
+   {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "phone",
+    "until": "action",
+    "beat": "isaac_recovers_phone",
+    "display": {
+     "comment": null
+    },
+    "attached": {
+     "to": "isaac",
+     "joint": "rwrist",
+     "by": "bottom"
+    }
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "standing_side_left",
+    "until": "reaction"
+   }
+  ]
  },
  {
-  "_comment": "# CUE s06_count_climbs_again (2 steps): Isaac recovers the phone. The viewer count climbs again."
+  "_comment": "# CUE s06_count_climbs_again (1 step): Isaac recovers the phone. The viewer count climbs again."
  },
  {
-  "action": "prop_transition",
-  "prop": "phone",
-  "display": {
-   "viewers": 900
+  "action": "perform",
+  "id": "s06_count_climbs_again",
+  "phases": {
+   "action": 24,
+   "recovery": 6
   },
-  "frames": 20,
-  "beat": "count_climbs_again"
+  "do": [
+   {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "phone",
+    "display": {
+     "viewers": 900
+    },
+    "frames": 20,
+    "beat": "count_climbs_again"
+   },
+   {
+    "phase": "action",
+    "action": "sequence",
+    "id": "isaac_back",
+    "do": [
+     {
+      "action": "turn",
+      "who": "isaac",
+      "pose": "standing_side",
+      "frames": 3
+     },
+     {
+      "action": "walk_to",
+      "who": "isaac",
+      "x": 0.15,
+      "frames": 15
+     },
+     {
+      "action": "turn",
+      "who": "isaac",
+      "pose": "phone_check",
+      "frames": 4
+     }
+    ]
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "sit_ground",
+    "at": 6,
+    "frames": 8,
+    "beat": "abraham_sits_up"
+   },
+   {
+    "phase": "recovery",
+    "action": "wait",
+    "until": "recovery"
+   }
+  ]
  },
  {
-  "action": "wait",
-  "frames": 9
+  "_comment": "# CUE s06_awesome (1 step): That was awesome. I'm calling it the \"Don't Sacrifice Your Son\" challeng"
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "That was awesome.",
-  "side": "right",
-  "hold": 0.9
+  "action": "perform",
+  "id": "s06_awesome",
+  "phases": {
+   "action": 60,
+   "recovery": 4
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "That was awesome.",
+    "frames": 18,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "I'm calling it the \"Don't Sacrifice Your Son\" challenge.",
+    "frames": 42,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right",
+    "at": 18
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "headline",
+    "at": 20,
+    "frames": 6,
+    "beat": "headline"
+   },
+   {
+    "phase": "action",
+    "action": "sequence",
+    "id": "abraham_up",
+    "at": 8,
+    "do": [
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "crouch_reach_l_left",
+      "frames": 6,
+      "beat": "abraham_gets_up"
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "standing_side_left",
+      "frames": 6
+     }
+    ]
+   },
+   {
+    "phase": "recovery",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "standing_front",
+    "until": "recovery"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "I'm calling it the \"Don't Sacrifice Your Son\" challenge.",
-  "side": "right",
-  "hold": 1.62
+  "_comment": "# CUE s06_preferred_lamb (1 step): I preferred the lamb."
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "I preferred the lamb.",
-  "side": "right",
-  "hold": 0.9
+  "action": "perform",
+  "id": "s06_preferred_lamb",
+  "phases": {
+   "anticipation": 3,
+   "action": 22
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "turn",
+    "who": "abraham",
+    "pose": "standing_side",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "I preferred the lamb.",
+    "frames": 22,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "left"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "isaac",
-  "text": "So... Ocean City Friday?",
-  "side": "right",
-  "hold": 0.9
+  "_comment": "# CUE s06_ocean_city (1 step): So... Ocean City Friday?"
  },
  {
-  "action": "wait",
-  "t": 0.8
+  "action": "perform",
+  "id": "s06_ocean_city",
+  "phases": {
+   "action": 28
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "So... Ocean City Friday?",
+    "frames": 28,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right"
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "isaac",
+    "fragment": "shrug",
+    "at": 12,
+    "frames": 10,
+    "beat": "hopeful"
+   }
+  ]
  },
  {
-  "action": "say",
-  "who": "abraham",
-  "text": "I'll drive.",
-  "side": "right",
-  "hold": 0.9
+  "_comment": "# CUE s06_looks_at_knife (1 step): Abraham looks at the broken knife, then at Isaac."
+ },
+ {
+  "action": "perform",
+  "id": "s06_looks_at_knife",
+  "phases": {
+   "action": 21,
+   "reaction": 15
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "look_down",
+    "frames": 6,
+    "beat": "at_the_knife"
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side",
+    "frames": 6,
+    "beat": "at_isaac"
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s06_ill_drive (1 step): I'll drive."
+ },
+ {
+  "action": "perform",
+  "id": "s06_ill_drive",
+  "phases": {
+   "action": 18,
+   "recovery": 6
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "I'll drive.",
+    "frames": 18,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "left"
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "nod",
+    "at": 6,
+    "frames": 6
+   },
+   {
+    "phase": "recovery",
+    "action": "wait",
+    "until": "recovery"
+   }
+  ]
  },
  {
   "_comment": "# CUE s06_scroll_from_belt (1 step): He takes the scroll from his belt and unrolls it, pulls a quill from the"
  },
  {
-  "action": "prop_transition",
-  "prop": "scroll",
-  "frames": 6,
-  "beat": "scroll_from_belt",
-  "attached": {
-   "to": "abraham",
-   "joint": "lwrist",
-   "mode": "held",
-   "angle": 0
-  }
+  "action": "perform",
+  "id": "s06_scroll_from_belt",
+  "phases": {
+   "anticipation": 4,
+   "action": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "hands_low",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "scroll",
+    "until": "action",
+    "beat": "scroll_from_belt",
+    "attached": {
+     "to": "abraham",
+     "joint": "lwrist",
+     "mode": "held",
+     "angle": 0
+    }
+   }
+  ]
  },
  {
   "_comment": "# CUE s06_unrolls (1 step): He takes the scroll from his belt and unrolls it, pulls a quill from the"
  },
  {
-  "action": "prop_transition",
-  "prop": "scroll",
-  "to": "unrolled",
-  "frames": 6,
-  "beat": "unrolls"
+  "action": "perform",
+  "id": "s06_unrolls",
+  "phases": {
+   "action": 6
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "scroll",
+    "to": "unrolled",
+    "until": "action",
+    "beat": "unrolls"
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "hold_write",
+    "until": "action"
+   }
+  ]
  },
  {
   "_comment": "# CUE s06_takes_quill (1 step): He takes the scroll from his belt and unrolls it, pulls a quill from the"
  },
  {
-  "action": "prop_transition",
-  "prop": "quill",
-  "frames": 6,
-  "beat": "takes_quill",
-  "attached": {
-   "to": "abraham",
-   "joint": "rwrist",
-   "angle": 30
-  }
+  "action": "perform",
+  "id": "s06_takes_quill",
+  "phases": {
+   "anticipation": 7,
+   "action": 6,
+   "reaction": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "sequence",
+    "id": "to_satchel",
+    "do": [
+     {
+      "action": "turn",
+      "who": "abraham",
+      "pose": "standing_side",
+      "frames": 3
+     },
+     {
+      "action": "morph",
+      "who": "abraham",
+      "pose": "crouch_reach_r",
+      "frames": 4
+     }
+    ]
+   },
+   {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "quill",
+    "until": "action",
+    "beat": "takes_quill",
+    "attached": {
+     "to": "abraham",
+     "joint": "rwrist",
+     "angle": 30
+    }
+   },
+   {
+    "phase": "reaction",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "hold_write",
+    "until": "reaction"
+   }
+  ]
  },
  {
   "_comment": "# CUE s06_revision (1 step): He takes the scroll from his belt and unrolls it, pulls a quill from the"
  },
  {
-  "action": "prop_transition",
-  "prop": "scroll",
-  "to": "edited",
-  "frames": 24,
-  "beat": "revision",
-  "text": {
-   "replace": "THE KNIFE?",
-   "with": "HIS SON."
-  }
+  "action": "perform",
+  "id": "s06_revision",
+  "phases": {
+   "action": 24,
+   "reaction": 4
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "scroll",
+    "to": "edited",
+    "until": "action",
+    "beat": "revision",
+    "text": {
+     "replace": "THE KNIFE?",
+     "with": "HIS SON."
+    }
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "scribble_r",
+    "cycles": 3,
+    "until": "action"
+   },
+   {
+    "phase": "reaction",
+    "action": "wait",
+    "until": "reaction"
+   }
+  ]
  },
  {
-  "_subscene_marker": "scene6_shot02",
+  "_subscene_marker": "scene6_shot04",
   "_shot_meta": {
    "framing": "insert",
    "subject": "scroll",
@@ -313,11 +1021,174 @@
  },
  {
   "action": "wait",
-  "frames": 15,
+  "frames": 30,
   "beat": "insert"
  },
  {
-  "_subscene_marker": "scene6_shot03",
+  "_subscene_marker": "scene6_shot05",
+  "_shot_meta": {
+   "framing": "wide",
+   "subject": "Isaac+Abraham+rock+barbell",
+   "move": "static",
+   "transition": "cut",
+   "lighting": null,
+   "freeform": false,
+   "fit": "bounds",
+   "margin": 0.08
+  }
+ },
+ {
+  "_comment": "# CUE s06_buzz (1 step): Isaac's phone BUZZES."
+ },
+ {
+  "action": "perform",
+  "id": "s06_buzz",
+  "phases": {
+   "anticipation": 8,
+   "action": 6,
+   "reaction": 6
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "sound_cue",
+    "label": "BZZZ",
+    "font_size": 40,
+    "x": 1.2,
+    "y": -0.4,
+    "until": "anticipation",
+    "frames_in": 1,
+    "frames_out": 2,
+    "beat": "buzz"
+   },
+   {
+    "phase": "anticipation",
+    "action": "react",
+    "who": "isaac",
+    "fragment": "startle",
+    "at": 1,
+    "frames": 4
+   },
+   {
+    "phase": "action",
+    "action": "morph",
+    "who": "isaac",
+    "pose": "phone_check",
+    "until": "action"
+   },
+   {
+    "phase": "reaction",
+    "action": "wait",
+    "until": "reaction",
+    "beat": "reads"
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s06_nahor (1 step): Uncle Nahor and Aunt Milcah commented. \"Saw the stream. We're at your ca"
+ },
+ {
+  "action": "perform",
+  "id": "s06_nahor",
+  "phases": {
+   "action": 68
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "Uncle Nahor and Aunt Milcah commented. \"Saw the stream.",
+    "frames": 36,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right",
+    "bubble_scale": 0.75
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "We're at your cave. Where is everybody?\"",
+    "frames": 32,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right",
+    "bubble_scale": 0.75,
+    "at": 36
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s06_at_the_cave (1 step): They're at the cave?"
+ },
+ {
+  "action": "perform",
+  "id": "s06_at_the_cave",
+  "phases": {
+   "anticipation": 4,
+   "action": 20
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "react",
+    "who": "abraham",
+    "fragment": "startle",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "abraham",
+    "text": "They're at the cave?",
+    "frames": 20,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "left",
+    "bubble_scale": 0.75
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s06_luggage (1 step): With luggage."
+ },
+ {
+  "action": "perform",
+  "id": "s06_luggage",
+  "phases": {
+   "action": 16,
+   "recovery": 4
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "say",
+    "who": "isaac",
+    "text": "With luggage.",
+    "frames": 16,
+    "frames_in": 3,
+    "frames_out": 3,
+    "side": "right",
+    "bubble_scale": 0.75
+   },
+   {
+    "phase": "action",
+    "action": "react",
+    "who": "isaac",
+    "fragment": "nod",
+    "at": 8,
+    "frames": 6
+   },
+   {
+    "phase": "recovery",
+    "action": "wait",
+    "until": "recovery"
+   }
+  ]
+ },
+ {
+  "_subscene_marker": "scene6_shot06",
   "_shot_meta": {
    "framing": "wide",
    "subject": "ensemble",
@@ -328,59 +1199,50 @@
   }
  },
  {
-  "_comment": "# REVIEW: Isaac's phone BUZZES."
- },
- {
-  "action": "say",
-  "who": "isaac",
-  "text": "Uncle Nahor and Aunt Milcah commented. \"Saw the stream.",
-  "side": "right",
-  "hold": 1.62
- },
- {
-  "action": "say",
-  "who": "isaac",
-  "text": "We're at your cave. Where is everybody?\"",
-  "side": "right",
-  "hold": 1.26
- },
- {
-  "action": "say",
-  "who": "abraham",
-  "text": "They're at the cave?",
-  "side": "right",
-  "hold": 0.9
- },
- {
-  "action": "say",
-  "who": "isaac",
-  "text": "With luggage.",
-  "side": "right",
-  "hold": 0.9
- },
- {
   "_comment": "# CUE s06_quill_away (1 step): Abraham bolts up the mountain, away from home, the open scroll in his ha"
  },
  {
-  "action": "prop_transition",
-  "prop": "quill",
-  "frames": 6,
-  "beat": "quill_away",
-  "attached": {
-   "to": "satchel",
-   "mode": "in",
-   "hidden": true
-  }
- },
- {
-  "_comment": "# CUE s06_bolts (2 steps): Abraham bolts up the mountain, away from home, the open scroll in his ha"
- },
- {
-  "action": "parallel",
-  "id": "s06_bolt",
-  "frames": 24,
+  "action": "perform",
+  "id": "s06_quill_away",
+  "phases": {
+   "anticipation": 3,
+   "action": 6
+  },
   "do": [
    {
+    "phase": "anticipation",
+    "action": "morph",
+    "who": "abraham",
+    "pose": "standing_side",
+    "until": "anticipation"
+   },
+   {
+    "phase": "action",
+    "action": "prop_transition",
+    "prop": "quill",
+    "until": "action",
+    "rate": "rush_into",
+    "beat": "quill_away",
+    "attached": {
+     "to": "satchel",
+     "mode": "in",
+     "hidden": true
+    }
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s06_bolts (1 step): Abraham bolts up the mountain, away from home, the open scroll in his ha"
+ },
+ {
+  "action": "perform",
+  "id": "s06_bolts",
+  "phases": {
+   "action": 15
+  },
+  "do": [
+   {
+    "phase": "action",
     "action": "prop_transition",
     "prop": "scroll",
     "to": "trailing",
@@ -388,23 +1250,101 @@
     "beat": "trails"
    },
    {
-    "action": "walk_to",
+    "phase": "action",
+    "action": "turn",
     "who": "abraham",
-    "x": -2.6,
-    "at": 3,
-    "frames": 18,
+    "pose": "standing_side_left",
+    "frames": 1
+   },
+   {
+    "phase": "action",
+    "action": "run_to",
+    "who": "abraham",
+    "x": -3.4,
+    "at": 1,
+    "frames": 14,
     "beat": "bolts"
    }
   ]
  },
  {
-  "action": "wait",
-  "frames": 6
+  "_comment": "# CUE s06_hoists (1 step): Abraham bolts up the mountain, away from home, the open scroll in his ha"
  },
  {
-  "_comment": "# REVIEW: The scroll trails behind them like a banner."
+  "action": "perform",
+  "id": "s06_hoists",
+  "phases": {
+   "anticipation": 9,
+   "action": 9
+  },
+  "do": [
+   {
+    "phase": "anticipation",
+    "action": "sequence",
+    "id": "strides",
+    "do": [
+     {
+      "action": "turn",
+      "who": "isaac",
+      "pose": "standing_side_left",
+      "frames": 2
+     },
+     {
+      "action": "run_to",
+      "who": "isaac",
+      "x": -2.95,
+      "frames": 7,
+      "beat": "three_strides"
+     }
+    ]
+   },
+   {
+    "phase": "action",
+    "action": "hoist_overhead",
+    "id": "belt",
+    "who": "isaac",
+    "target": "abraham",
+    "frames_grab": 3,
+    "frames_lift": 6,
+    "frames_carry": 0,
+    "release": false,
+    "beat": "hoists"
+   }
+  ]
  },
  {
-  "_comment": "# REVIEW: FADE OUT."
+  "_comment": "# CUE s06_banner (1 step): The scroll trails behind them like a banner."
+ },
+ {
+  "action": "perform",
+  "id": "s06_banner",
+  "phases": {
+   "action": 40
+  },
+  "do": [
+   {
+    "phase": "action",
+    "action": "hoist_overhead",
+    "id": "belt",
+    "who": "isaac",
+    "target": "abraham",
+    "frames_grab": 0,
+    "frames_lift": 0,
+    "frames_carry": "action",
+    "x": -8.4,
+    "release": false,
+    "beat": "runs_off"
+   },
+   {
+    "phase": "action",
+    "action": "screen_fade",
+    "at": 12,
+    "frames": 28,
+    "beat": "fade_out"
+   }
+  ]
+ },
+ {
+  "_comment": "# CUE s06_fade_out (0 steps): FADE OUT."
  }
 ]

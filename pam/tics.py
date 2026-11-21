@@ -204,6 +204,29 @@ WRIST_TUG_CYCLE = [
 ]
 
 
+# ── Stage 6c (Scenes 5 and 6) ──
+# The phone slips in a shaking hand and is caught: the left hand jerks
+# out to the side and down after it, and back past where it was (the
+# auto-return brings it home).  Mostly sideways, so that what it holds
+# stays in an insert framed on it.
+FUMBLE_L_CYCLE = [
+    {"lwrist": (0.46, -0.10), "lelbow": (0.16, -0.04)},
+    {"lwrist": (-0.22, 0.04), "lelbow": (-0.07, 0.01)},
+]
+
+# A finger of the left hand counted off while the right hand is busy
+# (holding the knife handle up): the hand flicks up and back.  Pure y.
+COUNT_OFF_L_CYCLE = [
+    {"lwrist": (0.0, 0.13)},
+]
+
+# Teeth on a knot: the head worries at it, side to side and down.
+GNAW_CYCLE = [
+    {"head": (-0.06, -0.05)},
+    {"head": (0.06, -0.02)},
+]
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  QUADRUPED FRAGMENTS  (figure_type: "dog", future "cat" via CatGraph alias)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -327,6 +350,22 @@ TIC_FRAGMENTS = {
     },
     "wrist_tug": {
         "cycle":      WRIST_TUG_CYCLE,
+        "applies_to": ["human", "alien"],
+        "rt_per_kf":  0.12,
+    },
+    # ── Stage 6c (Scenes 5 and 6) ──
+    "fumble_l": {
+        "cycle":      FUMBLE_L_CYCLE,
+        "applies_to": ["human", "alien"],
+        "rt_per_kf":  0.12,
+    },
+    "count_off_l": {
+        "cycle":      COUNT_OFF_L_CYCLE,
+        "applies_to": ["human", "alien"],
+        "rt_per_kf":  0.12,
+    },
+    "gnaw": {
+        "cycle":      GNAW_CYCLE,
         "applies_to": ["human", "alien"],
         "rt_per_kf":  0.12,
     },

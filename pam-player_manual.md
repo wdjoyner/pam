@@ -435,6 +435,7 @@ Character speech bubble.
 - `persist` — keep the bubble until `clear_bubble` / `clear_all_bubbles`
 - `duration` — keep the bubble for this many seconds, then let it expire
 - `frames`, `frames_in`, `frames_out` — length of the whole line, and of its fades, in frames at 15 per second (section 9)
+- `bubble_scale` — size of the whole bubble (text, padding, its height above the head, tail, widest line) relative to the usual one; default 1, as before. For a shot framed closer than the full width: at 0.6, a bubble in a frame 0.6 of the full width looks the size it does in a full-width shot (Milestone 6, Stage 6c). Human figures
 
 ### Notes
 - consumes any deferred camera move so the camera can move together with the bubble fade-in
@@ -756,6 +757,30 @@ plays as before, by itself.
 
 ---
 
+## `screen_fade` *(Milestone 6, Stage 6c)*
+
+The whole frame fades to a color (a FADE OUT), or back from it: a rectangle the size of the camera frame, on top of everything, whose opacity goes from 0 to 1, or from 1 to 0.
+
+### Keys
+- `frames` — how long the fade takes, at 15 per second; or `rt` in seconds (default 1 second)
+- `to` — `"out"` (default): fade to the color; `"in"`: fade back from it
+- `color` — default `"#000000"`
+- `at`, `beat` — as a step of a timed `parallel` block, where the fade overlaps the action (the end of Scene 6 fades out while Isaac runs off with his father overhead)
+
+```json
+{"action": "screen_fade", "frames": 15}
+{"action": "parallel", "frames": 33, "do": [
+  {"action": "hoist_overhead", "who": "isaac", "target": "abraham", "x": -8.6,
+   "frames_grab": 0, "frames_lift": 0, "frames_carry": 33},
+  {"action": "screen_fade", "at": 18, "frames": 15}]}
+```
+
+### Notes
+- after a fade out the frame stays that color to the end of the scene; a fade in removes the rectangle when it is done
+- in the trace the rectangle is an overlay card (it shows from the frame its fill does); the trace records when it is shown, not how its opacity grows, so a Blender build has a cut to the color at the start of the fade
+
+---
+
 ## `focus`
 
 Dim and brighten cast members to direct audience attention.
@@ -957,6 +982,9 @@ A routine is an action that works out its own blocking from the figures as they 
 {"action": "mismatched_hug", "who": "abraham", "target": "isaac", "frames_squeeze": 18}
 {"action": "catch_by_collar", "who": "isaac", "target": "abraham", "release": false}
 {"action": "tie_wrist_loop", "who": "abraham", "target": "isaac", "cycles": 3}
+{"action": "reach_and_tighten", "who": "isaac", "target": "phone"}
+{"action": "altar_tumble_hug", "who": "abraham", "target": "isaac", "release": false}
+{"action": "hoist_overhead", "who": "isaac", "target": "abraham", "x": -8.6}
 ```
 
 A routine is a step like any other: at the top level, in a `sequence`, or in a timed `parallel` block (with `at`), where it overlaps dialogue, camera cuts and other actors.
@@ -972,14 +1000,17 @@ The two-figure routines are made of phases that follow one another, each a whole
 | `mismatched_hug` | `approach` 6, `reach` 6, `squeeze` 12, `release` 6 |
 | `catch_by_collar` *(Stage 6b)* | `slip` 3, `catch` 3, `dangle` 18, `set_down` 9 |
 | `tie_wrist_loop` *(Stage 6b)* | `approach` 6, `wind` 18, `knot` 9, `yank` 3, `let_go` 6 |
+| `reach_and_tighten` *(Stage 6c)* | `reach` 6, `cinch` 3, `tug` 8, `settle` 6 |
+| `altar_tumble_hug` *(Stage 6c)* | `embrace` 9, `flex` 4, `close` 4, `tumble` 8, `land` 3, `hold` 12, `let_go` 6 |
+| `hoist_overhead` *(Stage 6c)* | `grab` 3, `lift` 6, `carry` 18 |
 
 - `"frames_<phase>": n` sets one phase, for example `"frames_strain": 20`. `0` skips the phase
 - `"frames": n` sets the whole routine. The phases that were not set one by one share what is left, in proportion to their defaults, at least one frame each
 - each phase starts a beat named `<id>.<phase>` (`pull.strain`), reported on the console and written to the trace
-- a phase given 0 frames is skipped, and its moves are not made. The two Stage 6b routines start each phase from the figures as they are, so a step that gives frames to only some of their phases plays just those (see below)
+- a phase given 0 frames is skipped, and its moves are not made. The Stage 6b and 6c routines start each phase from the figures as they are, so a step that gives frames to only some of their phases plays just those (see below)
 
 ### Keys common to the routines
-- `who`, `target` — the two figures (required; human figures)
+- `who`, `target` — the two figures (required; human figures). For `reach_and_tighten`, `target` is what he reaches toward, a figure or a prop
 - `id` — name for reports, beats and the routine's constraints (default `<action>_<who>`)
 - `frames`, `frames_<phase>` — see above
 - `at`, `beat` — as for any step of a timed block
@@ -1091,11 +1122,81 @@ Each phase starts from the figures as they are, so the phases can be played apar
 ### What it measures
 `target`'s wrists, on every frame, and `who`'s arms. `who` stands on the side of the wrists away from `target`'s body, facing them, his shoulders 55% of his arm's length from the knot; the loops' radius is at most 30% of his arm, and less if the knot is far above or below his shoulder. The console reports the arm, the step in, how far the knot is above his shoulder, the radius, the loops, and the hands' shortfall.
 
+## `reach_and_tighten` *(Stage 6c)*
+
+`who`, his wrists tied together, comes up toward `target` and points both hands at it (`reach`); the knot cinches, the wrists jerked together, in toward him and down (`cinch`); he tugs them apart and each time they snap back closer (`tug`); and he settles (`settle`). The hands are held on moving points (`<id>.lhand`, `<id>.rhand`). Only `who` moves. The rope is not part of the routine and does not change state: a rope `tightened` round his wrists stays `tightened`, and since its loop follows the wrists it gets smaller as they come together.
+
+```json
+{"action": "perform", "id": "s05_points", "phases": {"anticipation": 3, "action": 6},
+ "do": [{"phase": "action", "action": "reach_and_tighten", "id": "knot",
+         "who": "isaac", "target": "phone", "frames_reach": "action",
+         "frames_cinch": 0, "frames_tug": 0, "frames_settle": 0}]}
+...  "Dad. We're on." said with his hands out ...
+{"action": "perform", "id": "s05_knot_tightens",
+ "phases": {"action": 3, "reaction": 14, "recovery": 8},
+ "do": [{"phase": "action", "action": "reach_and_tighten", "id": "knot",
+         "who": "isaac", "target": "phone", "frames_reach": 0,
+         "frames_cinch": "action", "frames_tug": "reaction",
+         "frames_settle": "recovery", "cycles": 2,
+         "pose": "recline_elbows_left"}]}
+```
+
+### Keys
+- `target` — what he reaches toward: a figure (his chest) or a prop (its middle)
+- `lean` — degrees his trunk comes up toward `target` (default 20)
+- `tighten` — the fraction of the gap between his wrists that the cinch leaves (default 0.4)
+- `cycles` — tugs in `tug` (default 1)
+- `pose` — the pose he settles in (default: the one he has)
+- `release` — `false`: no `settle`; the hands stay where the last phase left them. Giving `settle` 0 frames does the same, and a later step with the same `id` carries on from there
+
+### What it measures
+His arms and shoulders, and his wrists on every frame. The hands go out 85% of his arm from his shoulders, toward `target`, each wrist keeping its place beside the knot; a tug opens the gap by 12% of his arm. The console reports the arm, where the hands went, the gap between the wrists at the start, cinched and at the end, and the hands' shortfall.
+
+## `altar_tumble_hug` *(Stage 6c)*
+
+`target` sits (on the altar) facing `who`. `target` leans down toward him, and `who` steps in against him and puts his arms round his shoulders as far as they go (`embrace`); `target` flexes, fists up and apart (`flex`: the rope between his wrists breaks here, with a `prop_transition` on the same frames), and closes his arms all the way round `who` (`close`); `target` topples forward off his seat and `who` goes over backward (`tumble`), and they land in the dirt, `who` on his back and `target` on top of him, cheek to cheek, knees bent and feet kicked up (`land`); they lie there (`hold`) and let go (`let_go`). Four hands are held on the other man's trunk (`<id>.who_upper`, `<id>.who_lower`, `<id>.target_upper`, `<id>.target_lower`), measured across the trunk on every frame, so the hug holds standing, falling and lying down. Both figures move.
+
+```json
+{"action": "perform", "id": "s06_rope_snaps",
+ "phases": {"anticipation": 12, "action": 8, "reaction": 13, "recovery": 24},
+ "do": [
+   {"phase": "anticipation", "action": "altar_tumble_hug", "id": "hug",
+    "who": "abraham", "target": "isaac", "frames_embrace": "anticipation",
+    "frames_flex": 4, "frames_close": 4, "frames_tumble": 9, "frames_land": 4,
+    "frames_hold": "recovery", "frames_let_go": 0},
+   {"phase": "action", "action": "prop_transition", "prop": "rope", "to": "snapped",
+    "at": 1, "frames": 12, "rate": "rush_into", "parts": {...}}]}
+```
+
+### Keys
+- `release` — `false`: no `let_go`; the hug stays until `release` steps end its four constraints. Giving `let_go` 0 frames does the same
+
+### What it measures
+Both men's arms and bodies. `target` leans in, by up to 40 degrees, until his shoulders are within 45% of `who`'s arm above `who`'s; `who` stands against him at `who`'s shoulder height, as in `mismatched_hug`. `who` lands with his feet where they were and his head away from `target`; `target` lands on top of him, his neck over `who`'s head. The console reports the lean, the step in, how far apart the fists go, where `who` lands, and the hands' shortfall.
+
+## `hoist_overhead` *(Stage 6c)*
+
+`who` takes `target` round the middle (`grab`), puts him up over his head on straight arms, lying flat, his head the way they are going, like a championship belt (`lift`), and runs with him to `x` (`carry`: `who`'s run cycle, with `target` carried along on every keyframe). The hands are held under `target`'s back (`<id>.rhand`, `<id>.lhand`). Both figures move.
+
+```json
+{"action": "hoist_overhead", "id": "belt", "who": "isaac", "target": "abraham",
+ "frames_grab": 3, "frames_lift": 6, "frames_carry": 0, "release": false}
+{"action": "hoist_overhead", "id": "belt", "who": "isaac", "target": "abraham",
+ "frames_grab": 0, "frames_lift": 0, "frames_carry": 33, "x": -8.6, "release": false}
+```
+
+### Keys
+- `x` — where he runs to (without it, `carry` holds still)
+- `release` — `false`: keep hold after the carry; end it with `release`
+
+### What it measures
+`who`'s arms and shoulders. The lift is 95% of his arm above his shoulders, so `target`'s back clears his head. The console reports the lift, how far it clears his head, the distance carried, and the hands' shortfall.
+
 ### Notes on all routines
 - every position is measured on the frame the routine starts, from the figures' joints after body scale, depth rescale and rotation. No routine contains a stage coordinate
 - a routine slides `who` to its stance. If that is more than about a leg and a half away the console says so; walk him closer first
 - the contacts are ordinary constraints, so the four rules of the solver apply. A routine that cannot reach says so and plays anyway
-- a routine sets the whole pose of the figures it moves (`who`; for `cork_pop_up` and `catch_by_collar` also `target`), so no other step may move them on the same frames: `pam-validate` reports an error. A hold that a routine leaves in force (`release: false`) is a constraint, and other steps may move the figures under it
+- a routine sets the whole pose of the figures it moves (`who`; for `cork_pop_up`, `catch_by_collar`, `altar_tumble_hug` and `hoist_overhead` also `target`), so no other step may move them on the same frames: `pam-validate` reports an error. A hold that a routine leaves in force (`release: false`) is a constraint, and other steps may move the figures under it
 - `abe-isaac_scene2-gags.json` plays all four routines, two of them inside timed blocks
 
 ## Acting in four phases: `perform` (Milestone 6)
@@ -1182,14 +1283,23 @@ last piece returns it to that pose.
 
 `pant`, `bar_bounce` and `wrist_tug` move joints only up and down, so they read the same on a figure facing either way.
 
+### Fragments added in Stage 6c
+| Fragment | What it does |
+|---|---|
+| `fumble_l` | the left hand jerks out to the side and back: something held in it slips and is caught (mostly sideways, so that it stays in an insert framed on it) |
+| `count_off_l` | the left hand flicks up and back: a finger counted off while the right hand is busy |
+| `gnaw` | the head worries side to side and down: teeth on a knot |
+
+`count_off_l` moves joints only up and down.
+
 A tic sets the figure's whole pose, so it may not overlap another move
 of the same figure (`pam-validate` reports an error).
 
 ## Acting poses (Milestone 6)
 
 Written in `pam/acting_poses.py` as changes to a base pose of the
-figure's own build (`standing_side`, `standing_front` or
-`sitting_down`), so that Isaac (broad) and Abraham (narrow) keep their
+figure's own build (`standing_side`, `standing_front`,
+`sitting_down` or, since Stage 6c, `lying_flat_right`), so that Isaac (broad) and Abraham (narrow) keep their
 proportions; a wrist or ankle that moves gets its elbow or knee solved
 with the bones kept at their length. Each has a mirror facing stage
 left, `<name>_left`, and so does `standing_side` (`standing_side_left`).
@@ -1232,6 +1342,15 @@ Use them with `morph`, `turn` or `fade_in`'s `pose`.
 | `headline` *(6b)* | front | both hands up and apart: a headline in lights |
 | `hero` *(6b)* | front | fists on hips, chin up |
 | `hero_shade` *(6b)* | front | one fist on a hip, the other hand shading the eyes |
+| `raise_count` *(6c)* | side | one hand raised high (a knife handle held aloft), the other out in front, counting |
+| `raise_high` *(6c)* | side | the same, the raised hand thrust higher |
+| `back_step` *(6c)* | side | a step backward, still facing the same way: one foot reaching back |
+| `look_down` *(6c)* | side | looking down at something on the ground in front |
+| `recline_stare` *(6c)* | side | lying back on the elbows, the head dropped forward, staring at something beside him |
+| `bite_knot` *(6c)* | side | bent over a knot at the height of his face, teeth on it |
+| `hold_write` *(6c)* | side | standing, a scroll held open in front in the left hand, the quill at it in the right |
+| `sit_ground` *(6c)* | side | sitting on the ground, legs out in front, leaning back on the hands |
+| `pile_on` *(6c)* | lying | lying face down on top of someone, head to the right, knees bent and feet kicked up |
 
 Poses that crawl, sit or lie back pitch the trunk with the key `bend` (degrees, about the middle of the hips, toward the way the figure faces), and some choose which way an elbow or knee bends with `bends`; a knee is solved whenever its ankle is placed. These are keys of the pose tables in `pam/acting_poses.py`, not of a screenplay.
 

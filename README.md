@@ -1868,7 +1868,7 @@ The roadmap's completion test is in `tests/test_fountain_cues.py`: recompiling t
 
 ### Acting in four phases: the Manim performance (Milestone 6)
 
-Milestone 6 of the Blender roadmap turns the project's scenes into a performance a viewer can follow without the script. Stage 6a does Scenes 1 and 2 of *Abraham and Isaac, Revisited*, and Stage 6b Scenes 3 and 4. Everything is opt-in: a screenplay that uses none of the syntax below plays exactly as before, and the nine golden traces are unchanged.
+Milestone 6 of the Blender roadmap turns the project's scenes into a performance a viewer can follow without the script. Stage 6a does Scenes 1 and 2 of *Abraham and Isaac, Revisited*, Stage 6b Scenes 3 and 4, and Stage 6c Scenes 5 and 6. Everything is opt-in: a screenplay that uses none of the syntax below plays exactly as before, and the nine golden traces are unchanged.
 
 An action that matters is acted in four phases, **anticipation, action, reaction, recovery**. The `perform` action holds the length of each phase, in frames, in one table, and places its steps by phase, so that a phase can be retimed by changing one number:
 
@@ -1921,6 +1921,20 @@ The completion checks for Stage 6a are in `tests/test_performance.py`: a phase's
 | Acting poses | `stagger`, `catch_breath`, `climb_reach`, `crawl_a`, `crawl_b`, `proud`, `topple`, `dangle`, `dangle_point_up`, `hop_crouch`, `hop_tuck`, `foot_nudge`, `crouch_reach_r`, `crouch_reach_l`, `sit_side`, `sit_wrists_out`, `recline_elbows`, `recline_point`, `headline`, `hero`, `hero_shade` (each with its `_left` mirror). |
 
 The checks for Stage 6b are in `tests/test_performance_6b.py`: the two routines at four combinations of character sizes, and the key pose of each gag of Scenes 3 and 4 in the trace (for example, that Isaac moves forward on every frame of his stride while Abraham stops, that Isaac does not move a joint while his father pants, that the hand is on the collar and the feet off the ground on every frame of the dangle, and that the altar is built beside Isaac's feet rather than between them).
+
+**Stage 6c** does Scenes 5 and 6 and completes the milestone. Scene 5 opens where Scene 4 ends, with Isaac lying back on the altar and Abraham crouched at the rock. The phone slips in Abraham's shaking hands, and his thumb lands on LIVE as he catches it. He props it on the rock and backs away. Isaac points at it with his tied hands and the knot cinches tighter. Abraham faces the phone, raises the knife handle and counts off God's instructions. The satchel slips, the blade clatters across into the log beside Isaac, and nothing moves for more than four seconds: a medium shot on Isaac, the comment IS THAT A REAL KNIFE on the phone, a medium shot on Abraham. He runs out of fingers, looks at the blade, at his son, at the phone, and Isaac asks "And then?" quietly. In Scene 6 Abraham lays the handle down, cannot open the knot with his hands or his teeth, and hugs his son. Isaac flexes, the rope snaps, and they tumble off the front of the altar, Abraham on his back and Isaac on top of him. Isaac recovers the phone, Abraham revises the scroll, and Isaac hoists his father overhead like a championship belt and runs off with him, the scroll trailing behind them, as the frame fades out. The wide shots of Scenes 5 and 6 are framed on the action, so that the phone and the blade read in them as well as in the inserts.
+
+| New syntax (Stage 6c) | What it does |
+|---|---|
+| `reach_and_tighten` | A routine: phases `reach`, `cinch`, `tug`, `settle`; keys `target` (a figure or a prop), `lean`, `tighten`, `cycles`, `pose`, `release`. Isaac points with tied hands and the knot cinches; only he moves. |
+| `altar_tumble_hug` | A routine: phases `embrace`, `flex`, `close`, `tumble`, `land`, `hold`, `let_go`; key `release`. One man hugs the other, who is sitting; the seated man flexes, hugs back, and they tumble off the seat, still hugging. Both move. |
+| `hoist_overhead` | A routine: phases `grab`, `lift`, `carry`; keys `x`, `release`. One man hoists the other overhead, lying flat, and runs with him. Both move. |
+| `screen_fade` | The whole frame fades to a color, or back: `frames` (or `rt`), `to` (`out` or `in`), `color`; also a step of a timed block. |
+| `bubble_scale` on `say` | The bubble drawn at that size (text, padding, height above the head, tail); default 1, as before. For shots framed closer than the full width. |
+| Tic fragments | `fumble_l`, `count_off_l`, `gnaw`. |
+| Acting poses | `raise_count`, `raise_high`, `back_step`, `look_down`, `recline_stare`, `bite_knot`, `hold_write`, `sit_ground`, `pile_on` (each with its `_left` mirror; `pile_on` is built on `lying_flat_right`). |
+
+The checks for Stage 6c are in `tests/test_performance_6c.py`: the three routines at four combinations of character sizes, and the key pose of each gag of Scenes 5 and 6 in the trace. For example, each scene opens as the one before ends. No joint of either figure moves in the 78 frames between the blade sticking in the log and "And then...". The wrists come together as the knot cinches. Abraham lands on his back with Isaac on top of him, clear of the altar. His back is over Isaac's head on every frame of the carry. Every bubble is inside the frame when it is shown. The props end each scene as the continuity ledger says.
 
 ### Timed parallel blocks: overlapping action on the frame clock
 
