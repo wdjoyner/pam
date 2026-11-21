@@ -89,6 +89,23 @@ unchanged because nothing existing changed):
                       run).  Not emitted on the first and last frame of
                       a ``Scene.play``; those are its boundaries.
 
+Step and shot events (Milestone 7, for the semantic event stream of
+trace version 5; the hooks version is unchanged because nothing
+existing changed):
+
+``"step"``          — scene, index (its place in the screenplay's action
+                      list, after expansion), step (the step dict), frame,
+                      t: a top-level step is about to run.  Annotations
+                      (``_comment``, ``_hint``) are not reported.  A step
+                      lasts until the next one starts; the steps of a
+                      timed block are reported by ``"block_item"``.
+``"shot"``          — scene, id (the ``_subscene_marker``), meta (the shot
+                      it describes, as the camera applies it: framing,
+                      subject, move, transition, fit, ...), frames (a
+                      move's length in a timed block; None otherwise),
+                      block (the timed block's id, or None), frame, t: a
+                      camera marker is applied (camera mode only).
+
 Stateful-prop events (emitted only by screenplays with stateful props;
 see pam/prop_states.py; the hooks version is unchanged because nothing
 existing changed):

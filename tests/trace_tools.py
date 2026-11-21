@@ -128,7 +128,7 @@ def _env():
     # log file from the caller's shell changing what the player does.
     for key in ("PAM_SIDECAR", "PAM_LOG", "PAM_WARNINGS_ONLY",
                 "PAM_WARNINGS_JSON", "PAM_SHOW_CLOCK", "PAM_CAMERA_MODE",
-                "PAM_PROMPTS"):
+                "PAM_PROMPTS", "PAM_TRACE_FRAMES"):
         env.pop(key, None)
     env["PYTHONPATH"] = str(REPO) + os.pathsep + env.get("PYTHONPATH", "")
     env["PYTHONWARNINGS"] = "ignore"
@@ -151,6 +151,23 @@ def trace_script(script, out_path, workdir):
     """Run ``pam_trace.py`` on the screenplay file *script*."""
     env = _env()
     env["PAM_SCRIPT"] = str(script)
+    proc = subprocess.run(
+        [sys.executable, str(REPO / "pam_trace.py"), str(out_path)],
+        cwd=str(workdir), env=env, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"pam_trace.py failed on {script} (exit {proc.returncode}):\n"
+            f"{proc.stdout[-2000:]}\n{proc.stderr[-4000:]}")
+    return proc.stdout
+
+
+def trace_with_frames(script, out_path, frames_path, workdir):
+    """Run ``pam_trace.py`` on *script* with the frame probe on
+    (``PAM_TRACE_FRAMES``): the trace goes to *out_path*, what Manim drew
+    on every frame to *frames_path*.  Returns the console output."""
+    env = _env()
+    env["PAM_SCRIPT"] = str(script)
+    env["PAM_TRACE_FRAMES"] = str(frames_path)
     proc = subprocess.run(
         [sys.executable, str(REPO / "pam_trace.py"), str(out_path)],
         cwd=str(workdir), env=env, capture_output=True, text=True)

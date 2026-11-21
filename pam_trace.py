@@ -281,6 +281,52 @@ def _json_safe(obj, depth=0):
     return repr(obj)
 
 
+# ── opacity and step params (trace version 5, Milestone 7) ──────────────
+
+OPACITY_EPS = 1e-3          # opacity changes smaller than this are noise
+
+
+def opacity_move(t0, t1, rate, a, b):
+    """One change of opacity, from *a* to *b* over [t0, t1] (t0 == t1:
+    at once), as a camera-style move."""
+    return {"t0": _r4(t0), "t1": _r4(t1),
+            "rate": rate if t1 > t0 else "linear",
+            "from": _r4(a), "to": _r4(b)}
+
+
+def opacity_worth_writing(moves):
+    """An "opacity" list is written only when it says more than the
+    visibility rows: some change takes time, or some value is neither
+    shown nor hidden."""
+    for m in moves or ():
+        if m["t1"] > m["t0"]:
+            return True
+        if 0.01 < m["to"] < 0.99:
+            return True
+    return False
+
+
+def with_frames(moves):
+    """*moves* with "f0" and "f1" (whole frames) beside t0 and t1."""
+    out = []
+    for m in moves:
+        m = dict(m)
+        m["f0"] = int(round(m["t0"] * FPS))
+        m["f1"] = int(round(m["t1"] * FPS))
+        out.append(m)
+    return out
+
+
+def step_params(step):
+    """The keys of a screenplay step, as written into the trace: JSON
+    values only, without the steps it holds ("do") and without PAM's
+    own working keys (those starting with "_", except the marker of a
+    camera shot)."""
+    return _json_safe({k: v for k, v in step.items()
+                       if k != "do" and (not str(k).startswith("_")
+                                         or k == "_subscene_marker")})
+
+
 # ── props ────────────────────────────────────────────────────────────────
 
 PROP_MOVE_EPS = 2e-3        # center moves smaller than this are noise
@@ -1001,7 +1047,8 @@ class OverlayTracker:
                     known.add(id(cur))
                     rec = self._slots[(name, slot)][1]
                     if rec is not None:
-                        vis = id(cur) in on_stage and _opacity(cur) > 0.01
+                        op = _opacity(cur) if id(cur) in on_stage else 0.0
+                        vis = op > 0.01
                         self._set_vis(rec, t0, t1, vis, 1.0 if vis else 0.0)
             # head dot hidden (a face replaces it)
             hd = fig.dots.get("head")
@@ -1015,7 +1062,8 @@ class OverlayTracker:
                     rows.append([_r4(t0 if hidden else t1), hidden])
         for k, rec in list(self._retiring.items()):
             known.add(k)
-            vis = k in on_stage and _opacity(rec["_mob"]) > 0.01
+            op = _opacity(rec["_mob"]) if k in on_stage else 0.0
+            vis = op > 0.01
             self._set_vis(rec, t0, t1, vis, 1.0 if vis else 0.0)
             if not vis:
                 rec["t1"] = _r4(t1)
@@ -1133,6 +1181,15 @@ class Tracer:
         # screenplay has any
         self.prop_states = {}       # name -> record, see the docstring
         self.prop_events = []       # state, attachment, display changes
+        # semantic events (trace version 5, Milestone 7): the top-level
+        # steps, the camera markers applied, and the params of the
+        # steps of timed blocks (keyed by id of their report record)
+        self.steps = []
+        self.shots = []
+        self._item_params = {}
+        # opacity on every drawn frame, kept for every figure, prop and
+        # overlay but written only into version 5 traces (see "Opacity")
+        self._op = {}               # key -> [(frame, opacity, on), ...]
         self.stats = {"plays": 0, "pieces_hook": 0, "pieces_pose_target": 0,
                       "pieces_play": 0, "pieces_cut": 0, "segments_stale": 0,
                       "max_target_mismatch": 0.0}
@@ -1370,14 +1427,30 @@ class Tracer:
                 self.blocks.append({
                     "id": rep.get("id"), "f0": rep.get("f0"),
                     "f1": rep.get("f1"),
-                    "items": [{k: it[k] for k in ("action", "who", "f0",
-                                                  "f1", "beat", "track")
-                               if it.get(k) is not None}
-                              for it in rep.get("items", [])],
+                    "items": [self._item(it) for it in rep.get("items", [])],
                     "tracks": [dict(tr) for tr in rep.get("tracks", [])],
                     "beats": [{"name": b["name"], "frame": b["frame"],
                                "frames": b.get("frames")}
                               for b in rep.get("beats", [])]})
+        elif event == "step":
+            step = data.get("step") or {}
+            self.steps.append({"index": data.get("index"),
+                               "frame": data.get("frame"),
+                               "t": _r4(data.get("t", self.now())),
+                               "action": step.get("action"),
+                               "marker": "_subscene_marker" in step,
+                               "params": step_params(step)})
+        elif event == "shot":
+            self.shots.append({"frame": data.get("frame"),
+                               "t": _r4(data.get("t", self.now())),
+                               "id": data.get("id"),
+                               "frames": data.get("frames"),
+                               "block": data.get("block"),
+                               "meta": _json_safe(data.get("meta") or {})})
+        elif event == "block_item":
+            if data.get("phase") == "begin" and data.get("item") is not None:
+                self._item_params[id(data["item"])] = (
+                    data["item"], step_params(data.get("step") or {}))
         elif event == "routine":
             self.timeline = True
             self.routines.append(
@@ -1391,6 +1464,85 @@ class Tracer:
                        "prop_shape"):
             self.timeline = True
             self._on_prop_state(event, data)
+
+    def _item(self, it):
+        """The trace record of one step of a timed block: its frames,
+        and (Milestone 7) the step's own keys as "params"."""
+        out = {k: it[k] for k in ("action", "who", "f0", "f1", "beat",
+                                  "track") if it.get(k) is not None}
+        held = self._item_params.pop(id(it), None)
+        if held is not None and held[0] is it:
+            out["params"] = held[1]
+        return out
+
+    # ── opacity, frame by frame (trace version 5) ────────────────────────
+    def on_frame_drawn(self, renderer, num_frames):
+        """Manim is drawing *num_frames* frames showing the scene as it
+        is now (the renderer's add_frame).  Note how opaque every figure,
+        prop and overlay is.  Read-only."""
+        scene = self.scene
+        if scene is None or num_frames <= 0:
+            return
+        f = int(math.floor(float(renderer.time) * FPS + 0.5))
+        on_stage = {id(m) for top in scene.mobjects for m in top.get_family()}
+        for name, fig in self.figs.items():
+            v, op = self.visible(fig, on_stage)
+            self._sample_op(("fig", name), f, op if v else 0.0,
+                            v or id(next(iter(fig.lines.values()))) in on_stage)
+        for rec in self.pt.recs:
+            mob = rec["_mob"]
+            on = id(mob) in on_stage
+            op = _opacity(mob) if on else 0.0
+            self._sample_op(("prop", rec["id"]), f,
+                            op if op > 0.01 else 0.0, on)
+        for rec in self.ot.overlays:
+            mob = rec.get("_mob")
+            if mob is None:
+                continue
+            on = id(mob) in on_stage
+            op = _opacity(mob) if on else 0.0
+            self._sample_op(("overlay", rec["id"]), f,
+                            op if op > 0.01 else 0.0, on)
+
+    def _sample_op(self, key, f, op, on):
+        rows = self._op.setdefault(key, [])
+        op = _r4(op)
+        if not rows:
+            if op > 0.0:
+                rows.append((f, op, on))
+            else:
+                rows.append((f, 0.0, on))
+            return
+        if rows[-1][1] != op or rows[-1][2] != on:
+            rows.append((f, op, on))
+
+    def opacity_moves(self, key):
+        """The opacity of *key* as moves (see "Opacity" in the
+        docstring).  Opacity is measured on every drawn frame; a change
+        from one frame to the next is a one-frame linear move, and a
+        change at once (t0 == t1) when the thing has just come onto, or
+        left, the stage.  Runs of equal one-frame steps are merged into
+        one linear move."""
+        moves = []
+        prev_op, prev_on = 0.0, False
+        for f, op, on in self._op.get(key) or ():
+            if abs(op - prev_op) > OPACITY_EPS:
+                if on != prev_on:
+                    moves.append(opacity_move(f / FPS, f / FPS, "linear",
+                                              prev_op, op))
+                else:
+                    last = moves[-1] if moves else None
+                    n = int(round((last["t1"] - last["t0"]) * FPS)) \
+                        if last else 0
+                    if n > 0 and int(round(last["t1"] * FPS)) == f - 1 \
+                            and abs((op - prev_op)
+                                    - (last["to"] - last["from"]) / n) < 1e-3:
+                        last["t1"], last["to"] = _r4(f / FPS), _r4(op)
+                    else:
+                        moves.append(opacity_move((f - 1) / FPS, f / FPS,
+                                                  "linear", prev_op, op))
+            prev_op, prev_on = op, on
+        return moves
 
     # ── stateful props (trace version 5) ─────────────────────────────────
     def _on_prop_state(self, event, data):
@@ -1799,7 +1951,364 @@ class Tracer:
             if self.prop_states:
                 out["prop_states"] = list(self.prop_states.values())
                 out["prop_events"] = self.prop_events
+            # Milestone 7: opacity over time, and the event stream.  The
+            # scene as the last play left it is never drawn; note it on
+            # the frame after the last, where the visibility rows have it
+            if self.scene is not None:
+                self.on_frame_drawn(self.scene.renderer, 1)
+            for p in prop_objects:
+                mv = self.opacity_moves(("prop", p["id"]))
+                if opacity_worth_writing(mv):
+                    p["opacity"] = with_frames(mv)
+            for o in overlays:
+                mv = self.opacity_moves(("overlay", o["id"]))
+                if opacity_worth_writing(mv):
+                    o["opacity"] = with_frames(mv)
+            out["opacity"] = {}
+            for n in tracks:
+                mv = self.opacity_moves(("fig", n))
+                if opacity_worth_writing(mv):
+                    out["opacity"][n] = with_frames(mv)
+            out["events"] = semantic_events(out, self.steps, self.shots)
         return out
+
+
+# ── the semantic event stream (trace version 5, Milestone 7) ────────────
+
+# Every event type, in the order events of one frame are listed.  Each
+# event is {"frame": f, "event": type, ...}; an event that lasts has
+# "frames" (how many frames it lasts).  See "Events" in the docstring.
+EVENT_TYPES = (
+    "step", "sequence", "block", "beat", "routine", "constraint",
+    "shot", "camera_cut", "camera_move", "background",
+    "figure_shown", "figure_hidden",
+    "prop_created", "prop_shown", "prop_hidden", "prop_state_changed",
+    "prop_attached", "display_changed", "text_changed",
+    "line", "tic", "sound", "screen_fade",
+)
+
+
+def _typed_step_events(add, frame, frames, action, params, who=None):
+    """The events a step means by its action, besides "step" itself."""
+    p = params or {}
+    if action == "react" and p.get("fragment"):
+        add(frame, "tic", who=who or p.get("who"), fragment=p["fragment"],
+            frames=frames)
+    elif action == "sound_cue":
+        add(frame, "sound", sound=p.get("sound") or p.get("file"),
+            label=p.get("label"), frames=frames)
+    elif action == "screen_fade":
+        add(frame, "screen_fade", to=str(p.get("to", "out")).lower(),
+            color=p.get("color", "#000000"), frames=frames)
+
+
+def _text_reading(row):
+    """What a text row (prop_states.text_row) shows, line by line: the
+    letters written so far; struck runs in [brackets]."""
+    out = []
+    for line in (row or {}).get("lines") or []:
+        txt = ""
+        for run in line:
+            t = str(run.get("text", ""))
+            if run.get("shown") is not None:
+                t = t[:int(run["shown"])]
+            txt += f"[{t}]" if run.get("struck") else t
+        out.append(txt)
+    return out
+
+
+def _shown_hidden(moves):
+    """[(frame, shown, fade frames), ...]: where an "opacity" list (with
+    frame fields) crosses 0.01, the line between shown and not.  The
+    fade frames are those of the run of moves, one after another in the
+    same direction, that the crossing is part of."""
+    out = []
+    runs = []
+    for m in moves or ():
+        up = m["to"] > m["from"]
+        if runs and runs[-1][-1]["f1"] == m["f0"] \
+                and (runs[-1][-1]["to"] > runs[-1][-1]["from"]) == up:
+            runs[-1].append(m)
+        else:
+            runs.append([m])
+    for run in runs:
+        for m in run:
+            a, b = m["from"], m["to"]
+            if (a > 0.01) == (b > 0.01):
+                continue
+            n = m["f1"] - m["f0"]
+            if n == 0:
+                f = m["f0"]
+            else:
+                # the first frame of the move on the other side of 0.01
+                f = next(k for k in range(m["f0"], m["f1"] + 1)
+                         if (a + (b - a) * (k - m["f0"]) / n > 0.01)
+                         == (b > 0.01))
+            out.append((f, b > 0.01, run[-1]["f1"] - run[0]["f0"]))
+    return out
+
+
+def semantic_events(T, steps=(), shots=()):
+    """The typed semantic events of version 5 trace *T* (a result dict),
+    in frame order.  *steps* and *shots* are the tracer's records of the
+    "step" and "shot" hooks; everything else is read from *T*."""
+    fps = int(T.get("fps", FPS))
+    order = {e: i for i, e in enumerate(EVENT_TYPES)}
+    ev = []
+
+    def fr(t):
+        return int(math.floor(float(t) * fps + 0.5))
+
+    def add(frame, event, **kw):
+        e = {"frame": int(frame), "event": event}
+        e.update({k: v for k, v in kw.items() if v is not None})
+        ev.append(e)
+    end = fr(T.get("duration", 0.0))
+    # steps: the top level (each lasts until the next one starts) ...
+    for i, st in enumerate(steps):
+        nxt = steps[i + 1]["frame"] if i + 1 < len(steps) else end
+        if st["marker"] or st["frame"] is None:
+            continue
+        n = max(0, nxt - st["frame"])
+        add(st["frame"], "step", action=st["action"], index=st["index"],
+            frames=n, params=st["params"])
+        _typed_step_events(add, st["frame"], n, st["action"], st["params"])
+    # ... and the steps of timed blocks
+    beats_seen = set()
+    for b in T.get("blocks") or []:
+        add(b["f0"], "block", id=b["id"], frames=b["f1"] - b["f0"])
+        for it in b.get("items") or []:
+            n = it["f1"] - it["f0"]
+            add(it["f0"], "step", action=it.get("action"), who=it.get("who"),
+                frames=n, block=b["id"], beat=it.get("beat"),
+                track=it.get("track"), params=it.get("params"))
+            _typed_step_events(add, it["f0"], n, it.get("action"),
+                               it.get("params"), who=it.get("who"))
+        for bt in b.get("beats") or []:
+            key = (bt["name"], bt["frame"], bt.get("frames"))
+            if key not in beats_seen:
+                beats_seen.add(key)
+                add(bt["frame"], "beat", name=bt["name"],
+                    frames=bt.get("frames"), block=b["id"])
+    for sq in T.get("sequences") or []:
+        add(sq["f0"], "sequence", id=sq["id"], frames=sq["f1"] - sq["f0"])
+        for bt in sq.get("beats") or []:
+            key = (bt["name"], bt["frame"], bt.get("frames"))
+            if key not in beats_seen:
+                beats_seen.add(key)
+                add(bt["frame"], "beat", name=bt["name"],
+                    frames=bt.get("frames"), sequence=sq["id"])
+    for r in T.get("routines") or []:
+        add(r["f0"], "routine", id=r.get("id"), action=r.get("action"),
+            who=r.get("who"), target=r.get("target"),
+            frames=r["f1"] - r["f0"], phases=r.get("phases"))
+    for c in T.get("constraints") or []:
+        if c.get("f0") is None:
+            continue
+        add(c["f0"], "constraint", frames=(c.get("f1") or c["f0"]) - c["f0"],
+            **{k: c[k] for k in ("id", "type", "who", "joints", "joint",
+                                 "target", "target_joint", "prop", "point",
+                                 "moving", "blend", "max_shortfall")
+               if k in c})
+    # the camera
+    for sh in shots:
+        add(sh["frame"], "shot", id=sh.get("id"), frames=sh.get("frames"),
+            block=sh.get("block"),
+            shot={k: v for k, v in (sh.get("meta") or {}).items()
+                  if not str(k).startswith("_")})
+    for m in T.get("camera") or []:
+        f0, f1 = fr(m["t0"]), fr(m["t1"])
+        if f1 == f0:
+            add(f0, "camera_cut", **{"from": m["from"], "to": m["to"]})
+        else:
+            add(f0, "camera_move", frames=f1 - f0, rate=m.get("rate"),
+                **{"from": m["from"], "to": m["to"]})
+    for t, color in T.get("background") or []:
+        add(fr(t), "background", color=color)
+    # figures shown and hidden, with how long each fade takes (from the
+    # opacity when there is a record of it, else from the visibility)
+    opac = T.get("opacity") or {}
+
+    def shown_hidden(rows, moves):
+        if moves:
+            return _shown_hidden(moves)
+        out, on = [], False
+        for t, vis, *_ in rows or ():
+            if bool(vis) != on:
+                on = bool(vis)
+                out.append((fr(t), on, 0))
+        return out
+    for name, rows in (T.get("visibility") or {}).items():
+        for f, on, n in shown_hidden(rows, opac.get(name)):
+            add(f, "figure_shown" if on else "figure_hidden", who=name,
+                frames=n)
+    # props: created, shown and hidden, attached, state, display, text
+    for p in T.get("prop_objects") or []:
+        seen = False
+        for f, on, n in shown_hidden(p.get("visibility"), p.get("opacity")):
+            kind = ("prop_shown" if seen else "prop_created") if on \
+                else "prop_hidden"
+            seen = seen or on
+            add(f, kind, prop=p["name"], object=p["id"], type=p.get("type"),
+                part_of=p.get("part_of"), part=p.get("part"), frames=n)
+        for t, att in p.get("attachments") or []:
+            add(fr(t), "prop_attached", prop=p["name"], object=p["id"],
+                attach=att)
+    for e in T.get("prop_events") or []:
+        e = dict(e)
+        f = e.pop("f")
+        e.pop("t", None)
+        kind = e.pop("event")
+        add(f, kind, **e)
+    for ps in T.get("prop_states") or []:
+        name = ps["name"]
+        for f, row in ps.get("display") or []:
+            add(f, "display_changed", prop=name, display=row)
+        # what it says: one event per change of the words; the letters a
+        # step writes (or the line it draws through them) over its
+        # frames are one event, lasting as long as that step
+        spans = [(e["f"], e["f"] + int(e.get("frames") or 0))
+                 for e in T.get("prop_events") or []
+                 if e.get("prop") == name and "text" in (e.get("changed")
+                                                         or ())]
+        runs, last = [], None
+        for f, row in ps.get("text") or []:
+            reads = _text_reading(row)
+            if reads == last:
+                continue                # redrawn, the words unchanged
+            last = reads
+            span = next((sp for sp in spans if sp[0] <= f <= sp[1]), None)
+            if runs and span is not None and runs[-1][3] == span:
+                runs[-1][1], runs[-1][2] = f, row
+            else:
+                runs.append([span[0] if span else f, f, row, span])
+        for f0, f1, row, span in runs:
+            add(f0, "text_changed", prop=name,
+                frames=(span[1] - span[0]) if span else 0,
+                state=row.get("state"), reads=_text_reading(row))
+    # lines of dialogue: on screen from ... for ...
+    for b in T.get("bubbles") or []:
+        rows = b.get("visibility") or []
+        for k, (t, vis, *_) in enumerate(rows):
+            if vis:
+                off = next((r[0] for r in rows[k + 1:] if not r[1]),
+                           T.get("duration", t))
+                add(fr(t), "line", who=b.get("owner"), bubble=b["id"],
+                    text=b.get("text"), frames=fr(off) - fr(t))
+    ev.sort(key=lambda e: (e["frame"], order.get(e["event"], 99)))
+    return ev
+
+
+# ── ground truth, frame by frame (opt-in: PAM_TRACE_FRAMES) ──────────────
+
+PROBE_VERSION = 1
+
+
+class FrameProbe:
+    """What Manim drew on every frame, for checking a replay of the trace
+    (``trace_replay.py``; ``tests/test_replay.py``).
+
+    Opt-in: only when ``PAM_TRACE_FRAMES`` names a file.  It wraps the
+    renderer's ``add_frame``, the one call every drawn frame goes
+    through (animated frames one at a time, a frozen wait as one call
+    for all of its frames), and reads the scene there, after every
+    animation, updater and contact constraint has run.  Read-only, like
+    the tracer: it changes no mobject, so the trace written beside it is
+    the trace written without it.
+
+    The file holds ``{"probe_version", "fps", "frames": [row, ...]}``,
+    one row per ``add_frame`` call:
+      {"f": first frame, "n": how many frames show it,
+       "figures": {name: {"op", "joints": {joint: [x, y]}}},  # on stage
+       "camera": {"center": [x, y], "width": w},
+       "props": {prop object id: {"op", "box": [x, y, w, h],
+                                  "points"?: [[x, y], ...]}},  # on stage
+       "prop_states": {name: {"state", "display"?, "text"?}},
+       "bubbles": [bubble id, ...],            # on stage
+       "overlays": {overlay id: opacity},      # on stage
+       "background": "#rrggbb"}
+    Figure opacity is measured as the tracer measures it (the stroke of
+    the hip-to-knee line); a prop's or a card's as its brightest part.
+    """
+
+    def __init__(self, tracer):
+        self.tr = tracer
+        self.rows = []
+
+    def on_add_frame(self, renderer, num_frames):
+        tr = self.tr
+        scene = tr.scene
+        if scene is None or num_frames <= 0:
+            return
+        el = float(renderer.time) * FPS
+        try:
+            # (no discovery here: registering a figure or a prop in the
+            # middle of a play would change the trace)
+            on_stage = {id(m) for top in scene.mobjects
+                        for m in top.get_family()}
+            figs = {}
+            for name, fig in tr.figs.items():
+                v, op = tr.visible(fig, on_stage)
+                if v:
+                    figs[name] = {"op": op, "joints": tr.world(fig)}
+            fr = scene.camera.frame
+            cam = {"center": _xy(fr.get_center()), "width": _r4(fr.width)}
+            props = {}
+            for rec in tr.pt.recs:
+                mob = rec["_mob"]
+                if id(mob) not in on_stage:
+                    continue
+                op = _opacity(mob)
+                if op <= 0.01:
+                    continue
+                row = {"op": _r4(op), "box": PropTracker._box(mob)}
+                shape = getattr(mob, "pam_shape", None)
+                if getattr(mob, "pam_deformable", False) and callable(shape):
+                    row["points"] = [_xy(p) for p in shape()]
+                props[str(rec["id"])] = row
+            states = {}
+            mgr = _prop_states.get(scene)
+            if mgr is not None:
+                for name, prec in mgr.world.props.items():
+                    st = {"state": prec.get("state")}
+                    mob = mgr.mobs.get(name)
+                    shown = getattr(mob, "pam_display_shown", None)
+                    if shown is not None:
+                        st["display"] = {k: v for k, v in shown[1]}
+                    txt = getattr(mob, "pam_text_shown", None)
+                    if txt is not None:
+                        st["text"] = json.loads(txt)
+                    states[name] = st
+            bubbles = [b["id"] for b in tr.bubbles
+                       if id(b["_mob"]) in on_stage]
+            overlays = {}
+            cam_frame = getattr(scene.camera, "frame", None)
+            for o in tr.ot.overlays:
+                mob = o.get("_mob")
+                if mob is cam_frame:
+                    continue        # the camera's own frame is not drawn
+                if mob is not None and id(mob) in on_stage:
+                    op = _opacity(mob)
+                    if op > 0.01:
+                        overlays[str(o["id"])] = _r4(op)
+            try:
+                from manim import ManimColor
+                bg = ManimColor(scene.camera.background_color).to_hex()
+            except Exception:
+                bg = None
+        except Exception as exc:        # never let the probe stop a run
+            self.rows.append({"f": int(round(el)), "n": int(num_frames),
+                              "error": repr(exc)})
+            return
+        self.rows.append({"f": int(round(el)), "n": int(num_frames),
+                          "figures": figs, "camera": cam, "props": props,
+                          "prop_states": states, "bubbles": bubbles,
+                          "overlays": overlays, "background": bg})
+
+    def write(self, path):
+        with open(path, "w") as f:
+            json.dump({"probe_version": PROBE_VERSION, "fps": FPS,
+                       "frames": self.rows}, f, separators=(",", ":"))
 
 
 def screenplay_skins(path):
@@ -1866,6 +2375,20 @@ def main(out):
     Scene.play, Scene.wait = play, wait
     hooks.subscribe(TR.on_event)
     from pam_player import PAMPlayer
+    probe_path = os.environ.get("PAM_TRACE_FRAMES")
+    probe = FrameProbe(TR) if probe_path else None
+    # every drawn frame goes through the renderer's add_frame: the
+    # tracer notes opacities there, and the probe what was drawn
+    from manim.renderer.cairo_renderer import CairoRenderer
+    _orig_add_frame = CairoRenderer.add_frame
+
+    def add_frame(self, frame, num_frames=1):
+        if not self.skip_animations:
+            TR.on_frame_drawn(self, num_frames)
+            if probe is not None:
+                probe.on_add_frame(self, num_frames)
+        return _orig_add_frame(self, frame, num_frames)
+    CairoRenderer.add_frame = add_frame
     try:
         with tempconfig({"dry_run": True, "quality": "low_quality",
                          "disable_caching": True, "verbosity": "ERROR",
@@ -1874,7 +2397,10 @@ def main(out):
     finally:
         hooks.unsubscribe(TR.on_event)
         Scene.play, Scene.wait = _orig_play, _orig_wait
+        CairoRenderer.add_frame = _orig_add_frame
     res = TR.result()
+    if probe is not None:
+        probe.write(probe_path)
     with open(out, "w") as f:
         json.dump(res, f, separators=(",", ":"))
     n = sum(len(t) for t in res["tracks"].values())
