@@ -306,6 +306,10 @@ def test_an_ordinary_say_is_untouched(tmp_path):
         INTRO + [say, {"action": "sequence", "id": "s", "do": [
             {"action": "wait", "frames": 3}]}], tmp_path, "mixed.json")
     assert plain["trace_version"] == 4 and mixed["trace_version"] == 5
+    # a version 5 trace also records the bubble's fades (Milestone 8);
+    # everything else about the line is as before
+    faded = [b.pop("opacity", None) for b in mixed["bubbles"]]
+    assert all(faded)
     assert mixed["bubbles"] == plain["bubbles"]
     assert "blocks" not in mixed
 

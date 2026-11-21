@@ -949,7 +949,12 @@ on exact frames, the \texttt{barbell} and \texttt{magazine}, and Scenes
 the routines \texttt{reach\_and\_tighten}, \texttt{altar\_tumble\_hug}
 and \texttt{hoist\_overhead}, \texttt{screen\_fade}, \texttt{bubble\_scale}
 on \texttt{say}, three more tics, nine more acting poses, and Scenes 5
-and 6 performed, completing Milestone 6. All opt-in. See \S14. \\
+and 6 performed, completing Milestone 6. \textbf{Milestone 7}: the
+semantic trace (events, opacity) and \texttt{trace\_replay.py}.
+\textbf{Milestone 8}: Blender parity (\texttt{trace2blender.py
+-{}-parity}, a camera that is level in close shots, bubble fades in the
+trace and in Blender, and a parity test over the six scenes). All
+opt-in. See \S14. \\
 0.9.23 & Backburner items 10--11, 18, and item-6 Option C.
 \textbf{2.5D depth system} (items 10--11): optional
 \texttt{"depth"}/\texttt{"rescale"} on cast and props entries;
@@ -4531,7 +4536,7 @@ active at once.
 \section{14. Runtime additions for the Blender roadmap (PAM 1.0.1): the
 timeline, constraints, choreography and stateful props}\label{runtime-additions-timeline}\index{timeline}\index{frame clock}
 
-Milestones 1 to 7 of \emph{PAM: The Road to Blender} (Milestone 4 in
+Milestones 1 to 8 of \emph{PAM: The Road to Blender} (Milestone 4 in
 three stages, 4a, 4b and 4c, and Milestone 6 in three, 6a, 6b and 6c),
 and its vertical slice. Everything in this section
 is opt-in: a screenplay that uses none
@@ -6187,7 +6192,9 @@ moves of the camera's shape:
 measures opacity on every frame Manim draws, writes a change from one
 frame to the next as a one-frame linear move (merged while the steps
 are equal, so a linear fade is one move), and writes a list only where
-it says more than shown or hidden. The \texttt{screen\_fade} at the end
+it says more than shown or hidden. Since Milestone 8 a speech bubble
+whose line fades in or out (\texttt{frames\_in},
+\texttt{frames\_out}) has a list too. The \texttt{screen\_fade} at the end
 of Scene 6 is a card the size of the frame going from 0 to 1 over 28
 frames; \texttt{trace2blender.py} keys a see-through mix on the
 materials of anything with a list, so it fades to black in Blender
@@ -6236,6 +6243,84 @@ builds all three) and are written exactly as before.
 New \texttt{pam.hooks} events: \texttt{step} (a top-level step is about
 to run) and \texttt{shot} (a camera marker is applied). Like every
 hook, they do nothing without a listener.
+
+\subsection{14.18 Blender parity (Milestone
+8)}\label{blender-parity}\index{Blender parity}\index{parity@\texttt{-{}-parity}}\index{trace2blender.py@\texttt{trace2blender.py}!parity}
+
+Milestone 8 checks that the Blender build reproduces the Manim
+animation (movement, staging, prop identity and timing) before any
+embellishment. There is no new screenplay syntax.
+
+\paragraph{Frames.} \texttt{trace2blender.py} builds at 30 frames per
+second from the 15 fps trace. Trace frame $f$ is keyed on Blender frame
+$1+2f$; the frames between are interpolated. The film ends on frame
+$2N$ for a trace of $N$ frames, so it lasts exactly as long as the
+Manim animation.
+
+\paragraph{The camera.} The camera's center and width follow the
+trace on every keyed frame, cuts included. It is tilted toward the
+floor (\texttt{-{}-tilt}, 8 degrees) only in wide shots: the whole tilt
+in shots at least 6 units wide, none in shots 2 units wide or less, and
+in proportion between (\texttt{trace2blender.tilt\_for\_width}). A
+tilted camera shows anything in front of or behind the figures higher
+or lower than Manim by its depth times the sine of the tilt, which is a
+large part of an insert's frame; level, an insert is framed as in
+Manim. \texttt{-{}-camera wide} keeps the whole tilt. A speech bubble,
+which stands in front of the cast, is raised in tilted shots to show
+where Manim draws it, never closer to the edge of the frame than the
+margin that keeps it inside.
+
+\paragraph{\texttt{-{}-parity}.} The default build keeps departures
+from Manim that make it look better: Blender's own easing curves where
+they match a rate function within \texttt{-{}-tol}, spline walks with
+foot locking and a hip bob, narrower male hips, the camera's tilt,
+bubbles kept at their wide-shot size and inside the frame, and props
+and ropes lifted onto the floor. \texttt{-{}-parity} turns all of them
+off (it is \texttt{-{}-exact -{}-locomotion exact -{}-no-footlock
+-{}-bob 0 -{}-hips 1 -{}-tilt 0 -{}-bubbles-world}, with bubbles not kept
+inside the frame and nothing lifted onto the floor) and changes nothing
+in the appearance. Options after it override it.
+
+\paragraph{The completion test.} \texttt{tests/test\_blender\_parity.py}
+traces the six scenes of \texttt{projects/abe-isaac}, builds each with
+and without \texttt{-{}-parity}, evaluates the built scenes with bpy
+on the keyed frames (\texttt{tests/blender\_parity\_probe.py}) and
+compares them with \texttt{trace\_replay.py}, within
+\texttt{trace2blender.PARITY\_TOLERANCES}:
+
+\begin{center}
+\begin{tabular}{p{3.6in}l}
+\hline
+every joint of every figure on screen & 0.002 units \\
+the camera's center and width, cuts included & 0.002 units \\
+joints, props and bubbles on the screen, against Manim's frame &
+0.5\,\% of the frame \\
+a prop's position; its turn & 0.005 units; 0.1$^\circ$ \\
+a scaled prop's size; a rope's points & 2\,\%; 0.002 units \\
+a speech bubble's position (\texttt{-{}-parity}) & 0.005 units \\
+the opacity of figures, props, cards and bubbles & 0.002 \\
+what is on screen, prop states, displays, the scroll's text and strike
+lines, the background, the number of keyed frames and the film's
+length, one object per figure and per prop object & exact \\
+\hline
+\end{tabular}
+\end{center}
+
+The \texttt{-{}-parity} build is held to all of it. The default build
+is held to it with stated exceptions: a joint or a held prop may be off
+by 1.5\,\% of its move where an easing curve stands in for a rate
+function, the hips are compared by their midpoint (a prop carried on a
+hip is not compared), a bubble kept inside the frame is compared for
+its timing and opacity only, and the screen is compared in level shots
+only. Cards without their backing panel are an appearance choice. The
+six scenes have no spline walks and no props lifted onto the floor, and
+the test checks that. The known open item of Milestone 7 (a prop placed
+while its holder fades in) is exempted on the same frames.
+
+\paragraph{Fixed on the way.} A prop held until the end of a scene no
+longer drifts from the hand over the whole hold (the phone and the
+scroll in Scene 6), and a camera cut on the first frame of a
+constrained limb shows the limb as it is after the cut.
 
 \chapter{Character Properties
 Reference}\label{character-properties-reference}

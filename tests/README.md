@@ -9,7 +9,8 @@ choreography cues, projects, and inserts framed from their subject), and
 Milestone 6 (the performance of the project's scenes: Scenes 1 and 2,
 Stage 6a; Scenes 3 and 4, Stage 6b; Scenes 5 and 6, Stage 6c), and
 Milestone 7 (the semantic trace: a replay of each scene's trace against
-what Manim drew on every frame).
+what Manim drew on every frame), and Milestone 8 (Blender parity: each
+scene built in Blender, read on its keyed frames, against the replay).
 None of them writes a video, and none writes into the repository.
 
 ```bash
@@ -36,6 +37,10 @@ python -m pytest -k performance_6c  # Stage 6c: reach_and_tighten,
 python -m pytest -k replay        # Milestone 7: the six scenes replayed
                                   # from their traces against what Manim
                                   # drew (about four minutes)
+python -m pytest -k blender_parity  # Milestone 8: the six scenes built in
+                                    # Blender (with --parity and by
+                                    # default) against the replay (about
+                                    # five minutes)
 python -m pytest -k golden   # golden-trace comparison only
 python -m pytest -k validate # validator only (a few seconds)
 ```
@@ -46,7 +51,7 @@ something extra and are skipped without it:
 | Tests | Need |
 |---|---|
 | `test_fountain2pam_warnings.py`, `test_fountain_cues.py` | `screenplain` (as `fountain2pam.py` does) |
-| `test_blender_build.py` | Blender: `pip install bpy`, or a `blender` program on `PATH`, or `BLENDER=/path/to/blender` |
+| `test_blender_build.py`, `test_blender_mouth.py`, `test_blender_parity.py` | Blender: `pip install bpy`, or a `blender` program on `PATH`, or `BLENDER=/path/to/blender` |
 
 ## What is covered
 
@@ -69,7 +74,8 @@ something extra and are skipped without it:
 | `test_performance.py` | Milestone 6, Stage 6a. The `perform` action: steps placed by acting phase, `until`, a routine's phases given by acting phase, the problems it reports; retiming one phase moves exactly the steps it should and rewrites nothing. `react` with `fragment` (a tic on the frame clock) and `sound_cue` on exact frames; a tic is a pose writer. The acting poses keep the bones and the shoulders of each build and have mirrors facing left. The `barbell` and `magazine` props; the cue file's `scenes.<id>.say`. Traced: a small scene played with two phase tables (the timing changes as expected and a tic returns to its pose), and Scenes 1 and 2 of the project, with the key pose of every gag (below). |
 | `test_performance_6b.py` | Milestone 6, Stage 6b. The routines `catch_by_collar` and `tie_wrist_loop`: known to the player, the validator and `perform`; `release: false` and a last phase of 0 frames keep the hold; the catch moves both figures and the tie only the one who ties. The new tic fragments and acting poses (crawling on hands and knees, seated with the feet on the ground, lying back, hanging, the heroic poses). Every cue of Scenes 3 and 4 compiled, the routines on beat notes of action lines, no prose left to stage, no invented dialogue. Traced: the catch and the tie at four combinations of sizes, and Scenes 3 and 4 of the project, with the key pose of every gag (below). |
 | `test_performance_6c.py` | Milestone 6, Stage 6c. The routines `reach_and_tighten`, `altar_tumble_hug` and `hoist_overhead`: known to the player, the validator and `perform`; which figures each moves; `release: false` keeps the hold. `screen_fade` at the top level and in a timed block. The new tic fragments and acting poses. Every cue of Scenes 5 and 6 compiled, the routines on beat notes of action lines, no prose left to stage, no invented dialogue. Traced: the three routines at four combinations of sizes, and Scenes 4 to 6 of the project, with the key pose of every gag (below). |
-| `test_replay.py` | Milestone 7. Each of the six project scenes is traced with the frame probe on (`PAM_TRACE_FRAMES`), and `trace_replay.py`, reading only the trace, must give what Manim drew on every frame, within the tolerances below: joint movement, the camera and its cuts, props (position, size, opacity, a rope's points), every prop state, display and text, the bubbles, cards and background, the number of frames, and the frame of every event that shows. The fade to black at the end of Scene 6. The event vocabulary covers what the six scenes do, and every step is an event. Without a renderer: `trace_replay.py` reads all nine golden traces (version 4 included), and a figure is where each move leaves it. |
+| `test_replay.py` | Milestone 7. Each of the six project scenes is traced with the frame probe on (`PAM_TRACE_FRAMES`), and `trace_replay.py`, reading only the trace, must give what Manim drew on every frame, within the tolerances below: joint movement, the camera and its cuts, props (position, size, opacity, a rope's points), every prop state, display and text, the bubbles (and, since Milestone 8, their fades), cards and background, the number of frames, and the frame of every event that shows. The fade to black at the end of Scene 6. The event vocabulary covers what the six scenes do, and every step is an event. Without a renderer: `trace_replay.py` reads all nine golden traces (version 4 included), and a figure is where each move leaves it. |
+| `test_blender_parity.py` | Milestone 8. Each of the six project scenes is traced and built with `trace2blender.py` twice (with `--parity`, and by default), `blender_parity_probe.py` reads each built scene with bpy on the keyed frames (trace frame f on Blender frame 1 + 2f), and the result is held to `trace_replay.py` within the tolerances below: the frame count and the film's length, one Blender object per figure and per prop object, the camera (center, width, and its tilt), every joint, where joints, props and bubbles are on the screen, each prop's visibility, opacity, position, turn, size, a rope's points and the scroll's shape, the scroll's text and strike lines, the phone's screens, the bubbles and cards (shown, fading, and with `--parity` placed), and the background. Also: the six scenes need neither spline locomotion nor floor lifts, and a bubble in a tilted shot shows where Manim draws it without touching the top of the frame. |
 | `test_scale_anchor.py` | A scaled figure does not bob when it walks: through every walk and run keyframe the lower foot is where the scaled pose puts it and the head rises only as much as the pose's own head; a pose with the anchor on the floor is scaled as before; nothing changes across the body; the depth scale behaves the same; an unscaled figure is untouched. No renderer. |
 | `test_validate.py` | The JSON validator and the `pam-validate` command, including what they report for each fixture. |
 | `test_action_specs.py` | `pam/action_specs.py` lists exactly the actions `pam_player.py` dispatches. |
@@ -132,6 +138,12 @@ timed blocks. The change only adds keys: each stored trace is the one
 before with those keys added, and no value it already had changed. The
 three version 4 traces did not change.
 
+Five of the six version 5 traces (all but the wrist-pull slice, which
+has no dialogue) gained an `"opacity"` list on their speech bubbles in
+Milestone 8, when the tracer started recording a line's fades
+(`frames_in`, `frames_out`). Only that key was added: every other value
+is as it was.
+
 Eight of the nine traces were recorded again (each has a new
 `recorded_at`) when scaled figures stopped bobbing as they walk
 (`test_scale_anchor.py`): only heights changed, of the joints of scaled
@@ -178,6 +190,59 @@ get the strict comparison on your own machine, first check that the portable
 comparison passes, then run `python tests/update_golden.py` there and commit
 the result. `PAM_GOLDEN_MODE=strict` or `PAM_GOLDEN_MODE=portable` forces a
 mode.
+
+## The Milestone 8 completion test
+
+The roadmap's test for Milestone 8 reads: *Blender matches the Manim
+animation in movement, staging, prop identity, and timing before
+detailed geometry and materials are added.* It is
+`test_blender_parity.py`, over all six scenes of `projects/abe-isaac`.
+Blender renders at 30 fps from the 15 fps trace; trace frame f is keyed
+on Blender frame 1 + 2f, and parity is checked on the keyed frames,
+with the tolerances of `trace2blender.PARITY_TOLERANCES`, against
+`trace_replay.py` (which the Milestone 7 test holds to what Manim drew):
+
+| What | Tolerance |
+|---|---|
+| every joint of every figure on screen | 0.002 units |
+| the camera's center (on the figures' plane) and width, cuts included | 0.002 units |
+| joints, props and bubbles on the screen (through the Blender camera, against Manim's frame) | 0.5 % of the frame |
+| a prop's position (box center, or its anchor) | 0.005 units |
+| a prop's turn | 0.1 degree |
+| a scaled prop's size | 2 % |
+| a rope's control points | 0.002 units |
+| a speech bubble's position (`--parity`) | 0.005 units |
+| the opacity of figures, props, cards and bubbles | 0.002 |
+| what is on screen (figures, props, bubbles, cards), prop states (the scroll's shape), the phone's screens, the scroll's text and strike lines, the background, the number of keyed frames and the film's length (frame 2N), one Blender object per figure and per prop object | exact |
+
+The `--parity` build is held to all of it; it turns off the builder's
+departures from Manim (`trace2blender.set_parity`). The measured worst
+joint error is 0.0009 units, and the camera's 4e-7.
+
+The default build keeps its departures, with these stated exceptions:
+
+- a move keyed with Blender's own easing curve (`--tol`, default
+  0.015): a joint or a held prop may be off by 1.5 % of the distance
+  its move travels, besides the tolerance (measured: 0.0087 units, at
+  the knife's handoff in Scene 2);
+- the narrower male hips (`--hips 0.65`): the hips are compared by
+  their midpoint, and a prop carried on a hip (the satchel, the scroll
+  in Abraham's belt) is not compared;
+- speech bubbles kept at their wide-shot size and inside the frame
+  (all of Scene 5's, about half of Scene 6's): compared for timing and
+  opacity only;
+- the camera's tilt, which follows the framing (8 degrees in shots at
+  least 6 units wide, level in shots 2 units wide or less): the screen
+  is compared in level shots only.
+
+Cards are shown without their backing panel in both builds; that is
+appearance, and their place, timing and fades are compared. The
+default build's spline locomotion (with foot locking and a hip bob)
+and its floor lift for props and ropes do not apply to the six scenes
+(every move is a step of a timed block, and every prop already stands
+on the floor); `test_no_locomotion_or_floor_lift_in_the_six_scenes`
+checks that. The known open item of Milestone 7 (a prop placed while
+its holder fades in) is exempted on the same frames as there.
 
 ## The Milestone 7 completion test
 

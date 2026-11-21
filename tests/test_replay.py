@@ -214,6 +214,10 @@ def test_bubbles_cards_and_background(played, n):
     kept = {o["id"] for o in trace["overlays"]}
     for f, row in drawn(probe):
         assert sorted(r.bubbles_on(f)) == sorted(row["bubbles"]), (n, f)
+        # Milestone 8: a bubble's fades (its line's frames_in, frames_out)
+        for bid, op in (row.get("bubble_opacity") or {}).items():
+            assert abs(r.bubble_opacity(int(bid), f) - op) \
+                <= TOLERANCES["opacity"], (n, f, bid)
         for oid, op in row["overlays"].items():
             assert int(oid) in kept, (n, f, oid)
             assert abs(r.overlay_opacity(int(oid), f) - op) \
@@ -222,6 +226,25 @@ def test_bubbles_cards_and_background(played, n):
             if str(o["id"]) not in row["overlays"]:
                 assert r.overlay_opacity(o["id"], f) <= 0.01, (n, f, o["id"])
         assert r.background(f).upper() == row["background"].upper()
+
+
+def test_bubble_fades_are_recorded(played):
+    """Milestone 8: a line that fades in (frames_in) has its bubble's
+    opacity in the trace, rising over those frames from its first frame
+    on screen."""
+    faded = 0
+    for n in SCENES:
+        trace, probe, r = played[n]
+        for b in trace["bubbles"]:
+            if not b.get("opacity"):
+                continue
+            faded += 1
+            first = r.f(next(t for t, on in b["visibility"] if on))
+            m = b["opacity"][0]
+            assert m["from"] == 0.0 and m["f0"] >= first, (n, b["id"])
+            assert any(mv["f1"] > mv["f0"] for mv in b["opacity"]), (n, b["id"])
+            assert max(mv["to"] for mv in b["opacity"]) > 0.99, (n, b["id"])
+    assert faded >= 50, "the scenes' lines fade in"
 
 
 def test_scene_6_fades_to_black(played):

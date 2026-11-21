@@ -1647,9 +1647,17 @@ Nothing here is new screenplay syntax; it is what `pam_trace.py` writes for a sc
 
 - `"events"`: every step, sequence, block, beat, routine, constraint interval, shot, camera cut or move, background color, figure or prop shown or hidden (a new prop component is `prop_created`), prop state change, attachment, display, text on a surface, line of dialogue, tic, sound cue and screen fade, in frame order, each `{"frame", "event", "frames"?, ...}`
 - `"params"` on each step of a timed block: the step's own keys
-- `"opacity"`: how opaque each figure, prop and on-screen card is, frame by frame, wherever that is more than shown or hidden
+- `"opacity"`: how opaque each figure, prop and on-screen card is, frame by frame, wherever that is more than shown or hidden; and (Milestone 8) on a speech bubble whose line fades in or out (`frames_in`, `frames_out`)
 - `PAM_TRACE_FRAMES=frames.json` also writes what Manim drew on every frame; `trace_replay.py` replays a trace frame by frame, and `tests/test_replay.py` checks that the replay of each of the six project scenes matches what Manim drew (tolerances in `trace_replay.TOLERANCES`)
 - a scene that does not use the timeline is traced as version 4, unchanged
+
+## Blender parity (Milestone 8)
+
+Nothing here is new screenplay syntax either. `trace2blender.py` builds a `.blend` from a trace at 30 frames per second: trace frame f (15 per second) is keyed on Blender frame 1 + 2f, and the film ends on frame 2N for a trace of N frames, so it lasts exactly as long as the Manim animation. `tests/test_blender_parity.py` holds the build of each of the six project scenes to the trace on the keyed frames (tolerances in `trace2blender.PARITY_TOLERANCES`: joints and the camera within 0.002 units, the screen within 0.5 % of the frame, props within 0.005 units, opacity within 0.002, and exactly what is on screen and when).
+
+- `trace2blender.py ... --parity` turns off everything in the build that moves something away from the Manim animation (Blender's easing curves, spline walks and foot locking, the narrower male hips, the camera's tilt, bubbles resized or kept inside the frame, props lifted onto the floor). Appearance is unchanged.
+- By default the camera is tilted toward the floor in wide shots and level in close shots (an insert is framed as in Manim), and a speech bubble is raised to show where Manim draws it.
+- A line's fades (`frames_in`, `frames_out`) play in Blender over the same frames.
 
 ## Checking a screenplay first
 
