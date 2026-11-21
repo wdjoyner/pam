@@ -1221,7 +1221,6 @@ Use them with `morph`, `turn` or `fade_in`'s `pose`.
 | `catch_breath` *(6b)* | side | bent over, hands on the knees |
 | `climb_reach` *(6b)* | side | both hands on a ledge at hip height, a knee coming up onto it |
 | `crawl_a`, `crawl_b` *(6b)* | side | on hands and knees; the two keyframes of a crawl |
-| `kneel_proud` *(6b)* | side | kneeling up tall, a hand on the chest |
 | `proud` *(6b)* | side | standing tall: chin up, a hand on the chest, the other on the hip |
 | `topple` *(6b)* | side | pitching forward off the feet, arms flung out |
 | `dangle`, `dangle_point_up` *(6b)* | side | hanging by the collar, arms limp, toes down; and pointing up while hanging |

@@ -102,7 +102,7 @@ father's left.
 | `s03_morality` ... `s03_no_improvising` | the line gasped bent over; a headline in lights (`headline`); a nod and a wagging finger |
 | `s03_bounds_over_rock` | Isaac crouches and bounds over the rock in one leap (`hop_crouch`, `hop_tuck`), strolls on and turns to watch |
 | `s03_climbs_rock` | Abraham's hands on the rock (`climb_reach`); he hauls himself up, slides back to the ground, hauls again, and crawls along the top (`crawl_a`, `crawl_b`) |
-| `s03_father_of_nations` | he rises up on his knees on the rock to say it, a hand on his chest (`kneel_proud`, tic `chest_pat_r`) |
+| `s03_father_of_nations` | said from his hands and knees on the rock, out of breath (tic `pant`); then he crawls on |
 | `s03_catch` | `catch_by_collar`: he stands up on the top (`proud`) and steps to its edge; his sandal slips (the `slip`, pose `topple`); Isaac's hand takes him by the collar and hoists him up (`catch`); he kicks and goes limp (`dangle`); the hold is left in force |
 | `s03_lamb` ... `s03_provide` | said while he hangs: Isaac looks about him; Abraham shrugs; the barbell bounces on Isaac's shoulders (`bar_bounce`); a finger up to heaven (`dangle_point_up`). "He provided the knife." is said flat |
 | `s03_sets_down` | a beat; `catch_by_collar` with only its `set_down`; Abraham gives himself a shake; Isaac walks on and Abraham staggers after him |

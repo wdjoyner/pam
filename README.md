@@ -1916,7 +1916,7 @@ The completion checks for Stage 6a are in `tests/test_performance.py`: a phase's
 | `tie_wrist_loop` | A routine: phases `approach`, `wind`, `knot`, `yank`, `let_go`; keys `cycles`, `release`. |
 | A routine's phases given 0 frames | The two Stage 6b routines start every phase from the figures as they are, so a step with only some phases plays just those: `catch_by_collar` with only `set_down` puts down a man it left hanging; `tie_wrist_loop` with only `knot` and `let_go` fiddles at the knot. |
 | Tic fragments | `pant`, `leg_kick`, `tremble`, `bar_bounce`, `wrist_tug`. |
-| Acting poses | `stagger`, `catch_breath`, `climb_reach`, `crawl_a`, `crawl_b`, `kneel_proud`, `proud`, `topple`, `dangle`, `dangle_point_up`, `hop_crouch`, `hop_tuck`, `foot_nudge`, `crouch_reach_r`, `crouch_reach_l`, `sit_side`, `sit_wrists_out`, `recline_elbows`, `recline_point`, `headline`, `hero`, `hero_shade` (each with its `_left` mirror). |
+| Acting poses | `stagger`, `catch_breath`, `climb_reach`, `crawl_a`, `crawl_b`, `proud`, `topple`, `dangle`, `dangle_point_up`, `hop_crouch`, `hop_tuck`, `foot_nudge`, `crouch_reach_r`, `crouch_reach_l`, `sit_side`, `sit_wrists_out`, `recline_elbows`, `recline_point`, `headline`, `hero`, `hero_shade` (each with its `_left` mirror). |
 
 The checks for Stage 6b are in `tests/test_performance_6b.py`: the two routines at four combinations of character sizes, and the key pose of each gag of Scenes 3 and 4 in the trace (for example, that Isaac moves forward on every frame of his stride while Abraham stops, that Isaac does not move a joint while his father pants, that the hand is on the collar and the feet off the ground on every frame of the dangle, and that the altar is built beside Isaac's feet rather than between them).
 
