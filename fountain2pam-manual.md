@@ -1374,6 +1374,28 @@ repeating the full `CHARACTER` annotation.
 
 ## 15. Changelog
 
+### Milestone 6, Stage 6b (PAM 1.0.1)
+
+Nothing changed in the compiler: its output for any screenplay, with or
+without a cue file, is what it was.  Cues may now use the player's
+Stage 6b syntax, which the compiler copies as it is:
+
+- the routines **`catch_by_collar`** (phases `slip`, `catch`, `dangle`,
+  `set_down`) and **`tie_wrist_loop`** (phases `approach`, `wind`,
+  `knot`, `yank`, `let_go`), with their phases settable by acting phase
+  inside a `perform` (`"frames_dangle": "reaction"`), and played apart
+  by giving the other phases 0 frames;
+- the tic fragments `pant`, `leg_kick`, `tremble`, `bar_bounce` and
+  `wrist_tug`;
+- 22 more acting poses (crawling, climbing, catching his breath,
+  dangling, sitting sideways and lying back, a heroic pose, ...).
+
+A beat with a cue may stand on a line of dialogue as well as on an action
+line, as before: in the *Abraham and Isaac* project most acted lines of
+Scenes 3 and 4 have one, and their cues speak the line inside a
+`perform` with the gesture that goes with it.  See section 9 of
+`pam-player_manual.md`.
+
 ### Milestone 6, Stage 6a (PAM 1.0.1)
 
 All opt-in: a screenplay compiled without a cue file, or with a cue file

@@ -6,8 +6,8 @@
   "copy_of": {
    "repository": "wdjoyner/writing-guides",
    "path": "shorts/abe-and-isaac/script.fountain",
-   "commit": "552fbbd991882a0961fde8d82524c8a23ee32788",
-   "sha256": "b21f107264cdf141b22e9a01584a6628d8fb9827676f84aed9b89d2ea418555c"
+   "commit": "beba60afaf92e250f1f2b6065bcb44554098947e",
+   "sha256": "754267b229d9f4e6f3ef31e34d39d3971968c9e7a760bc601a28c9c5bb94665a"
   },
   "_comment": "The script in writing-guides is the authoritative literary version; this is a copy of it with the commit it was taken from.  To update it, copy the file again and record the new commit and sha256."
  },

@@ -4,8 +4,10 @@ Regression tests for *PAM: The Road to Blender*: the Milestone 1 baseline,
 the vertical slice, the Milestone 2 timeline, the Milestone 3 constraints
 and choreography routines, Milestone 4 (stateful props and the
 continuity ledger, Stage 4a; the scroll, a text-bearing prop, Stage 4b;
-the rope, a deformable attachment, Stage 4c), and Milestone 5 (Fountain+
-choreography cues, projects, and inserts framed from their subject).
+the rope, a deformable attachment, Stage 4c), Milestone 5 (Fountain+
+choreography cues, projects, and inserts framed from their subject), and
+Milestone 6 (the performance of the project's scenes: Scenes 1 and 2,
+Stage 6a; Scenes 3 and 4, Stage 6b).
 None of them writes a video, and none writes into the repository.
 
 ```bash
@@ -21,8 +23,11 @@ python -m pytest -k rope          # Stage 4c: the rope, its shapes, its
 python -m pytest -k choreography  # Milestone 3, with its completion test
 python -m pytest -k fountain_cues # Milestone 5: cues, the project, and its
                                   # completion test (about a minute)
-python -m pytest -k performance   # Milestone 6, Stage 6a: acting phases,
-                                  # tics, and Scenes 1 and 2 (a few minutes)
+python -m pytest -k performance   # Milestone 6: acting phases, tics, and
+                                  # Scenes 1 to 4 (Stages 6a and 6b; a few
+                                  # minutes)
+python -m pytest -k performance_6b  # Stage 6b: catch_by_collar, tie_wrist_loop,
+                                    # and Scenes 3 and 4 (a few minutes)
 python -m pytest -k golden   # golden-trace comparison only
 python -m pytest -k validate # validator only (a few seconds)
 ```
@@ -54,6 +59,7 @@ something extra and are skipped without it:
 | `test_prop_trace.py` | The same things as the player plays them: prop identities and `prop_state_changed` events in the trace, where every part is on every frame of the knife break, a transition as a step of a timed block, a hand held on a part of the knife, the phone's display changing while the phone stays put (and the reverse), the blade stuck in the altar, the ledger written by playing equal to the one written by validating, and doors, a lid and the Governor through `prop_transition`. The scroll: its text in the trace on every frame of every step that writes or crosses out, exactly as `prop_states.text_row` shows it; its steps in timed blocks; its grip in the hand on every frame, also while Abraham runs; its shape in each state; and in the project, the trace and the ledger agreeing at the end of every scene. The rope: its two pieces and their shapes in the trace, one rope until it snaps, every frame of a change sampled, the coil riding on Abraham's shoulder as he walks, the knot following Isaac's wrists on every frame, pulled tight over its frames, the broken ends springing apart and the pieces lying where the snap puts them; its steps in timed blocks; and in the project, the trace and the ledger agreeing at the end of every scene. |
 | `test_fountain_cues.py` | Milestone 5. Beat notes change nothing without a cue file; a cued action or line compiles to a copy of its cue, an empty cue to nothing, an uncued beat as before; the cue report (orphaned cues, beats without cues, duplicates, notes that are not identifiers, cues filed under another scene); malformed cue files; the project's source is the recorded copy of the script, and its scene files are what `fountain2pam.py --project` compiles; no invented cast or props in a project. `pam/shot_targets.py` on its own (the frame for a box, closing in on text, the steps of a shot), the validator on `fit` and `margin`, a fitted cut in a timed block, and an insert without `fit` framed as before. The roadmap's completion test (below). |
 | `test_performance.py` | Milestone 6, Stage 6a. The `perform` action: steps placed by acting phase, `until`, a routine's phases given by acting phase, the problems it reports; retiming one phase moves exactly the steps it should and rewrites nothing. `react` with `fragment` (a tic on the frame clock) and `sound_cue` on exact frames; a tic is a pose writer. The acting poses keep the bones and the shoulders of each build and have mirrors facing left. The `barbell` and `magazine` props; the cue file's `scenes.<id>.say`. Traced: a small scene played with two phase tables (the timing changes as expected and a tic returns to its pose), and Scenes 1 and 2 of the project, with the key pose of every gag (below). |
+| `test_performance_6b.py` | Milestone 6, Stage 6b. The routines `catch_by_collar` and `tie_wrist_loop`: known to the player, the validator and `perform`; `release: false` and a last phase of 0 frames keep the hold; the catch moves both figures and the tie only the one who ties. The new tic fragments and acting poses (crawling on hands and knees, seated with the feet on the ground, lying back, hanging, the heroic poses). Every cue of Scenes 3 and 4 compiled, the routines on beat notes of action lines, no prose left to stage, no invented dialogue. Traced: the catch and the tie at four combinations of sizes, and Scenes 3 and 4 of the project, with the key pose of every gag (below). |
 | `test_validate.py` | The JSON validator and the `pam-validate` command, including what they report for each fixture. |
 | `test_action_specs.py` | `pam/action_specs.py` lists exactly the actions `pam_player.py` dispatches. |
 | `test_fountain2pam_warnings.py` | `fountain2pam.py --warnings-json`, and that the validator reports the same `# REVIEW` comments. |
@@ -704,3 +710,31 @@ They also check that every cue of the two scenes is compiled, that the
 Scene 2 routines are on beat notes of action lines, and that the two
 scenes end where the ledger says. The contact sheets in the pull
 request are the visual check.
+
+## The Stage 6b checks (Milestone 6: Scenes 3 and 4 performed)
+
+`test_performance_6b.py` measures, on a trace of each scene, what the
+roadmap's two acceptance rows (Scene 3: "Isaac's effortless movement
+contrasts with Abraham's struggles"; Scene 4: "props are staged
+correctly; rope and phone interactions are clear") come down to:
+
+| Scene | Gag | What the trace must show |
+|---|---|---|
+| 3 | the climb | Isaac covers far more ground than Abraham, moving forward on every frame of his stride; Abraham hunches lower than he stands and makes no headway for 8 frames or more |
+| 3 | catching his breath | Abraham bent over and heaving while Isaac does not move a joint |
+| 3 | the rock | Isaac goes over it in one bound, his feet above it wherever they are over it; Abraham's climb takes four times as long, mostly on hands and knees, with one slide back to the ground; he stands on its top before he slips |
+| 3 | the catch | the hand on the collar on every frame from the catch to the set-down, his feet off the ground all that time, the barbell on Isaac's shoulders; he kicks; all five lines in between are said while he hangs; he is set down on his feet and let go |
+| 3 | walking on | both off stage, to the left, at the end |
+| 4 | the altar | built beside Isaac: neither of his feet is inside it while it goes up |
+| 4 | the phone | upright on the top of the rock, put there by Isaac crouched beside it |
+| 4 | the heroic pose | Isaac's fists on his hips; Abraham one fist on a hip and the other hand above his neck; side by side |
+| 4 | the rope | Isaac seated on the log with his feet on the ground while it is wound round his wrists; loose, tied, tightened, in that order; Abraham's hands near the knot; the yank pulls them away from it on the frames the rope goes tight |
+| 4 | lying back | his head drops; his elbows on the log; his wrists together |
+| 4 | the phone again | Abraham's hand at the phone on its rock when he picks it up, and the phone in his hand, by the rock, at the end of the scene |
+| 3, 4 | dialogue | every sentence of the script is spoken in a bubble, and no bubble says words the script does not |
+
+The same file traces `catch_by_collar` and `tie_wrist_loop` in small
+scenes at four combinations of sizes (as cast; Isaac 1.30 wide; Isaac
+larger all over; Abraham 0.70, nearly as tall): the collar is held with
+no shortfall and the feet clear the ground, and the hands loop round the
+wrists at least twice, within reach, without falling short.

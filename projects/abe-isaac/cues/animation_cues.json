@@ -118,6 +118,19 @@
      "color": "#a9c8e6"
     },
     {
+     "action": "props",
+     "rt": 0.2,
+     "items": {
+      "rock": {
+       "type": "rock",
+       "x": -1.6,
+       "y": -2.6,
+       "width": 1.3,
+       "height": 0.95
+      }
+     }
+    },
+    {
      "action": "prop_transition",
      "prop": "barbell",
      "beat": "barbell_on_shoulders",
@@ -132,14 +145,33 @@
     {
      "action": "fade_in",
      "who": "isaac",
-     "rt": 0.2
+     "rt": 0.2,
+     "x": 8.8,
+     "pose": "standing_side_left"
     },
     {
      "action": "fade_in",
      "who": "abraham",
-     "rt": 0.2
+     "rt": 0.2,
+     "x": 10.4,
+     "pose": "stagger_left"
     }
-   ]
+   ],
+   "after": [
+    {
+     "action": "wait",
+     "frames": 6,
+     "beat": "s03_end_hold"
+    }
+   ],
+   "say": {
+    "isaac": {
+     "side": "right"
+    },
+    "abraham": {
+     "side": "right"
+    }
+   }
   },
   "scene4": {
    "before": [
@@ -163,14 +195,32 @@
     {
      "action": "fade_in",
      "who": "isaac",
-     "rt": 0.2
+     "rt": 0.2,
+     "x": 1.18
     },
     {
      "action": "fade_in",
      "who": "abraham",
-     "rt": 0.2
+     "rt": 0.2,
+     "x": -1.2,
+     "pose": "catch_breath"
     }
-   ]
+   ],
+   "after": [
+    {
+     "action": "wait",
+     "frames": 6,
+     "beat": "s04_end_hold"
+    }
+   ],
+   "say": {
+    "isaac": {
+     "side": "right"
+    },
+    "abraham": {
+     "side": "left"
+    }
+   }
   },
   "scene5": {
    "before": [
@@ -1122,125 +1172,284 @@
    "scene": "scene3",
    "steps": [
     {
-     "action": "parallel",
+     "action": "perform",
      "id": "s03_climb",
+     "phases": {
+      "anticipation": 6,
+      "action": 54,
+      "reaction": 6
+     },
      "do": [
       {
-       "action": "walk_to",
-       "who": "isaac",
-       "x": 2.4,
-       "frames": 24
+       "phase": "anticipation",
+       "action": "wait",
+       "until": "anticipation",
+       "beat": "empty_path"
       },
       {
+       "phase": "action",
        "action": "walk_to",
-       "who": "abraham",
-       "x": 0.2,
+       "who": "isaac",
+       "x": 3.4,
+       "frames": 36,
+       "beat": "isaac_strides"
+      },
+      {
+       "phase": "action",
+       "action": "morph",
+       "at": 36,
+       "who": "isaac",
+       "pose": "look_side_r",
+       "frames": 5
+      },
+      {
+       "phase": "action",
+       "action": "sequence",
        "at": 6,
-       "frames": 30
+       "id": "abraham_staggers",
+       "do": [
+        {
+         "action": "walk_to",
+         "who": "abraham",
+         "x": 8.9,
+         "frames": 14
+        },
+        {
+         "action": "morph",
+         "who": "abraham",
+         "pose": "stagger_left",
+         "frames": 4
+        },
+        {
+         "action": "wait",
+         "frames": 3,
+         "beat": "stagger"
+        },
+        {
+         "action": "walk_to",
+         "who": "abraham",
+         "x": 7.6,
+         "frames": 13
+        },
+        {
+         "action": "morph",
+         "who": "abraham",
+         "pose": "stagger_left",
+         "frames": 4
+        },
+        {
+         "action": "walk_to",
+         "who": "abraham",
+         "x": 6.6,
+         "frames": 12
+        }
+       ]
+      },
+      {
+       "phase": "reaction",
+       "action": "wait",
+       "until": "reaction"
       }
      ]
-    },
-    {
-     "action": "wait",
-     "frames": 9
     }
-   ]
+   ],
+   "note": "Isaac strides in at an even pace with the barbell on his shoulders and stops to look back; Abraham staggers in after him in short walks, hunched over between them."
   },
   "s04_props_phone": {
    "scene": "scene4",
    "steps": [
     {
-     "action": "prop_transition",
-     "prop": "phone",
-     "to": "recording",
-     "frames": 9,
-     "beat": "props_phone",
-     "attached": {
-      "to": "rock",
-      "point": "top",
-      "by": "bottom"
-     }
-    },
-    {
-     "action": "wait",
-     "frames": 6
+     "action": "perform",
+     "id": "s04_props_phone",
+     "phases": {
+      "anticipation": 30,
+      "action": 9,
+      "reaction": 6
+     },
+     "do": [
+      {
+       "phase": "anticipation",
+       "action": "walk_to",
+       "who": "isaac",
+       "x": -1.3,
+       "frames": 24
+      },
+      {
+       "phase": "anticipation",
+       "action": "morph",
+       "at": 24,
+       "who": "isaac",
+       "pose": "crouch_reach_r_left",
+       "until": "anticipation"
+      },
+      {
+       "phase": "anticipation",
+       "action": "walk_to",
+       "at": 10,
+       "who": "abraham",
+       "x": -1.65,
+       "frames": 16
+      },
+      {
+       "phase": "action",
+       "action": "prop_transition",
+       "prop": "phone",
+       "to": "recording",
+       "until": "action",
+       "beat": "props_phone",
+       "attached": {
+        "to": "rock",
+        "point": "top",
+        "by": "bottom"
+       }
+      },
+      {
+       "phase": "reaction",
+       "action": "morph",
+       "who": "isaac",
+       "pose": "standing_side_left",
+       "until": "reaction"
+      }
+     ]
     }
-   ]
+   ],
+   "note": "Isaac walks to the little rock, crouches, and props his phone upright on it, its camera toward the altar (the Stage 4a step)."
   },
   "s04_takes_pieces_out": {
    "scene": "scene4",
    "steps": [
     {
-     "action": "prop_transition",
-     "prop": "knife",
-     "frames": 6,
-     "beat": "takes_pieces_out",
-     "parts": {
-      "handle": {
-       "attached": {
-        "to": "abraham",
-        "joint": "rwrist"
-       }
+     "action": "perform",
+     "id": "s04_takes_pieces_out",
+     "phases": {
+      "anticipation": 6,
+      "action": 6,
+      "reaction": 8
+     },
+     "do": [
+      {
+       "phase": "anticipation",
+       "action": "morph",
+       "who": "abraham",
+       "pose": "reach_satchel",
+       "until": "anticipation"
       },
-      "blade": {
-       "attached": {
-        "to": "abraham",
-        "joint": "lwrist"
-       }
+      {
+       "phase": "action",
+       "action": "prop_transition",
+       "prop": "knife",
+       "beat": "takes_pieces_out",
+       "parts": {
+        "handle": {
+         "attached": {
+          "to": "abraham",
+          "joint": "rwrist"
+         }
+        },
+        "blade": {
+         "attached": {
+          "to": "abraham",
+          "joint": "lwrist"
+         }
+        }
+       },
+       "until": "action"
+      },
+      {
+       "phase": "action",
+       "action": "morph",
+       "who": "abraham",
+       "pose": "hands_low",
+       "until": "action"
+      },
+      {
+       "phase": "reaction",
+       "action": "wait",
+       "until": "reaction",
+       "beat": "looks_at_pieces"
       }
-     }
-    },
-    {
-     "action": "wait",
-     "frames": 6
+     ]
     }
-   ]
+   ],
+   "note": "His hand into the satchel; the two pieces out (the Stage 4a step); he looks at them."
   },
   "s04_blade_into_satchel": {
    "scene": "scene4",
    "steps": [
     {
-     "action": "prop_transition",
-     "prop": "knife",
-     "to": "blade_carried",
-     "frames": 6,
-     "beat": "blade_into_satchel",
-     "parts": {
-      "blade": {
-       "attached": {
-        "to": "satchel",
-        "mode": "in",
-        "hidden": true
-       }
+     "action": "perform",
+     "id": "s04_blade_into_satchel",
+     "phases": {
+      "action": 6,
+      "reaction": 6
+     },
+     "do": [
+      {
+       "phase": "action",
+       "action": "prop_transition",
+       "prop": "knife",
+       "to": "blade_carried",
+       "beat": "blade_into_satchel",
+       "parts": {
+        "blade": {
+         "attached": {
+          "to": "satchel",
+          "mode": "in",
+          "hidden": true
+         }
+        }
+       },
+       "until": "action"
+      },
+      {
+       "phase": "action",
+       "action": "morph",
+       "who": "abraham",
+       "pose": "standing_side",
+       "until": "action"
+      },
+      {
+       "phase": "reaction",
+       "action": "wait",
+       "until": "reaction"
       }
-     }
-    },
-    {
-     "action": "wait",
-     "frames": 9
+     ]
     }
-   ]
+   ],
+   "note": "The blade back into the satchel (the Stage 4a step); he keeps the handle."
   },
   "s04_winds_rope": {
    "scene": "scene4",
    "steps": [
     {
-     "action": "parallel",
-     "id": "s04_tie",
-     "frames": 18,
+     "action": "perform",
+     "id": "s04_winds_rope",
+     "phases": {
+      "anticipation": 6,
+      "action": 24,
+      "reaction": 8,
+      "recovery": 6
+     },
      "do": [
       {
-       "action": "morph",
-       "who": "isaac",
-       "pose": "reach_forward",
-       "frames": 18,
-       "beat": "holds_out_wrists"
+       "phase": "anticipation",
+       "action": "tie_wrist_loop",
+       "id": "tie",
+       "who": "abraham",
+       "target": "isaac",
+       "frames_approach": "anticipation",
+       "frames_wind": "action",
+       "frames_knot": "reaction",
+       "frames_yank": 0,
+       "frames_let_go": "recovery",
+       "cycles": 3
       },
       {
+       "phase": "action",
        "action": "prop_transition",
        "prop": "rope",
        "to": "tied",
-       "frames": 18,
+       "until": "action",
        "beat": "winds_rope",
        "attached": {
         "to": "isaac",
@@ -1249,62 +1458,165 @@
          "rwrist"
         ],
         "mode": "around"
-       },
-       "at": 0
+       }
       }
      ]
-    },
-    {
-     "action": "wait",
-     "frames": 6
     }
-   ]
+   ],
+   "note": "tie_wrist_loop: he takes the coil from his shoulder as he steps up (anticipation), winds it round Isaac's wrists in loops that get bigger and wilder (action; the rope goes from his shoulder to the wrists, state 'tied', on the same frames), fiddles with the knot (reaction) and lets go (recovery).  The handle stays in his other hand throughout."
   },
   "s04_yanks_knot": {
    "scene": "scene4",
    "steps": [
     {
-     "action": "prop_transition",
-     "prop": "rope",
-     "to": "tightened",
-     "frames": 3,
-     "beat": "yanks_knot"
-    },
-    {
-     "action": "wait",
-     "frames": 6
+     "action": "perform",
+     "id": "s04_yanks_knot",
+     "phases": {
+      "anticipation": 6,
+      "action": 3,
+      "reaction": 30,
+      "recovery": 18
+     },
+     "do": [
+      {
+       "phase": "anticipation",
+       "action": "tie_wrist_loop",
+       "id": "yank",
+       "who": "abraham",
+       "target": "isaac",
+       "frames_approach": 0,
+       "frames_wind": 0,
+       "frames_knot": "anticipation",
+       "frames_yank": "action",
+       "frames_let_go": 6
+      },
+      {
+       "phase": "action",
+       "action": "prop_transition",
+       "prop": "rope",
+       "to": "tightened",
+       "beat": "yanks_knot",
+       "until": "action"
+      },
+      {
+       "phase": "reaction",
+       "action": "react",
+       "at": 6,
+       "who": "isaac",
+       "fragment": "wrist_tug",
+       "frames": 10,
+       "cycles": 2,
+       "beat": "tests_it"
+      },
+      {
+       "phase": "reaction",
+       "action": "wait",
+       "at": 16,
+       "frames": 4,
+       "beat": "it_holds"
+      },
+      {
+       "phase": "reaction",
+       "action": "react",
+       "at": 20,
+       "who": "isaac",
+       "fragment": "shrug",
+       "frames": 10
+      },
+      {
+       "phase": "recovery",
+       "action": "morph",
+       "who": "isaac",
+       "pose": "recline_elbows_left",
+       "frames": 12,
+       "beat": "lies_back"
+      }
+     ]
     }
-   ]
+   ],
+   "note": "tie_wrist_loop, its knot and yank: his hands go to the knot (anticipation) and yank it tight, three frames (action; the rope 'tightened' on the same frames), and he lets go.  Isaac tugs at it: it holds; a shrug, and he lies back on the altar, propped on his elbows."
   },
   "s04_picks_up_phone": {
    "scene": "scene4",
    "steps": [
     {
-     "action": "prop_transition",
-     "prop": "phone",
-     "frames": 9,
-     "beat": "picks_up_phone",
-     "attached": {
-      "to": "abraham",
-      "joint": "lwrist",
-      "by": "bottom"
-     }
-    },
-    {
-     "action": "morph",
-     "who": "abraham",
-     "pose": "reach_side_l",
-     "frames": 6
+     "action": "perform",
+     "id": "s04_picks_up_phone",
+     "phases": {
+      "anticipation": 22,
+      "action": 9,
+      "reaction": 30
+     },
+     "do": [
+      {
+       "phase": "anticipation",
+       "action": "walk_to",
+       "who": "abraham",
+       "x": -2.3,
+       "frames": 17
+      },
+      {
+       "phase": "anticipation",
+       "action": "morph",
+       "at": 17,
+       "who": "abraham",
+       "pose": "crouch_reach_l_left",
+       "until": "anticipation"
+      },
+      {
+       "phase": "action",
+       "action": "prop_transition",
+       "prop": "phone",
+       "beat": "picks_up_phone",
+       "attached": {
+        "to": "abraham",
+        "joint": "lwrist",
+        "by": "bottom"
+       },
+       "until": "action"
+      },
+      {
+       "phase": "reaction",
+       "action": "morph",
+       "who": "abraham",
+       "pose": "standing_side_left",
+       "frames": 4
+      },
+      {
+       "phase": "reaction",
+       "action": "turn",
+       "at": 4,
+       "who": "abraham",
+       "pose": "standing_side",
+       "frames": 3
+      },
+      {
+       "phase": "reaction",
+       "action": "walk_to",
+       "at": 7,
+       "who": "abraham",
+       "x": -1.2,
+       "frames": 14
+      },
+      {
+       "phase": "reaction",
+       "action": "morph",
+       "at": 21,
+       "who": "abraham",
+       "pose": "reach_side_l",
+       "until": "reaction"
+      }
+     ]
     }
    ],
-   "note": "The Stage 4a step, and one step added in Milestone 5: Abraham holds the phone out, so that the knife handle in his other hand does not cover the LIVE button in the insert."
+   "note": "He walks to the rock, picks up the phone (the Stage 4a step) and comes back with it.  He holds it out (pose reach_side_l, added in Milestone 5), so that the knife handle in his other hand does not cover the LIVE button in the insert."
   },
   "s04_red_button": {
    "scene": "scene4",
    "steps": [
     {
      "action": "wait",
-     "frames": 9,
+     "frames": 18,
      "beat": "red_button"
     }
    ]
@@ -2982,7 +3294,7 @@
      "action": "perform",
      "id": "s04_drops_barbell",
      "phases": {
-      "anticipation": 6,
+      "anticipation": 12,
       "action": 4,
       "reaction": 12,
       "recovery": 6
@@ -3047,6 +3359,29 @@
        "who": "isaac",
        "fragment": "nod",
        "until": "recovery"
+      },
+      {
+       "phase": "anticipation",
+       "action": "react",
+       "who": "abraham",
+       "fragment": "pant",
+       "cycles": 2,
+       "frames": 10
+      },
+      {
+       "phase": "reaction",
+       "action": "react",
+       "who": "abraham",
+       "fragment": "startle",
+       "frames": 5
+      },
+      {
+       "phase": "reaction",
+       "action": "morph",
+       "at": 6,
+       "who": "abraham",
+       "pose": "standing_side",
+       "frames": 6
       }
      ]
     },
@@ -3054,14 +3389,38 @@
      "action": "perform",
      "id": "s04_builds",
      "phases": {
-      "anticipation": 6,
+      "anticipation": 22,
       "action": 15,
       "reaction": 6
      },
      "do": [
       {
        "phase": "anticipation",
+       "action": "turn",
+       "who": "isaac",
+       "pose": "standing_side",
+       "frames": 3
+      },
+      {
+       "phase": "anticipation",
+       "action": "walk_to",
+       "at": 3,
+       "who": "isaac",
+       "x": 3.3,
+       "frames": 10
+      },
+      {
+       "phase": "anticipation",
+       "action": "turn",
+       "at": 13,
+       "who": "isaac",
+       "pose": "standing_front",
+       "frames": 4
+      },
+      {
+       "phase": "anticipation",
        "action": "morph",
+       "at": 17,
        "who": "isaac",
        "pose": "lift_squat",
        "until": "anticipation"
@@ -3114,10 +3473,10 @@
      "action": "perform",
      "id": "s04_crooked",
      "phases": {
-      "anticipation": 12,
+      "anticipation": 14,
       "action": 6,
-      "reaction": 12,
-      "recovery": 12
+      "reaction": 16,
+      "recovery": 14
      },
      "do": [
       {
@@ -3151,24 +3510,39 @@
       {
        "phase": "action",
        "action": "morph",
+       "at": 3,
        "who": "abraham",
        "pose": "standing_side",
-       "at": 3,
        "frames": 3
+      },
+      {
+       "phase": "anticipation",
+       "action": "turn",
+       "who": "isaac",
+       "pose": "standing_side_left",
+       "frames": 3
+      },
+      {
+       "phase": "anticipation",
+       "action": "walk_to",
+       "at": 3,
+       "who": "isaac",
+       "x": 2.15,
+       "frames": 9
       },
       {
        "phase": "reaction",
        "action": "morph",
        "who": "isaac",
-       "pose": "look_down_l",
+       "pose": "foot_nudge_left",
        "frames": 4
       },
       {
        "phase": "reaction",
        "action": "prop_transition",
        "prop": "barbell.left",
-       "at": 4,
-       "frames": 6,
+       "at": 3,
+       "frames": 5,
        "beat": "isaac_moves_it_back",
        "attached": {
         "to": null,
@@ -3181,10 +3555,10 @@
       {
        "phase": "reaction",
        "action": "morph",
+       "at": 9,
        "who": "isaac",
-       "pose": "standing_front",
-       "at": 6,
-       "frames": 6
+       "pose": "standing_side_left",
+       "frames": 4
       },
       {
        "phase": "recovery",
@@ -3196,23 +3570,1427 @@
       {
        "phase": "recovery",
        "action": "react",
+       "at": 4,
        "who": "isaac",
        "fragment": "nod",
-       "at": 2,
+       "frames": 6
+      }
+     ]
+    }
+   ],
+   "note": "Isaac drops the barbell (THUD!, and Abraham, still blown from the climb, jumps), steps to its end and takes it apart into the altar beside him: the boulders set apart, the log laid across them (barbell state 'altar').  The left boulder is crooked; Abraham straightens it, Isaac comes round and nudges it back with his foot, and they agree with a shrug and a nod."
+  },
+  "s03_the_plan": {
+   "scene": "scene3",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s03_the_plan",
+     "phases": {
+      "action": 128,
+      "recovery": 4
+     },
+     "do": [
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "isaac",
+       "text": "We go up the mountain. I build the altar.",
+       "frames": 30,
+       "frames_in": 3,
+       "frames_out": 3,
+       "side": "right"
+      },
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "isaac",
+       "text": "You tie me up.",
+       "frames": 18,
+       "frames_in": 3,
+       "frames_out": 3,
+       "at": 30,
+       "side": "right"
+      },
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "isaac",
+       "text": "You raise what's left of that knife and tell",
+       "frames": 30,
+       "frames_in": 3,
+       "frames_out": 3,
+       "at": 48,
+       "side": "right"
+      },
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "isaac",
+       "text": "everybody God doesn't want people sacrificing people.",
+       "frames": 30,
+       "frames_in": 3,
+       "frames_out": 3,
+       "at": 78,
+       "side": "right"
+      },
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "isaac",
+       "text": "Then we substitute a lamb.",
+       "frames": 20,
+       "frames_in": 3,
+       "frames_out": 3,
+       "at": 108,
+       "side": "right"
+      },
+      {
+       "phase": "action",
+       "action": "react",
+       "at": 60,
+       "who": "isaac",
+       "fragment": "nod",
        "frames": 6
       },
       {
-       "phase": "recovery",
-       "action": "walk_to",
+       "phase": "action",
+       "action": "sequence",
+       "at": 30,
+       "id": "isaac_strolls",
+       "do": [
+        {
+         "action": "turn",
+         "who": "isaac",
+         "pose": "standing_side_left",
+         "frames": 3
+        },
+        {
+         "action": "walk_to",
+         "who": "isaac",
+         "x": 2.3,
+         "frames": 16
+        },
+        {
+         "action": "turn",
+         "who": "isaac",
+         "pose": "look_side_r",
+         "frames": 4
+        }
+       ]
+      },
+      {
+       "phase": "action",
+       "action": "sequence",
+       "at": 96,
+       "id": "isaac_strolls_on",
+       "do": [
+        {
+         "action": "turn",
+         "who": "isaac",
+         "pose": "standing_side_left",
+         "frames": 3
+        },
+        {
+         "action": "walk_to",
+         "who": "isaac",
+         "x": 1.0,
+         "frames": 18
+        },
+        {
+         "action": "turn",
+         "who": "isaac",
+         "pose": "look_side_r",
+         "frames": 4
+        }
+       ]
+      },
+      {
+       "phase": "action",
+       "action": "sequence",
+       "id": "abraham_plods",
+       "do": [
+        {
+         "action": "walk_to",
+         "who": "abraham",
+         "x": 5.8,
+         "frames": 16
+        },
+        {
+         "action": "morph",
+         "who": "abraham",
+         "pose": "stagger_left",
+         "frames": 4
+        },
+        {
+         "action": "wait",
+         "frames": 10
+        },
+        {
+         "action": "walk_to",
+         "who": "abraham",
+         "x": 4.8,
+         "frames": 16
+        },
+        {
+         "action": "morph",
+         "who": "abraham",
+         "pose": "stagger_left",
+         "frames": 4
+        },
+        {
+         "action": "wait",
+         "frames": 8
+        },
+        {
+         "action": "walk_to",
+         "who": "abraham",
+         "x": 4.4,
+         "frames": 10
+        },
+        {
+         "action": "morph",
+         "who": "abraham",
+         "pose": "stagger_left",
+         "frames": 4
+        },
+        {
+         "action": "wait",
+         "frames": 26
+        },
+        {
+         "action": "walk_to",
+         "who": "abraham",
+         "x": 3.4,
+         "frames": 16
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "note": "Isaac lays out the plan, looking back at his father, and strolls on; Abraham plods after him, stopping hunched over."
+  },
+  "s03_catch_breath": {
+   "scene": "scene3",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s03_catch_breath",
+     "phases": {
+      "anticipation": 4,
+      "action": 24,
+      "reaction": 8
+     },
+     "do": [
+      {
+       "phase": "anticipation",
+       "action": "morph",
        "who": "abraham",
-       "x": -1.2,
-       "at": 8,
+       "pose": "catch_breath_left",
+       "until": "anticipation",
+       "beat": "hands_on_knees"
+      },
+      {
+       "phase": "action",
+       "action": "react",
+       "who": "abraham",
+       "fragment": "pant",
+       "cycles": 4,
+       "until": "action",
+       "beat": "pants"
+      },
+      {
+       "phase": "anticipation",
+       "action": "morph",
+       "who": "isaac",
+       "pose": "look_side_r",
+       "until": "anticipation"
+      },
+      {
+       "phase": "action",
+       "action": "wait",
+       "until": "reaction",
+       "beat": "isaac_not_breathing"
+      }
+     ]
+    }
+   ],
+   "note": "Abraham bent over, hands on his knees, heaving; Isaac stands and waits, perfectly still."
+  },
+  "s03_morality": {
+   "scene": "scene3",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s03_morality",
+     "phases": {
+      "action": 22,
+      "recovery": 6
+     },
+     "do": [
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "abraham",
+       "text": "A morality lesson?",
+       "frames": 22,
+       "frames_in": 3,
+       "frames_out": 3,
+       "side": "right"
+      },
+      {
+       "phase": "action",
+       "action": "react",
+       "who": "abraham",
+       "fragment": "pant",
+       "cycles": 2,
+       "until": "action"
+      },
+      {
+       "phase": "recovery",
+       "action": "morph",
+       "who": "abraham",
+       "pose": "standing_side_left",
        "until": "recovery"
       }
      ]
     }
    ],
-   "note": "Isaac drops the barbell (THUD!), takes it apart and builds the altar from it: the boulders set apart, the log laid across them (barbell state 'altar').  The left boulder is crooked; Abraham straightens it, Isaac puts it back, and they agree with a shrug and a nod.  Abraham walks back to where the rest of the scene has him."
+   "note": "Gasped from where he is bent over; then he straightens up."
+  },
+  "s03_challenge": {
+   "scene": "scene3",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s03_challenge",
+     "phases": {
+      "anticipation": 4,
+      "action": 60,
+      "recovery": 6
+     },
+     "do": [
+      {
+       "phase": "anticipation",
+       "action": "morph",
+       "who": "isaac",
+       "pose": "headline",
+       "until": "anticipation"
+      },
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "isaac",
+       "text": "A challenge!",
+       "frames": 18,
+       "frames_in": 3,
+       "frames_out": 3,
+       "side": "right"
+      },
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "isaac",
+       "text": "\"Sacrifice a Lamb for God.\" It'll be huge on TikTok.",
+       "frames": 42,
+       "frames_in": 3,
+       "frames_out": 3,
+       "at": 18,
+       "side": "right"
+      },
+      {
+       "phase": "recovery",
+       "action": "morph",
+       "who": "isaac",
+       "pose": "look_side_r",
+       "until": "recovery"
+      }
+     ]
+    }
+   ],
+   "note": "Both hands up and apart: the headline in lights."
+  },
+  "s03_no_improvising": {
+   "scene": "scene3",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s03_no_improvising",
+     "phases": {
+      "action": 36,
+      "recovery": 5
+     },
+     "do": [
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "abraham",
+       "text": "We'll try it.",
+       "frames": 16,
+       "frames_in": 3,
+       "frames_out": 3,
+       "side": "right"
+      },
+      {
+       "phase": "action",
+       "action": "react",
+       "who": "abraham",
+       "fragment": "nod",
+       "at": 2,
+       "frames": 6
+      },
+      {
+       "phase": "action",
+       "action": "morph",
+       "at": 14,
+       "who": "abraham",
+       "pose": "wag_finger_left",
+       "frames": 4
+      },
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "abraham",
+       "text": "But no improvising.",
+       "frames": 20,
+       "frames_in": 3,
+       "frames_out": 3,
+       "at": 16,
+       "side": "right"
+      },
+      {
+       "phase": "action",
+       "action": "react",
+       "at": 19,
+       "who": "abraham",
+       "fragment": "finger_wag_r",
+       "frames": 10,
+       "cycles": 2
+      },
+      {
+       "phase": "recovery",
+       "action": "morph",
+       "who": "abraham",
+       "pose": "standing_side_left",
+       "until": "recovery"
+      }
+     ]
+    }
+   ]
+  },
+  "s03_bounds_over_rock": {
+   "scene": "scene3",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s03_bound",
+     "phases": {
+      "anticipation": 18,
+      "action": 9,
+      "reaction": 4,
+      "recovery": 26
+     },
+     "do": [
+      {
+       "phase": "anticipation",
+       "action": "turn",
+       "who": "isaac",
+       "pose": "standing_side_left",
+       "frames": 3
+      },
+      {
+       "phase": "anticipation",
+       "action": "walk_to",
+       "at": 3,
+       "who": "isaac",
+       "x": 0.05,
+       "frames": 11
+      },
+      {
+       "phase": "anticipation",
+       "action": "morph",
+       "at": 14,
+       "who": "isaac",
+       "pose": "hop_crouch_left",
+       "until": "anticipation"
+      },
+      {
+       "phase": "action",
+       "action": "morph",
+       "who": "isaac",
+       "pose": "hop_tuck_left",
+       "dx": -1.5,
+       "dy": 1.15,
+       "frames": 4,
+       "beat": "bounds"
+      },
+      {
+       "phase": "action",
+       "action": "morph",
+       "at": 4,
+       "who": "isaac",
+       "pose": "standing_side_left",
+       "dx": -1.5,
+       "dy": -1.15,
+       "frames": 5
+      },
+      {
+       "phase": "reaction",
+       "action": "morph",
+       "who": "isaac",
+       "pose": "hop_crouch_left",
+       "frames": 2
+      },
+      {
+       "phase": "reaction",
+       "action": "morph",
+       "at": 2,
+       "who": "isaac",
+       "pose": "standing_side_left",
+       "frames": 2
+      },
+      {
+       "phase": "recovery",
+       "action": "walk_to",
+       "who": "isaac",
+       "x": -5.6,
+       "frames": 20
+      },
+      {
+       "phase": "recovery",
+       "action": "morph",
+       "at": 20,
+       "who": "isaac",
+       "pose": "look_side_r",
+       "until": "recovery"
+      },
+      {
+       "phase": "anticipation",
+       "action": "walk_to",
+       "who": "abraham",
+       "x": 2.3,
+       "frames": 18
+      },
+      {
+       "phase": "action",
+       "action": "morph",
+       "who": "abraham",
+       "pose": "stagger_left",
+       "frames": 4
+      },
+      {
+       "phase": "reaction",
+       "action": "walk_to",
+       "who": "abraham",
+       "x": -0.5,
+       "until": "recovery"
+      }
+     ]
+    }
+   ],
+   "note": "Isaac walks up to the rock, crouches, and bounds over it in one easy leap, landing beyond it; he strolls on and turns to watch.  Abraham trudges up to the rock."
+  },
+  "s03_climbs_rock": {
+   "scene": "scene3",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s03_climb_rock",
+     "phases": {
+      "anticipation": 8,
+      "action": 42,
+      "reaction": 6
+     },
+     "do": [
+      {
+       "phase": "anticipation",
+       "action": "morph",
+       "who": "abraham",
+       "pose": "climb_reach_left",
+       "until": "anticipation",
+       "beat": "hands_on_rock"
+      },
+      {
+       "phase": "action",
+       "action": "sequence",
+       "id": "hauls_up",
+       "do": [
+        {
+         "action": "morph",
+         "who": "abraham",
+         "pose": "crawl_a_left",
+         "dx": -0.3,
+         "dy": 0.62,
+         "frames": 8,
+         "beat": "hauls"
+        },
+        {
+         "action": "morph",
+         "who": "abraham",
+         "pose": "climb_reach_left",
+         "dx": 0.1,
+         "dy": -0.62,
+         "frames": 4,
+         "beat": "slides_back"
+        },
+        {
+         "action": "wait",
+         "frames": 4
+        },
+        {
+         "action": "morph",
+         "who": "abraham",
+         "pose": "crawl_b_left",
+         "dx": -0.3,
+         "dy": 0.95,
+         "frames": 10
+        },
+        {
+         "action": "morph",
+         "who": "abraham",
+         "pose": "crawl_a_left",
+         "dx": -0.12,
+         "frames": 7
+        },
+        {
+         "action": "morph",
+         "who": "abraham",
+         "pose": "crawl_b_left",
+         "dx": -0.12,
+         "frames": 7
+        }
+       ]
+      },
+      {
+       "phase": "reaction",
+       "action": "react",
+       "who": "abraham",
+       "fragment": "pant",
+       "until": "reaction"
+      }
+     ]
+    }
+   ],
+   "note": "Hands on the rock, he hauls himself up, slides back, hauls again, and crawls along the top on his hands and knees."
+  },
+  "s03_up_for_this": {
+   "scene": "scene3",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s03_up_for_this",
+     "phases": {
+      "action": 30
+     },
+     "do": [
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "isaac",
+       "text": "You sure you're up for this, Dad?",
+       "frames": 30,
+       "frames_in": 3,
+       "frames_out": 3,
+       "side": "right"
+      }
+     ]
+    }
+   ]
+  },
+  "s03_father_of_nations": {
+   "scene": "scene3",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s03_father_of_nations",
+     "phases": {
+      "anticipation": 5,
+      "action": 26,
+      "recovery": 6
+     },
+     "do": [
+      {
+       "phase": "anticipation",
+       "action": "morph",
+       "who": "abraham",
+       "pose": "kneel_proud_left",
+       "until": "anticipation"
+      },
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "abraham",
+       "text": "I am the father of nations.",
+       "frames": 26,
+       "frames_in": 3,
+       "frames_out": 3,
+       "side": "right"
+      },
+      {
+       "phase": "action",
+       "action": "react",
+       "at": 4,
+       "who": "abraham",
+       "fragment": "chest_pat_r",
+       "frames": 8
+      },
+      {
+       "phase": "recovery",
+       "action": "morph",
+       "who": "abraham",
+       "pose": "crawl_a_left",
+       "until": "recovery"
+      }
+     ]
+    }
+   ],
+   "note": "He rises up on his knees on the rock to say it, a hand on his chest, then crawls on."
+  },
+  "s03_catch": {
+   "scene": "scene3",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s03_catch",
+     "phases": {
+      "anticipation": 14,
+      "action": 6,
+      "reaction": 20,
+      "recovery": 10
+     },
+     "do": [
+      {
+       "phase": "anticipation",
+       "action": "morph",
+       "who": "abraham",
+       "pose": "proud_left",
+       "frames": 7,
+       "beat": "reaches_top"
+      },
+      {
+       "phase": "anticipation",
+       "action": "morph",
+       "at": 7,
+       "who": "abraham",
+       "pose": "stagger_left",
+       "dx": -0.25,
+       "frames": 3
+      },
+      {
+       "phase": "anticipation",
+       "action": "morph",
+       "at": 10,
+       "who": "abraham",
+       "pose": "proud_left",
+       "dx": -0.22,
+       "until": "anticipation"
+      },
+      {
+       "phase": "action",
+       "action": "catch_by_collar",
+       "id": "catch",
+       "who": "isaac",
+       "target": "abraham",
+       "frames_slip": "action",
+       "frames_catch": "action",
+       "frames_dangle": "reaction",
+       "release": false
+      },
+      {
+       "phase": "recovery",
+       "action": "wait",
+       "until": "recovery",
+       "beat": "dangles"
+      }
+     ]
+    }
+   ],
+   "note": "catch_by_collar: he stands up on the rock (anticipation), his sandal slips and Isaac catches him by the collar (action: the slip and the catch), he kicks in the air and goes limp (reaction: the dangle), and hangs there (recovery).  Isaac's other hand stays on the barbell.  The hold lasts until s03_sets_down."
+  },
+  "s03_lamb": {
+   "scene": "scene3",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s03_lamb",
+     "phases": {
+      "action": 22
+     },
+     "do": [
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "isaac",
+       "text": "Where's the lamb?",
+       "frames": 22,
+       "frames_in": 3,
+       "frames_out": 3,
+       "side": "right"
+      },
+      {
+       "phase": "action",
+       "action": "react",
+       "at": 3,
+       "who": "isaac",
+       "fragment": "head_shake",
+       "frames": 12
+      }
+     ]
+    }
+   ],
+   "note": "Isaac looks about him; his father still hanging from his fist."
+  },
+  "s03_you_brought": {
+   "scene": "scene3",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s03_you_brought",
+     "phases": {
+      "action": 28
+     },
+     "do": [
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "abraham",
+       "text": "I thought you brought the lamb.",
+       "frames": 28,
+       "frames_in": 3,
+       "frames_out": 3,
+       "side": "right"
+      },
+      {
+       "phase": "action",
+       "action": "react",
+       "at": 4,
+       "who": "abraham",
+       "fragment": "shrug",
+       "frames": 10
+      }
+     ]
+    }
+   ],
+   "note": "A shrug, in the air."
+  },
+  "s03_brought_altar": {
+   "scene": "scene3",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s03_brought_altar",
+     "phases": {
+      "action": 22
+     },
+     "do": [
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "isaac",
+       "text": "I brought the altar.",
+       "frames": 22,
+       "frames_in": 3,
+       "frames_out": 3,
+       "side": "right"
+      },
+      {
+       "phase": "action",
+       "action": "react",
+       "at": 6,
+       "who": "isaac",
+       "fragment": "bar_bounce",
+       "frames": 8
+      }
+     ]
+    }
+   ],
+   "note": "The barbell bounces on his shoulders."
+  },
+  "s03_provide": {
+   "scene": "scene3",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s03_provide",
+     "phases": {
+      "anticipation": 4,
+      "action": 22,
+      "recovery": 5
+     },
+     "do": [
+      {
+       "phase": "anticipation",
+       "action": "morph",
+       "who": "abraham",
+       "pose": "dangle_point_up_left",
+       "until": "anticipation"
+      },
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "abraham",
+       "text": "God will provide.",
+       "frames": 22,
+       "frames_in": 3,
+       "frames_out": 3,
+       "side": "right"
+      },
+      {
+       "phase": "recovery",
+       "action": "morph",
+       "who": "abraham",
+       "pose": "dangle_left",
+       "until": "recovery"
+      }
+     ]
+    }
+   ],
+   "note": "A finger up to heaven, still hanging."
+  },
+  "s03_sets_down": {
+   "scene": "scene3",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s03_sets_down",
+     "phases": {
+      "anticipation": 8,
+      "action": 9,
+      "reaction": 8,
+      "recovery": 40
+     },
+     "do": [
+      {
+       "phase": "anticipation",
+       "action": "wait",
+       "until": "anticipation",
+       "beat": "beat"
+      },
+      {
+       "phase": "action",
+       "action": "catch_by_collar",
+       "id": "catch",
+       "who": "isaac",
+       "target": "abraham",
+       "frames_slip": 0,
+       "frames_catch": 0,
+       "frames_dangle": 0,
+       "frames_set_down": "action"
+      },
+      {
+       "phase": "reaction",
+       "action": "react",
+       "who": "abraham",
+       "fragment": "startle",
+       "frames": 6
+      },
+      {
+       "phase": "reaction",
+       "action": "turn",
+       "who": "isaac",
+       "pose": "standing_side_left",
+       "frames": 3
+      },
+      {
+       "phase": "recovery",
+       "action": "walk_to",
+       "who": "isaac",
+       "x": -9.8,
+       "frames": 26
+      },
+      {
+       "phase": "recovery",
+       "action": "sequence",
+       "at": 8,
+       "id": "abraham_follows",
+       "do": [
+        {
+         "action": "morph",
+         "who": "abraham",
+         "pose": "stagger_left",
+         "frames": 4
+        },
+        {
+         "action": "walk_to",
+         "who": "abraham",
+         "x": -9.2,
+         "frames": 28
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "note": "catch_by_collar again, with only its set_down phase: Isaac sets him on his feet and lets go.  Abraham gives himself a shake; Isaac walks on, and Abraham staggers after him."
+  },
+  "s04_heroic_pose": {
+   "scene": "scene4",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s04_heroic_pose",
+     "phases": {
+      "anticipation": 18,
+      "action": 6,
+      "reaction": 14,
+      "recovery": 8
+     },
+     "do": [
+      {
+       "phase": "anticipation",
+       "action": "turn",
+       "who": "isaac",
+       "pose": "standing_side",
+       "frames": 3
+      },
+      {
+       "phase": "anticipation",
+       "action": "walk_to",
+       "at": 3,
+       "who": "isaac",
+       "x": 0.45,
+       "frames": 11
+      },
+      {
+       "phase": "anticipation",
+       "action": "turn",
+       "at": 14,
+       "who": "isaac",
+       "pose": "standing_front",
+       "until": "anticipation"
+      },
+      {
+       "phase": "anticipation",
+       "action": "morph",
+       "who": "abraham",
+       "pose": "standing_front",
+       "frames": 4
+      },
+      {
+       "phase": "action",
+       "action": "morph",
+       "who": "isaac",
+       "pose": "hero",
+       "until": "action",
+       "beat": "isaac_poses"
+      },
+      {
+       "phase": "reaction",
+       "action": "morph",
+       "at": 4,
+       "who": "abraham",
+       "pose": "hero_shade",
+       "frames": 6,
+       "beat": "abraham_tries"
+      },
+      {
+       "phase": "recovery",
+       "action": "wait",
+       "until": "recovery",
+       "beat": "both_posed"
+      }
+     ]
+    }
+   ],
+   "note": "For the screen: Isaac, fists on hips, chin up; Abraham tries it, and gets one fist on a hip and the other hand over his eyes.  The image is held."
+  },
+  "s04_handle_not_blade": {
+   "scene": "scene4",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s04_handle_not_blade",
+     "phases": {
+      "anticipation": 4,
+      "action": 38,
+      "recovery": 6
+     },
+     "do": [
+      {
+       "phase": "anticipation",
+       "action": "morph",
+       "who": "isaac",
+       "pose": "finger_up_r",
+       "until": "anticipation"
+      },
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "isaac",
+       "text": "Remember: raise the handle, not the blade.",
+       "frames": 38,
+       "frames_in": 3,
+       "frames_out": 3,
+       "side": "right"
+      },
+      {
+       "phase": "action",
+       "action": "morph",
+       "at": 8,
+       "who": "abraham",
+       "pose": "standing_side",
+       "frames": 6
+      },
+      {
+       "phase": "recovery",
+       "action": "morph",
+       "who": "isaac",
+       "pose": "standing_front",
+       "until": "recovery"
+      }
+     ]
+    }
+   ]
+  },
+  "s04_sits_on_altar": {
+   "scene": "scene4",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s04_sits_on_altar",
+     "phases": {
+      "anticipation": 4,
+      "action": 9,
+      "reaction": 8
+     },
+     "do": [
+      {
+       "phase": "anticipation",
+       "action": "turn",
+       "who": "isaac",
+       "pose": "standing_side_left",
+       "until": "anticipation"
+      },
+      {
+       "phase": "action",
+       "action": "morph",
+       "who": "isaac",
+       "pose": "sit_side_left",
+       "dx": 0.6300000000000001,
+       "until": "action",
+       "beat": "sits"
+      },
+      {
+       "phase": "action",
+       "action": "walk_to",
+       "who": "abraham",
+       "x": -0.6,
+       "until": "reaction"
+      },
+      {
+       "phase": "reaction",
+       "action": "morph",
+       "who": "isaac",
+       "pose": "sit_wrists_out_left",
+       "until": "reaction",
+       "beat": "holds_out_wrists"
+      }
+     ]
+    }
+   ],
+   "note": "Isaac sits back on the log of the altar, facing his father, and holds out his wrists."
+  },
+  "s04_looser": {
+   "scene": "scene4",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s04_looser",
+     "phases": {
+      "action": 58
+     },
+     "do": [
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "isaac",
+       "text": "Looser.",
+       "frames": 16,
+       "frames_in": 3,
+       "frames_out": 3,
+       "side": "right"
+      },
+      {
+       "phase": "action",
+       "action": "react",
+       "at": 2,
+       "who": "isaac",
+       "fragment": "head_shake",
+       "frames": 9
+      },
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "isaac",
+       "text": "I'm supposed to escape after the speech.",
+       "frames": 42,
+       "frames_in": 3,
+       "frames_out": 3,
+       "at": 16,
+       "side": "right"
+      }
+     ]
+    }
+   ]
+  },
+  "s04_bow": {
+   "scene": "scene4",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s04_bow",
+     "phases": {
+      "action": 24,
+      "recovery": 6
+     },
+     "do": [
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "abraham",
+       "text": "I'm tying a bow.",
+       "frames": 24,
+       "frames_in": 3,
+       "frames_out": 3,
+       "side": "left"
+      },
+      {
+       "phase": "action",
+       "action": "tie_wrist_loop",
+       "id": "tie",
+       "who": "abraham",
+       "target": "isaac",
+       "frames_approach": 0,
+       "frames_wind": 0,
+       "frames_knot": "action",
+       "frames_yank": 0,
+       "frames_let_go": "recovery"
+      }
+     ]
+    }
+   ],
+   "note": "Said fiddling with the knot (tie_wrist_loop, only its knot)."
+  },
+  "s04_square_knot": {
+   "scene": "scene4",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s04_square_knot",
+     "phases": {
+      "action": 60
+     },
+     "do": [
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "isaac",
+       "text": "That's a square knot.",
+       "frames": 24,
+       "frames_in": 3,
+       "frames_out": 3,
+       "side": "right"
+      },
+      {
+       "phase": "action",
+       "action": "react",
+       "at": 3,
+       "who": "isaac",
+       "fragment": "nod",
+       "frames": 6
+      },
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "isaac",
+       "text": "Give it here, I'll tie myself up.",
+       "frames": 36,
+       "frames_in": 3,
+       "frames_out": 3,
+       "at": 24,
+       "side": "right"
+      },
+      {
+       "phase": "action",
+       "action": "react",
+       "at": 28,
+       "who": "isaac",
+       "fragment": "shrug",
+       "frames": 10
+      }
+     ]
+    }
+   ]
+  },
+  "s04_before_you_were_born": {
+   "scene": "scene4",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s04_before_born",
+     "phases": {
+      "anticipation": 4,
+      "action": 36,
+      "recovery": 6
+     },
+     "do": [
+      {
+       "phase": "anticipation",
+       "action": "morph",
+       "who": "abraham",
+       "pose": "proud",
+       "until": "anticipation"
+      },
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "abraham",
+       "text": "I was tying knots before you were born.",
+       "frames": 36,
+       "frames_in": 3,
+       "frames_out": 3,
+       "side": "left"
+      },
+      {
+       "phase": "recovery",
+       "action": "morph",
+       "who": "abraham",
+       "pose": "standing_side",
+       "until": "recovery"
+      }
+     ]
+    }
+   ],
+   "note": "Chin up, a hand on his chest, as on the rock in Scene 3."
+  },
+  "s04_press_red": {
+   "scene": "scene4",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s04_press_red",
+     "phases": {
+      "anticipation": 5,
+      "action": 56,
+      "recovery": 6
+     },
+     "do": [
+      {
+       "phase": "anticipation",
+       "action": "morph",
+       "who": "isaac",
+       "pose": "recline_point_left",
+       "until": "anticipation"
+      },
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "isaac",
+       "text": "Press the red button when you're ready.",
+       "frames": 34,
+       "frames_in": 3,
+       "frames_out": 3,
+       "side": "right"
+      },
+      {
+       "phase": "action",
+       "action": "say",
+       "who": "isaac",
+       "text": "Then I'll say my part.",
+       "frames": 22,
+       "frames_in": 3,
+       "frames_out": 3,
+       "at": 34,
+       "side": "right"
+      },
+      {
+       "phase": "action",
+       "action": "morph",
+       "at": 34,
+       "who": "isaac",
+       "pose": "recline_elbows_left",
+       "frames": 6
+      }
+     ]
+    }
+   ],
+   "note": "Both tied hands point at the phone; then he lies back again."
+  },
+  "s04_rehearses": {
+   "scene": "scene4",
+   "steps": [
+    {
+     "action": "perform",
+     "id": "s04_rehearses",
+     "phases": {
+      "anticipation": 4,
+      "action": 44,
+      "reaction": 18
+     },
+     "do": [
+      {
+       "phase": "anticipation",
+       "action": "react",
+       "who": "abraham",
+       "fragment": "nod",
+       "until": "anticipation"
+      },
+      {
+       "phase": "action",
+       "action": "morph",
+       "who": "abraham",
+       "pose": "count_hand",
+       "frames": 4
+      },
+      {
+       "phase": "action",
+       "action": "react",
+       "at": 4,
+       "who": "abraham",
+       "fragment": "count_tap_r",
+       "frames": 15,
+       "cycles": 3,
+       "beat": "counts"
+      },
+      {
+       "phase": "action",
+       "action": "react",
+       "at": 19,
+       "who": "abraham",
+       "fragment": "tremble",
+       "until": "action",
+       "cycles": 6,
+       "beat": "hands_shaking"
+      },
+      {
+       "phase": "reaction",
+       "action": "turn",
+       "who": "abraham",
+       "pose": "standing_side_left",
+       "frames": 3
+      },
+      {
+       "phase": "reaction",
+       "action": "walk_to",
+       "at": 3,
+       "who": "abraham",
+       "x": -2.3,
+       "frames": 10
+      },
+      {
+       "phase": "reaction",
+       "action": "morph",
+       "at": 13,
+       "who": "abraham",
+       "pose": "crouch_reach_l_left",
+       "until": "reaction",
+       "beat": "to_the_rock"
+      }
+     ]
+    }
+   ],
+   "note": "A nod; he counts silently on his fingers, the phone in one hand and the handle in the other; his hands shake.  He turns and goes to lean the phone back against its rock (he gets there in Scene 5)."
   }
  }
 }

@@ -163,6 +163,47 @@ CHEST_PAT_R_CYCLE = [
 ]
 
 
+# ── Stage 6b (Scenes 3 and 4) ──
+# Heavy breathing: the shoulders, neck and head heave up and drop back,
+# and the hands with them (Abraham catching his breath).  Pure y, so it
+# reads the same facing either way.
+_UPPER = ("head", "neck", "lshoulder", "rshoulder", "lelbow", "relbow",
+          "lwrist", "rwrist")
+PANT_CYCLE = [
+    {**{j: (0.0, 0.12) for j in _UPPER}, "torso": (0.0, 0.06)},
+    {**{j: (0.0, -0.04) for j in _UPPER}, "torso": (0.0, -0.02)},
+]
+
+# The legs kick, one forward and one back, then the other way: a man
+# hanging in the air.  Each leg's knee goes half as far as its foot.
+LEG_KICK_CYCLE = [
+    {"lankle": (0.34, 0.22), "lknee": (0.17, 0.08),
+     "rankle": (-0.26, 0.10), "rknee": (-0.10, 0.03)},
+    {"lankle": (-0.26, 0.10), "lknee": (-0.10, 0.03),
+     "rankle": (0.34, 0.22), "rknee": (0.17, 0.08)},
+]
+
+# Both hands shake: nerves.  Small, quick and opposite, so that a prop
+# held in either hand trembles.  Repeat it with "cycles".
+TREMBLE_CYCLE = [
+    {"lwrist": (0.05, 0.04), "rwrist": (-0.05, 0.04)},
+    {"lwrist": (-0.05, -0.04), "rwrist": (0.05, -0.04)},
+]
+
+# The shoulders hitch up and drop, and whatever rides on them (the
+# barbell) bounces: "I brought the altar."
+BAR_BOUNCE_CYCLE = [
+    {**{j: (0.0, 0.22) for j in _UPPER}, "torso": (0.0, 0.10)},
+    {**{j: (0.0, -0.05) for j in _UPPER}, "torso": (0.0, -0.02)},
+]
+
+# Tied wrists tugged apart and let go: testing the knot.
+WRIST_TUG_CYCLE = [
+    {"lwrist": (0.0, 0.16), "rwrist": (0.0, -0.16)},
+    {"lwrist": (0.0, -0.02), "rwrist": (0.0, 0.02)},
+]
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  QUADRUPED FRAGMENTS  (figure_type: "dog", future "cat" via CatGraph alias)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -260,6 +301,32 @@ TIC_FRAGMENTS = {
     },
     "chest_pat_r": {
         "cycle":      CHEST_PAT_R_CYCLE,
+        "applies_to": ["human", "alien"],
+        "rt_per_kf":  0.12,
+    },
+    # ── Stage 6b (Scenes 3 and 4) ──
+    "pant": {
+        "cycle":      PANT_CYCLE,
+        "applies_to": ["human", "alien"],
+        "rt_per_kf":  0.12,
+    },
+    "leg_kick": {
+        "cycle":      LEG_KICK_CYCLE,
+        "applies_to": ["human", "alien"],
+        "rt_per_kf":  0.12,
+    },
+    "tremble": {
+        "cycle":      TREMBLE_CYCLE,
+        "applies_to": ["human", "alien"],
+        "rt_per_kf":  0.12,
+    },
+    "bar_bounce": {
+        "cycle":      BAR_BOUNCE_CYCLE,
+        "applies_to": ["human", "alien"],
+        "rt_per_kf":  0.12,
+    },
+    "wrist_tug": {
+        "cycle":      WRIST_TUG_CYCLE,
         "applies_to": ["human", "alien"],
         "rt_per_kf":  0.12,
     },
