@@ -9,7 +9,7 @@ The key architectural point is this:
 **`pam_player.py` does not define its own argparse-style command-line flags.**
 You run it through **Manim’s CLI**, and you control PAM-specific behavior mainly with **environment variables**.
 
-This manual describes the player as of PAM 1.0.1, including the frame clock, sequences, timed parallel blocks, contact constraints and choreography routines added for the Blender roadmap (section 9). Module docstrings in `pam/timeline.py`, `pam/constraints.py` and `pam/choreography.py` hold the design notes; the README has worked examples.
+This manual describes the player as of PAM 1.0.1, including the frame clock, sequences, timed parallel blocks, contact constraints and choreography routines added for the Blender roadmap (section 9), and the semantic trace written for scenes that use them (section 9, "The semantic trace"). Module docstrings in `pam/timeline.py`, `pam/constraints.py` and `pam/choreography.py` hold the design notes; the README has worked examples.
 
 ---
 
@@ -777,7 +777,7 @@ The whole frame fades to a color (a FADE OUT), or back from it: a rectangle the 
 
 ### Notes
 - after a fade out the frame stays that color to the end of the scene; a fade in removes the rectangle when it is done
-- in the trace the rectangle is an overlay card (it shows from the frame its fill does); the trace records when it is shown, not how its opacity grows, so a Blender build has a cut to the color at the start of the fade
+- in the trace the rectangle is an overlay card (it shows from the frame its fill does), with an `"opacity"` list saying how its opacity grows frame by frame (Milestone 7), and a `screen_fade` event in the trace's `"events"`; a Blender build fades to the color over the same frames
 
 ---
 
@@ -1640,6 +1640,16 @@ The ledger records, for each prop a film carries from scene to scene, its state,
 
 ### In the trace and in Blender
 A scene with stateful props is traced as version 5. `"prop_states"` names each such prop, the prop objects it is made of, its state from each frame on, what its display shows and, for a scroll, its text frame by frame (`"text"`: the letters written so far, and how far each line through struck text is drawn); `"prop_events"` lists every change (`prop_state_changed`) with its frame. A rope's pieces carry their shape, frame by frame, as control points (`"shape"`: sampled pieces, as for constrained limbs). `trace2blender.py` builds each part once, keeps it on its attachment, turns it, hides it, gives the phone its screens, draws the scroll's roll, sheet or ribbon with its text, letter by letter on the same frames, and builds each piece of a rope as a curve object whose points are keyed on every frame the trace has them. A hand held on a prop (`joint_to_prop`) is moved to where Blender puts the prop, and an empty named `contact.<id>` marks the held point.
+
+## The semantic trace (Milestone 7)
+
+Nothing here is new screenplay syntax; it is what `pam_trace.py` writes for a scene that uses the timeline (trace version 5), documented in full at the top of `pam_trace.py`.
+
+- `"events"`: every step, sequence, block, beat, routine, constraint interval, shot, camera cut or move, background color, figure or prop shown or hidden (a new prop component is `prop_created`), prop state change, attachment, display, text on a surface, line of dialogue, tic, sound cue and screen fade, in frame order, each `{"frame", "event", "frames"?, ...}`
+- `"params"` on each step of a timed block: the step's own keys
+- `"opacity"`: how opaque each figure, prop and on-screen card is, frame by frame, wherever that is more than shown or hidden
+- `PAM_TRACE_FRAMES=frames.json` also writes what Manim drew on every frame; `trace_replay.py` replays a trace frame by frame, and `tests/test_replay.py` checks that the replay of each of the six project scenes matches what Manim drew (tolerances in `trace_replay.TOLERANCES`)
+- a scene that does not use the timeline is traced as version 4, unchanged
 
 ## Checking a screenplay first
 

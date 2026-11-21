@@ -11,6 +11,35 @@ Usage:
 Run it from the PAM repository folder (or put that folder on PYTHONPATH)
 so that ``pam_player`` and the ``pam`` package can be imported.
 
+    PAM_TRACE_FRAMES=frames.json PAM_SCRIPT=screenplay.json \
+        python pam_trace.py out.json
+
+also writes what Manim drew on every frame (see "The frame probe"), for
+checking a replay of the trace.
+
+This docstring is the reference for the trace format.  Contents:
+  How it works
+  Trace format (trace_version 4)      every key of a version 4 trace
+  Trace version 5 (timeline)          fps, frame fields, sequences,
+                                      constraints, blocks, routines,
+                                      stateful props, sampled pieces
+  Deformable props (Stage 4c)         a rope's control points
+  Opacity (version 5, Milestone 7)    how opaque things are, frame by frame
+  Events (version 5, Milestone 7)     the semantic event stream
+  Replay                              what a reader can rebuild, and how
+                                      closely (trace_replay.py)
+  The frame probe                     PAM_TRACE_FRAMES
+  Compatibility                       version 4 traces, readers
+
+Every key at the top of a trace, and the version that added it:
+  trace_version, hooks_version, duration, frame, rate_funcs, cast,
+  tracks, visibility, initial, camera_initial, camera, background,
+  bubbles, actions, props, prop_objects, overlays, shapes, looks,
+  head_hidden, stats                                         (1 to 4)
+  fps, sequences, constraints, blocks?, routines?, prop_states?,
+  prop_events?                                     (5; "?": when any)
+  opacity, events                                  (5, Milestone 7)
+
 How it works
 ------------
 * pam.hooks events give the *meaning* of each move: which pose a figure
@@ -134,7 +163,10 @@ as version 4, byte for byte as before.  Version 5 adds:
                    "blend"?}],                    # for information only
   "blocks": [{"id", "f0", "f1",            # timed parallel blocks; only
               "items": [{"action", "who", "f0", "f1", "beat"?,
-                         "track"?}],       # present when there are any
+                         "track"?, "params"}],   # present when there are
+                                         # any; "params": the step's own
+                                         # keys (Milestone 7; see
+                                         # step_params)
               "tracks": [{"id", "f0", "f1"}],
               "beats": [{"name", "frame", "frames"}]}],
   "routines": [{"id", "action", "who", "target", "f0", "f1",
@@ -231,6 +263,137 @@ replaces their values for the listed joints only: a hand pinned to a
 moving wrist travels along a path that the two endpoints of an ordinary
 piece do not determine.  A consumer keys the samples directly and
 solves nothing.
+
+Opacity (version 5, Milestone 7)
+--------------------------------
+"visibility" says when something is on screen.  How opaque it is, frame
+by frame, is in "opacity" lists, written only into version 5 traces:
+
+  "opacity": {figure: [move, ...]}        at the top, for figures
+  "opacity": [move, ...]                  on a prop object or an overlay
+
+  move = {"t0", "t1", "f0", "f1", "rate", "from", "to"}
+
+the same shape as a camera move, from opacity "from" (0 to 1) on frame
+f0 to "to" on frame f1; before the first move the opacity is 0.  The
+tracer measures opacity on every frame Manim draws (a figure by the
+stroke of its hip-to-knee line, a prop or an overlay by its brightest
+part; 0 when it is not on stage), and writes a change from one frame to
+the next as a one-frame linear move, merged with the moves before it
+while the steps are equal, so a linear fade is one move.  A change on
+the frame something comes onto or leaves the stage is a change at once
+(t0 == t1).  The scene as the last play left it, which Manim never
+draws, is measured on the frame after the last.  A list is written only
+when it says more than the visibility rows (some change takes frames,
+or some value is neither 0 nor 1): a figure, prop or overlay without
+one is fully opaque whenever it is shown.  Examples: a prop of a
+"props" step with "rt" fading in; the screen_fade at the end of Scene 6
+(a card the size of the frame, from 0 to 1 over 28 frames); a sound
+cue's word fading in and out.  A ``fade_in`` of a figure draws it at
+full opacity from its first frame, so it has no list.
+
+Events (version 5, Milestone 7)
+-------------------------------
+"events" is the trace's meaning as one list in frame order (one frame
+in the order of EVENT_TYPES):
+
+  {"frame": f, "event": type, "frames"?: n, ...}
+
+"frames" is how long an event lasts.  Every value is read from the
+records above or from the "step" and "shot" hooks; nothing in the
+stream is needed to rebuild the motion, which the records give, but it
+says what each stretch of motion is.  The types:
+
+  step               a screenplay step: action, frames, params (its keys,
+                     without "do"), and index (top level: its place in
+                     the expanded action list; it lasts until the next
+                     top-level step) or block, who, beat, track (a step
+                     of a timed block; its frames are its own)
+  sequence           id, frames
+  block              id, frames: a timed parallel block
+  beat               name, frames, block or sequence
+  routine            id, action, who, target, frames, phases
+  constraint         id, type, who, joints, frames (its active interval),
+                     joint, target, target_joint, prop, point, moving,
+                     blend, max_shortfall (as in "constraints")
+  shot               id (the _subscene_marker), shot (framing, subject,
+                     move, transition, fit, ...), frames, block
+  camera_cut         from, to ({"center", "width"}), at once
+  camera_move        frames, rate, from, to
+  background         color
+  figure_shown       who, frames (the fade in; 0: at once)
+  figure_hidden      who, frames (the fade out that ended here)
+  prop_created       prop (its name), object (its prop object id), type,
+                     part_of, part, frames: a prop object first drawn;
+                     a new component (the parts of a composite prop are
+                     created with it and are the same objects after it
+                     breaks)
+  prop_shown         as prop_created, when it is drawn again
+  prop_hidden        as prop_created, when it is no longer drawn (a
+                     removed prop is hidden for good)
+  prop_state_changed prop, frames, changed, from, to, attached, display,
+                     text, cause (the "prop_events" record)
+  prop_attached      prop, object, attach: the prop object is on this
+                     attachment from here
+  display_changed    prop, display: what a display shows from here
+  text_changed       prop, state, reads (each line's words; struck runs
+                     in [brackets]), frames: what a text-bearing prop
+                     (the scroll) says; the letters one step writes over
+                     its frames are one event
+  line               who, bubble (its id in "bubbles"), text, frames (on
+                     screen): a line of dialogue
+  tic                who, fragment, frames: a react step's fragment
+  sound              sound, label, frames: a sound_cue (label: the word
+                     shown on screen)
+  screen_fade        to ("out" | "in"), color, frames
+
+A version 4 trace has no "events"; trace_replay.derive_events gives the
+ones that can be read from it.
+
+Replay
+------
+trace_replay.py (no Manim, no Blender) reads a trace frame by frame:
+joints, camera, prop boxes and control points, stateful props,
+bubbles, overlays and their opacity, the background, the events.  It
+interpolates each piece and move with its rate function, lays the
+sampled pieces over the ordinary ones, and solves nothing.  Checked
+against what Manim drew (tests/test_replay.py, all six scenes of
+projects/abe-isaac), a version 5 trace is reconstructed within
+trace_replay.TOLERANCES:
+
+  every joint of every figure on stage, on every frame    0.002 units
+  the camera's center and width, cuts included            0.002 units
+  a prop's position 0.005 units, its size 2 %, a rope's
+  control points 0.002 units
+  the opacity of figures, props and cards                 0.002
+  and exactly: what is on screen (figures, props, bubbles, cards),
+  every prop state, display and text, the background, the number of
+  frames, and the frame of every event that shows
+
+Exact on the frames of timed blocks (traced frame by frame) and at the
+end of every move.  Inside an ordinary move a reader interpolates
+between its ends: right for a move whose run time is a whole number of
+frames and whose path is straight, which is what the six scenes use.
+Known exception, left open: a prop placed while its holder fades in is
+recorded where it was built for the frames of that play.
+
+The frame probe
+---------------
+With PAM_TRACE_FRAMES=path, pam_trace.py also writes what Manim drew on
+every frame (FrameProbe below): the figures on stage with their joints
+and opacity, the camera, the props on stage (box, opacity, control
+points), every stateful prop's state, display and text, the bubbles and
+overlays on screen, and the background.  It reads the scene where
+every drawn frame goes through the renderer (``add_frame``) and changes
+nothing: the trace written beside it is byte for byte the trace
+written without it.
+
+Compatibility
+-------------
+A screenplay that does not use the timeline is traced as version 4,
+byte for byte as before Milestone 7.  Version 5 only adds keys: a
+reader that knows version 4 can ignore fps, frame fields, opacity and
+events and still build the scene.  trace2blender.py builds both.
 """
 import json
 import os
