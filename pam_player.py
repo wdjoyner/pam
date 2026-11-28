@@ -265,7 +265,9 @@ Key additions in v0.8 / v0.9.2
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   • ``"figure_type"`` field on ``cast`` characters — accepted values:
     ``"human"`` (default), ``"alien"`` (AlienGraph),
-    ``"dog"`` (DogGraph, side-view), ``"dodecahedron"`` (GovernorGraph).
+    ``"dog"`` (DogGraph, side-view), ``"cat"`` (CatGraph, a DogGraph
+    dressed as a kitten; also takes ``"size"``), ``"dodecahedron"``
+    (GovernorGraph).
 
   • ``"build"`` field on ``cast`` characters and single-char ``fade_in``
     — accepted values: ``"default"``, ``"narrow"``, ``"broad"``, ``"alien"``.
@@ -557,6 +559,8 @@ from manim import *
 import numpy as np
 
 from pam import HumanGraph, AlienGraph, DogGraph, GovernorGraph
+from pam.cat import CatGraph
+from pam.poses import CAT_POSES
 from pam import DEPTH_Z_BACKGROUND, DEPTH_Z_BUBBLE, DEPTH_ATTACH_Z_STEP
 from pam.poses import POSES, STANDING_FRONT, STANDING_SIDE, scale_pose
 from pam.poses import DOG_JOINTS, DOG_STANDING
@@ -599,6 +603,9 @@ def _resolve_pose(name: str | None, default=None, fig=None):
         bp_poses = fig._bp.get("poses", {})
         if key in bp_poses:
             return bp_poses[key]
+    # cat poses are stored facing right; a left-facing cat gets them mirrored
+    if fig is not None and isinstance(fig, CatGraph) and key in CAT_POSES:
+        return fig.facing_pose(key)
     # dog poses live in the global POSES registry too
     if key in POSES:
         return POSES[key]
@@ -2852,9 +2859,15 @@ class PAMPlayer(MovingCameraScene):
                         scale_sx=sx, scale_sy=sy, scale_anchor=anchor,
                         gender=gender, torso_color=torso_color,
                     )
-                elif figure_type == "dog":
+                elif figure_type in ("dog", "cat"):
                     facing = step.get("facing", spec.get("facing", "right"))
-                    fig = DogGraph(offset=offset, style=style, facing=facing)
+                    if figure_type == "cat":
+                        # CatGraph is a DogGraph dressed as a kitten
+                        # (pam/cat.py); it registers exactly like a dog.
+                        fig = CatGraph(offset=offset, style=style, facing=facing,
+                                       size=step.get("size", spec.get("size", 1.0)))
+                    else:
+                        fig = DogGraph(offset=offset, style=style, facing=facing)
                     # Path C dual registration (v0.9.14): also expose this
                     # DogGraph via the prop registry under the same name so
                     # trot_to, prop_say, move_prop, etc. resolve to the same
@@ -2917,7 +2930,7 @@ class PAMPlayer(MovingCameraScene):
                     # listeners can follow it from its first frame.
                     _pam_hooks.emit("figure", name=name, fig=fig,
                                     figure_type=figure_type, scene=self)
-                if figure_type == "dog":
+                if figure_type in ("dog", "cat"):
                     if rt is not None:
                         fig.fade_in(self, rt_edges=rt, rt_dots=rt * 0.7)
                     else:
@@ -4274,6 +4287,7 @@ class PAMPlayer(MovingCameraScene):
                     # humanoid joint names.
                     _default_pose = {
                         "dog":      "dog_standing",
+                        "cat":      "cat_sitting",
                         "governor": None,
                     }.get(ft, "standing_front")
                     _prev = cast.get(cname)   # item 19: prior entry, if any
@@ -4289,6 +4303,10 @@ class PAMPlayer(MovingCameraScene):
                         "torso_color": spec.get("torso_color"),
                         "gender":      spec.get("gender") or None,
                         "uniforms":    spec.get("uniforms", {}),
+                        # CatGraph only: body size and facing (pam/cat.py)
+                        **({"size": spec.get("size", 1.0),
+                            "facing": spec.get("facing", "right")}
+                           if ft == "cat" else {}),
                         # prop-characters carry spawn coords in cast block
                         "spawn":       spec.get("spawn", {}),
                         # v0.9.14: speech-tic profile.  List of

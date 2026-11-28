@@ -691,7 +691,7 @@ class _Validator:
         for name, spec in chars.items():
             self.world.characters.add(name)
             self.states.characters.add(name)
-            if isinstance(spec, dict) and spec.get("figure_type") == "dog":
+            if isinstance(spec, dict) and spec.get("figure_type") in ("dog", "cat"):
                 self.world.dogs.add(name)
             if isinstance(spec, dict):
                 p = f"characters.{name}."
@@ -944,7 +944,7 @@ class _Validator:
                 self._removed.discard(name)
                 self.declare_prop(name, step, act, index,
                                   path.rstrip("."), w.props)
-                if step.get("figure_type") == "dog":
+                if step.get("figure_type") in ("dog", "cat"):
                     w.dogs.add(name)
                     w.characters.add(name)
             return

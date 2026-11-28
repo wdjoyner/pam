@@ -10,6 +10,7 @@ Character classes
 HumanGraph      — 15-joint human skeleton (front-view default)
 AlienGraph      — short, wide-torso humanoid (e.g. Venusians); green palette
 DogGraph        — 19-joint four-legged skeleton (side-view default)
+CatGraph        — a DogGraph dressed as a kitten (pam/cat.py)
 GovernorGraph   — rotating dodecahedron with pulse/state/speech (no skeleton)
 
 Body-type builds
@@ -85,6 +86,8 @@ from .figure import (                     # noqa: F401
     # v0.9.23 (backburner items 10-11, 2.5D depth system)
     apply_depth_z, DEPTH_Z_BACKGROUND, DEPTH_Z_BUBBLE, DEPTH_ATTACH_Z_STEP,
 )
+
+from .cat import CatGraph                 # noqa: F401,E402
 
 from .props import (                      # noqa: F401
     build_prop, PROP_TYPES, PROP_DEFAULTS,
