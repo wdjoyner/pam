@@ -924,6 +924,132 @@ DOG_TROT_CYCLE_LEFT = [
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  CAT POSES  (CatGraph, pam/cat.py)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  A cat uses the dog's 19-joint skeleton (DOG_JOINTS / DOG_EDGES); only the
+#  poses differ.  Side view, facing right, ground at y = -0.65 like the dog.
+#  A sitting cat is upright: front legs straight under a high chest, the
+#  haunch on the ground, the hind paws tucked forward beside the front paws,
+#  and the tail (its "tail" joint is the tip) lying behind on the ground.
+
+def cat_side_pose(**kw):
+    """Build a cat pose dict (side view, facing right).
+
+    Takes the same keywords as dog_side_pose(); unspecified joints default
+    to CAT_SITTING's, not the dog's, so a variant only names what moves.
+    """
+    base = dict(
+        head_x=0.30, head_y=0.66,
+        neck_x=0.24, neck_y=0.44,
+        spine_front_x=0.18, spine_front_y=0.22,
+        spine_mid_x=-0.04, spine_mid_y=-0.10,
+        spine_rear_x=-0.16, spine_rear_y=-0.36,
+        tail_x=-0.58, tail_y=-0.42,
+        fl_hip_x=0.20, fl_hip_y=0.08,
+        fl_knee_x=0.23, fl_knee_y=-0.28,
+        fl_paw_x=0.26, fl_paw_y=-0.65,
+        fr_hip_x=0.15, fr_hip_y=0.08,
+        fr_knee_x=0.17, fr_knee_y=-0.28,
+        fr_paw_x=0.19, fr_paw_y=-0.65,
+        rl_hip_x=-0.14, rl_hip_y=-0.40,
+        rl_knee_x=0.05, rl_knee_y=-0.52,
+        rl_paw_x=0.10, rl_paw_y=-0.65,
+        rr_hip_x=-0.18, rr_hip_y=-0.40,
+        rr_knee_x=0.01, rr_knee_y=-0.52,
+        rr_paw_x=0.05, rr_paw_y=-0.65,
+    )
+    base.update(kw)
+    return dog_side_pose(**base)
+
+
+# Sitting upright, the cat's resting pose.
+CAT_SITTING = cat_side_pose()
+
+# Near front paw raised forward, as if to tap a card or make a point.
+CAT_PAW_UP = cat_side_pose(
+    fl_hip_x=0.24, fl_hip_y=0.16,
+    fl_knee_x=0.44, fl_knee_y=0.06,
+    fl_paw_x=0.66, fl_paw_y=0.16,
+)
+
+# Near front paw reaching down and forward onto the table.
+CAT_PAW_TAP = cat_side_pose(
+    head_x=0.42, head_y=0.68, neck_x=0.33, neck_y=0.46,
+    spine_front_x=0.24, spine_front_y=0.25,
+    fl_hip_x=0.27, fl_hip_y=0.12,
+    fl_knee_x=0.50, fl_knee_y=-0.10,
+    fl_paw_x=0.76, fl_paw_y=-0.30,
+)
+
+# Leaning in toward the table, head forward and down.
+CAT_LEAN_IN = cat_side_pose(
+    head_x=0.58, head_y=0.58, neck_x=0.44, neck_y=0.42,
+    spine_front_x=0.30, spine_front_y=0.22,
+    spine_mid_x=0.06, spine_mid_y=-0.08,
+    fl_hip_x=0.32, fl_hip_y=0.08,
+    fl_knee_x=0.32, fl_knee_y=-0.28,
+    fr_hip_x=0.27, fr_hip_y=0.08,
+    fr_knee_x=0.26, fr_knee_y=-0.28,
+)
+
+# Chest out, chin up: pride or confidence.
+CAT_PROUD = cat_side_pose(
+    head_x=0.30, head_y=0.92, neck_x=0.25, neck_y=0.64,
+    spine_front_x=0.20, spine_front_y=0.36,
+    fl_hip_y=0.20,
+    fr_hip_y=0.20,
+)
+
+# A bow: head low and forward, chest dipped.
+CAT_BOW = cat_side_pose(
+    head_x=0.56, head_y=0.14, neck_x=0.40, neck_y=0.22,
+    spine_front_x=0.24, spine_front_y=0.18,
+    spine_mid_x=0.02, spine_mid_y=-0.10,
+    fl_hip_x=0.26, fl_hip_y=0.04,
+    fl_knee_x=0.27, fl_knee_y=-0.30,
+    fr_hip_x=0.21, fr_hip_y=0.04,
+    fr_knee_x=0.21, fr_knee_y=-0.30,
+)
+
+# Deflated: shoulders sunk, head hanging.
+CAT_SLUMP = cat_side_pose(
+    head_x=0.40, head_y=0.40, neck_x=0.30, neck_y=0.32,
+    spine_front_x=0.18, spine_front_y=0.16,
+    spine_mid_x=-0.02, spine_mid_y=-0.14,
+    fl_hip_y=0.04, fr_hip_y=0.04,
+    fl_knee_y=-0.30, fr_knee_y=-0.30,
+)
+
+# Standing on all fours, tail up.
+CAT_STANDING = dog_side_pose(
+    spine_y=0.02,
+    head_x=0.64, head_y=0.40, neck_x=0.50, neck_y=0.22,
+    spine_front_x=0.36, spine_mid_x=0.00, spine_rear_x=-0.36,
+    tail_x=-0.62, tail_y=0.48,
+    fl_hip_x=0.34, fl_hip_y=-0.06, fl_knee_x=0.36, fl_knee_y=-0.36, fl_paw_x=0.35, fl_paw_y=-0.65,
+    fr_hip_x=0.30, fr_hip_y=-0.06, fr_knee_x=0.30, fr_knee_y=-0.36, fr_paw_x=0.28, fr_paw_y=-0.65,
+    rl_hip_x=-0.34, rl_hip_y=-0.06, rl_knee_x=-0.38, rl_knee_y=-0.36, rl_paw_x=-0.35, rl_paw_y=-0.65,
+    rr_hip_x=-0.30, rr_hip_y=-0.06, rr_knee_x=-0.33, rr_knee_y=-0.36, rr_paw_x=-0.29, rr_paw_y=-0.65,
+)
+
+CAT_SITTING_LEFT  = _flip_dog_pose(CAT_SITTING)
+CAT_STANDING_LEFT = _flip_dog_pose(CAT_STANDING)
+
+#: Facing-right cat poses by name; CatGraph flips them for a left-facing cat.
+CAT_POSES = {
+    "cat_sitting":  CAT_SITTING,
+    "cat_paw_up":   CAT_PAW_UP,
+    "cat_paw_tap":  CAT_PAW_TAP,
+    "cat_lean_in":  CAT_LEAN_IN,
+    "cat_proud":    CAT_PROUD,
+    "cat_bow":      CAT_BOW,
+    "cat_slump":    CAT_SLUMP,
+    "cat_standing": CAT_STANDING,
+}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  LOOK UP  (front view — head raised, one arm optionally lifted)
 # ─────────────────────────────────────────────────────────────────────────────
 #
@@ -1515,6 +1641,8 @@ POSES = {
     "dog_sitting":    DOG_SITTING,
     "dog_trot_a":     DOG_TROT_A,
     "dog_trot_b":     DOG_TROT_B,
+    # cat (CatGraph; facing right — CatGraph mirrors them when facing left)
+    **CAT_POSES,
 }
 
 # Named cycles (for convenience)

@@ -382,7 +382,9 @@ Declares cast members before they are faded in.
 ```
 
 ### Character keys
-- `figure_type` — `human`, `alien`, `dog`, or `dodecahedron`
+- `figure_type` — `human`, `alien`, `dog`, `cat`, or `dodecahedron`.  A `cat` is a CatGraph (`pam/cat.py`): the dog's skeleton dressed as a kitten, with cat poses (`cat_sitting`, `cat_paw_up`, `cat_paw_tap`, `cat_lean_in`, `cat_proud`, `cat_bow`, `cat_slump`, `cat_standing`), mirrored for a left-facing cat. Every step that takes a dog takes a cat
+- `size` — cats only: body size, scaled about the floor under the cat (default 1)
+- `facing` — dogs and cats: `right` (default) or `left`
 - `pose` — initial pose name
 - `offset` — `[x, y, z]`
 - `style` — style dict
@@ -408,7 +410,7 @@ Creates the figure if needed and animates it into the scene.
 - `offset` — optional override of position
 - `style` — style dict
 - `build` — build override
-- `figure_type` — `human`, `alien`, or `dog`
+- `figure_type` — `human`, `alien`, `dog`, or `cat`
 - `scale` — optional scaling spec
 - `gender` — optional gender preset
 - `torso_color` — optional torso color override
